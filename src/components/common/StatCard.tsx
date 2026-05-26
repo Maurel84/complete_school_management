@@ -9,39 +9,62 @@ interface StatCardProps {
   color?: 'blue' | 'green' | 'amber' | 'red' | 'teal' | 'slate';
 }
 
-const colors = {
-  blue: 'bg-blue-50 text-blue-600 border-blue-100',
-  green: 'bg-emerald-50 text-emerald-600 border-emerald-100',
-  amber: 'bg-amber-50 text-amber-600 border-amber-100',
-  red: 'bg-red-50 text-red-600 border-red-100',
-  teal: 'bg-teal-50 text-teal-600 border-teal-100',
-  slate: 'bg-slate-50 text-slate-600 border-slate-100',
-};
-
-const iconColors = {
-  blue: 'bg-blue-100 text-blue-600',
-  green: 'bg-emerald-100 text-emerald-600',
-  amber: 'bg-amber-100 text-amber-600',
-  red: 'bg-red-100 text-red-600',
-  teal: 'bg-teal-100 text-teal-600',
-  slate: 'bg-slate-100 text-slate-600',
+const colorMap = {
+  blue: {
+    line: 'from-sky-500 to-cyan-400',
+    glow: 'bg-sky-200/60',
+    icon: 'bg-sky-100 text-sky-700',
+  },
+  green: {
+    line: 'from-emerald-500 to-lime-400',
+    glow: 'bg-emerald-200/60',
+    icon: 'bg-emerald-100 text-emerald-700',
+  },
+  amber: {
+    line: 'from-amber-500 to-orange-400',
+    glow: 'bg-amber-200/60',
+    icon: 'bg-amber-100 text-amber-700',
+  },
+  red: {
+    line: 'from-rose-500 to-orange-400',
+    glow: 'bg-rose-200/60',
+    icon: 'bg-rose-100 text-rose-700',
+  },
+  teal: {
+    line: 'from-teal-500 to-emerald-400',
+    glow: 'bg-teal-200/60',
+    icon: 'bg-teal-100 text-teal-700',
+  },
+  slate: {
+    line: 'from-slate-500 to-slate-400',
+    glow: 'bg-slate-200/60',
+    icon: 'bg-slate-100 text-slate-700',
+  },
 };
 
 export default function StatCard({ icon, value, label, trend, color = 'blue' }: StatCardProps) {
+  const palette = colorMap[color];
+
   return (
-    <div className={`rounded-xl border p-5 ${colors[color]}`}>
-      <div className="flex items-start justify-between">
-        <div className={`p-2.5 rounded-lg ${iconColors[color]}`}>{icon}</div>
+    <div className="relative overflow-hidden rounded-[26px] border border-white/70 bg-white/90 p-5 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.35)] backdrop-blur">
+      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${palette.line}`} />
+      <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full ${palette.glow} blur-3xl`} />
+
+      <div className="relative flex items-start justify-between">
+        <div className={`rounded-2xl p-3 ${palette.icon}`}>{icon}</div>
         {trend && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${trend.up ? 'text-emerald-600' : 'text-red-600'}`}>
+          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+            trend.up ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+          }`}>
             {trend.up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
             {trend.value}%
           </div>
         )}
       </div>
-      <div className="mt-3">
-        <p className="text-2xl font-bold">{value}</p>
-        <p className="text-sm mt-1 opacity-70">{label}</p>
+
+      <div className="relative mt-5">
+        <p className="display-font text-3xl font-semibold tracking-tight text-slate-900">{value}</p>
+        <p className="mt-2 text-sm text-slate-500">{label}</p>
       </div>
     </div>
   );

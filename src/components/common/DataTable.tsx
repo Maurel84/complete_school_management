@@ -1,7 +1,7 @@
-import { useState, useMemo, ReactNode } from 'react';
+import { ReactNode, useMemo, useState } from 'react';
 import { Search, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 
-interface Column<T> {
+export interface Column<T> {
   key: string;
   label: string;
   render?: (item: T) => ReactNode;
@@ -17,84 +17,117 @@ interface DataTableProps<T> {
   searchKeys?: string[];
 }
 
-export default function DataTable<T extends Record<string, unknown>>({
-  columns, data, searchPlaceholder = 'Rechercher...', onRowClick, loading, pageSize = 10, searchKeys
+export default function DataTable<T extends object>({
+  columns,
+  data,
+  searchPlaceholder = 'Rechercher...',
+  onRowClick,
+  loading,
+  pageSize = 10,
+  searchKeys,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     if (!search) return data;
-    const q = search.toLowerCase();
-    return data.filter(item => {
-      const keys = searchKeys || columns.map(c => c.key);
-      return keys.some(k => String(item[k] ?? '').toLowerCase().includes(q));
-    });
-  }, [data, search, columns, searchKeys]);
 
-  const totalPages = Math.ceil(filtered.length / pageSize);
+    const query = search.toLowerCase();
+    return data.filter(item => {
+      const keys = searchKeys || columns.map(column => column.key);
+      return keys.some(key => String((item as Record<string, unknown>)[key] ?? '').toLowerCase().includes(query));
+    });
+  }, [columns, data, search, searchKeys]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="animate-spin text-blue-600" size={32} />
+      <div className="surface-card flex items-center justify-center py-14">
+        <Loader2 className="animate-spin text-emerald-600" size={32} />
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="mb-4">
-        <div className="relative max-w-sm">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+    <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white/90 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.25)] backdrop-blur">
+      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">{filtered.length} résultat(s)</p>
+          <p className="text-xs text-slate-500">Recherche et navigation dans vos données.</p>
+        </div>
+
+        <div className="relative w-full md:max-w-sm">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
-            type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+            type="text"
+            value={search}
+            onChange={event => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
             placeholder={searchPlaceholder}
-            className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
           />
         </div>
       </div>
-      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+
+      <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="bg-gray-50 border-b border-gray-200">
-              {columns.map(col => (
-                <th key={col.key} className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wider">{col.label}</th>
+            <tr className="border-b border-slate-100 bg-slate-50/70">
+              {columns.map(column => (
+                <th key={column.key} className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  {column.label}
+                </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-slate-100">
             {paged.length === 0 ? (
-              <tr><td colSpan={columns.length} className="px-4 py-8 text-center text-sm text-gray-500">Aucune donnée trouvée</td></tr>
-            ) : paged.map((item, i) => (
-              <tr
-                key={i}
-                onClick={() => onRowClick?.(item)}
-                className={`hover:bg-gray-50 ${onRowClick ? 'cursor-pointer' : ''}`}
-              >
-                {columns.map(col => (
-                  <td key={col.key} className="px-4 py-3 text-sm text-gray-700">
-                    {col.render ? col.render(item) : String(item[col.key] ?? '')}
-                  </td>
-                ))}
+              <tr>
+                <td colSpan={columns.length} className="px-5 py-12 text-center text-sm text-slate-500">
+                  Aucune donnée trouvée
+                </td>
               </tr>
-            ))}
+            ) : (
+              paged.map((item, index) => (
+                <tr
+                  key={index}
+                  onClick={() => onRowClick?.(item)}
+                  className={`transition hover:bg-emerald-50/40 ${onRowClick ? 'cursor-pointer' : ''}`}
+                >
+                  {columns.map(column => (
+                    <td key={column.key} className="px-5 py-4 text-sm text-slate-700">
+                      {column.render ? column.render(item) : String((item as Record<string, unknown>)[column.key] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
+
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-sm text-gray-500">
-            {filtered.length} résultat(s) - Page {page}/{totalPages}
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 text-sm text-slate-500 md:flex-row md:items-center md:justify-between">
+          <p>
+            Page {page} sur {totalPages}
           </p>
-          <div className="flex gap-1">
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(currentPage => Math.max(1, currentPage - 1))}
+              disabled={page === 1}
+              className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
               <ChevronLeft size={16} />
             </button>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className="p-2 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed">
+            <button
+              onClick={() => setPage(currentPage => Math.min(totalPages, currentPage + 1))}
+              disabled={page === totalPages}
+              className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
               <ChevronRight size={16} />
             </button>
           </div>

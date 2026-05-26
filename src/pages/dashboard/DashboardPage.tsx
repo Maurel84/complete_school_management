@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
 import StatCard from '../../components/common/StatCard';
+import EmptyState from '../../components/common/EmptyState';
 import { formatCurrency } from '../../lib/utils';
 import {
   GraduationCap, Users, BookOpen, DollarSign, Wallet,
@@ -33,6 +34,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (school) fetchDashboardData();
+    else setLoading(false);
   }, [school, academicYear]);
 
   async function fetchDashboardData() {
@@ -127,6 +129,16 @@ export default function DashboardPage() {
     );
   }
 
+  if (!school) {
+    return (
+      <EmptyState
+        icon={<AlertTriangle size={40} />}
+        title="Configuration incomplète"
+        description="Le compte est connecté, mais aucun profil établissement exploitable n'a été chargé. Vérifiez les tables roles, schools, profiles et academic_years dans Supabase."
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -159,7 +171,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6">
+        <div className="surface-card lg:col-span-2 p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Paiements mensuels</h3>
           {paymentByMonth.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
@@ -167,7 +179,7 @@ export default function DashboardPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 12 }} />
                 <YAxis tick={{ fontSize: 12 }} />
-                <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                <Tooltip formatter={(value) => formatCurrency(Number(value || 0))} />
                 <Area type="monotone" dataKey="montant" stroke="#2563eb" fill="#2563eb" fillOpacity={0.1} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
@@ -176,12 +188,12 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="surface-card p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Statut des paiements</h3>
           {paymentStatus.some(s => s.value > 0) ? (
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
-                <Pie data={paymentStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                <Pie data={paymentStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value" label={({ name, percent }) => `${name} ${(((percent ?? 0) * 100)).toFixed(0)}%`}>
                 {paymentStatus.map((_, i) => (
                   <Cell key={i} fill={['#059669', '#f59e0b', '#ef4444'][i] || COLORS[i]} />
                 ))}
@@ -196,7 +208,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="surface-card p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Élèves par niveau</h3>
           {studentsByLevel.length > 0 ? (
             <ResponsiveContainer width="100%" height={280}>
@@ -213,7 +225,7 @@ export default function DashboardPage() {
           )}
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="surface-card p-6">
           <h3 className="text-sm font-semibold text-gray-700 mb-4">Paiements récents</h3>
           {recentPayments.length > 0 ? (
             <div className="space-y-3">

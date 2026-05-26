@@ -10,6 +10,8 @@ interface AppContextType {
   setAcademicYear: (year: AcademicYear) => void;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  refreshSchool: () => Promise<void>;
+  refreshAcademicYears: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -19,12 +21,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [school, setSchool] = useState<School | null>(null);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [academicYear, setAcademicYear] = useState<AcademicYear | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (profile?.school_id) {
-      fetchSchool(profile.school_id);
-      fetchAcademicYears(profile.school_id);
+      void fetchSchool(profile.school_id);
+      void fetchAcademicYears(profile.school_id);
     }
   }, [profile?.school_id]);
 
@@ -41,8 +43,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
     else if (data && data.length > 0) setAcademicYear(data[0] as AcademicYear);
   }
 
+  async function refreshSchool() {
+    if (!profile?.school_id) return;
+    await fetchSchool(profile.school_id);
+  }
+
+  async function refreshAcademicYears() {
+    if (!profile?.school_id) return;
+    await fetchAcademicYears(profile.school_id);
+  }
+
   return (
-    <AppContext.Provider value={{ school, academicYear, academicYears, setAcademicYear, sidebarOpen, setSidebarOpen }}>
+    <AppContext.Provider
+      value={{
+        school,
+        academicYear,
+        academicYears,
+        setAcademicYear,
+        sidebarOpen,
+        setSidebarOpen,
+        refreshSchool,
+        refreshAcademicYears,
+      }}
+    >
       {children}
     </AppContext.Provider>
   );

@@ -114,6 +114,10 @@ export interface StudentParent {
   parent_id: string;
   relationship: string;
   is_primary: boolean;
+  is_billing_contact: boolean;
+  is_pickup_authorized: boolean;
+  emergency_priority: number;
+  notes: string;
   parent?: Parent;
   student?: Student;
 }
@@ -204,6 +208,7 @@ export interface Payment {
   notes: string;
   student?: Student;
   parent?: Parent;
+  fee?: Fee;
 }
 
 export interface CashRegister {
@@ -231,6 +236,7 @@ export interface CashTransaction {
   validated_by: string;
   validated: boolean;
   created_at: string;
+  payment?: Payment;
 }
 
 export interface Expense {
