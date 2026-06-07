@@ -23,11 +23,8 @@
     font-family: 'Manrope', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background:
-      radial-gradient(circle at top left, rgba(198, 241, 214, 0.9), transparent 28%),
-      radial-gradient(circle at top right, rgba(255, 219, 184, 0.8), transparent 24%),
-      linear-gradient(180deg, #f5f7f2 0%, #f7fafc 52%, #f5f7fb 100%);
-    color: #163047;
+    background: #f8fafc;
+    color: #0f172a;
     min-height: 100vh;
   }
 
@@ -50,7 +47,7 @@
 
 @layer components {
   .surface-card {
-    @apply rounded-[28px] border border-white/70 bg-white/85 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.28)] backdrop-blur;
+    @apply rounded-lg border border-slate-200 bg-white shadow-sm;
   }
 
   .animate-in {

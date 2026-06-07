@@ -11,6 +11,7 @@ export interface School {
   logo_url: string;
   motto: string;
   establishment_type: string;
+  is_demo: boolean;
   active: boolean;
   created_at: string;
   updated_at: string;
@@ -27,10 +28,13 @@ export interface Profile {
   id: string;
   school_id: string;
   role_id: string;
+  email: string;
   first_name: string;
   last_name: string;
   phone: string;
   avatar_url: string;
+  account_type: string;
+  module_access: string[];
   active: boolean;
   role?: Role;
   school?: School;

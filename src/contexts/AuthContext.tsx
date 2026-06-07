@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, ReactNode } fro
 import { supabase, supabaseConfigError } from '../lib/supabase';
 import type { Profile, UserRole } from '../types';
 import type { User, Session } from '@supabase/supabase-js';
+import { canAccessModule as checkModuleAccess, getAllowedModuleKeys, type ModuleKey } from '../lib/moduleAccess';
 
 interface AuthContextType {
   user: User | null;
@@ -12,6 +13,9 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, profileData: Partial<Profile>) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
+  allowedModules: ModuleKey[];
+  canAccessModule: (moduleKey: ModuleKey) => boolean;
+  isDemoAccount: boolean;
   isSuperAdmin: boolean;
   isAdmin: boolean;
   isDirector: boolean;
@@ -43,6 +47,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isCashier = role === 'cashier';
   const isAccountant = role === 'accountant';
   const isSupervisor = role === 'supervisor';
+  const allowedModules = getAllowedModuleKeys(profile, role);
+  const isDemoAccount = profile?.account_type === 'demo';
+  const canAccessModule = (moduleKey: ModuleKey) => checkModuleAccess(profile, role, moduleKey);
 
   useEffect(() => {
     if (supabaseConfigError) {
@@ -143,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, session, profile, role, loading,
       signIn, signUp, signOut,
+      allowedModules, canAccessModule, isDemoAccount,
       isSuperAdmin, isAdmin, isDirector, isTeacher, isParent, isStudent, isCashier, isAccountant, isSupervisor,
     }}>
       {children}

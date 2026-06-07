@@ -51,7 +51,7 @@ export default function DataTable<T extends object>({
   }
 
   return (
-    <div className="overflow-hidden rounded-[28px] border border-white/70 bg-white/90 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.25)] backdrop-blur">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-sm font-semibold text-slate-900">{filtered.length} résultat(s)</p>
@@ -68,7 +68,7 @@ export default function DataTable<T extends object>({
               setPage(1);
             }}
             placeholder={searchPlaceholder}
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+            className="w-full rounded-md border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
           />
         </div>
       </div>
@@ -119,14 +119,14 @@ export default function DataTable<T extends object>({
             <button
               onClick={() => setPage(currentPage => Math.max(1, currentPage - 1))}
               disabled={page === 1}
-              className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronLeft size={16} />
             </button>
             <button
               onClick={() => setPage(currentPage => Math.min(totalPages, currentPage + 1))}
               disabled={page === totalPages}
-              className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-md border border-slate-200 bg-white p-2 text-slate-500 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <ChevronRight size={16} />
             </button>
