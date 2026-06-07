@@ -36,9 +36,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ModuleRoute({ moduleKey, children }: { moduleKey: ModuleKey; children: React.ReactNode }) {
-  const { loading, canAccessModule } = useAuth();
+  const { loading, profileError, canAccessModule } = useAuth();
 
   if (loading) return null;
+  if (profileError) {
+    return (
+      <div className="mx-auto flex min-h-[55vh] max-w-xl flex-col items-center justify-center text-center">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-700">
+          <AlertTriangle size={22} />
+        </div>
+        <h1 className="text-xl font-semibold text-slate-900">Configuration Supabase a corriger</h1>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          Le compte est connecte, mais le profil ne peut pas etre lu. Applique la migration SQL 019 pour corriger la recursion RLS sur profiles.
+        </p>
+        <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">{profileError}</p>
+      </div>
+    );
+  }
+
   if (canAccessModule(moduleKey)) return <>{children}</>;
 
   return (

@@ -8,6 +8,7 @@ interface AuthContextType {
   user: User | null;
   session: Session | null;
   profile: Profile | null;
+  profileError: string | null;
   role: UserRole | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const inFlightProfileUserId = useRef<string | null>(null);
 
@@ -93,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         inFlightProfileUserId.current = null;
         setProfile(null);
+        setProfileError(null);
         setLoading(false);
       }
     });
@@ -118,10 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         console.error('Failed to load profile from Supabase', error);
+        setProfileError(error.message);
         setProfile(null);
         return;
       }
 
+      setProfileError(null);
       setProfile(normalizeLoadedProfile(data));
     } finally {
       if (inFlightProfileUserId.current === userId) {
@@ -159,11 +164,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut();
     setProfile(null);
+    setProfileError(null);
   }
 
   return (
     <AuthContext.Provider value={{
-      user, session, profile, role, loading,
+      user, session, profile, profileError, role, loading,
       signIn, signUp, signOut,
       allowedModules, canAccessModule, isDemoAccount,
       isSuperAdmin, isAdmin, isDirector, isTeacher, isParent, isStudent, isCashier, isAccountant, isSupervisor,
