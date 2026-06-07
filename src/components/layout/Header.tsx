@@ -57,6 +57,7 @@ export default function Header() {
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const yearMenuRef = useRef<HTMLDivElement>(null);
+  const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -157,7 +158,7 @@ export default function Header() {
               </div>
               <div className="hidden text-left md:block">
                 <p className="text-sm font-semibold text-slate-800">{profile?.first_name} {profile?.last_name}</p>
-                <p className="text-xs text-slate-500">{profile?.role?.display_name}</p>
+                <p className="text-xs text-slate-500">{profileRole?.display_name}</p>
               </div>
               <ChevronDown size={14} className="hidden text-slate-400 md:block" />
             </button>

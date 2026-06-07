@@ -29,6 +29,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function normalizeLoadedProfile(value: unknown): Profile | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const profile = value as Profile;
+  const relationRole = Array.isArray(profile.role) ? profile.role[0] : profile.role;
+
+  return {
+    ...profile,
+    role: relationRole,
+    email: profile.email || '',
+    account_type: profile.account_type || 'staff',
+    module_access: Array.isArray(profile.module_access) ? profile.module_access : [],
+  };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -36,7 +51,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const inFlightProfileUserId = useRef<string | null>(null);
 
-  const role = profile?.role?.name as UserRole | null;
+  const role = (Array.isArray(profile?.role) ? profile?.role[0]?.name : profile?.role?.name) as UserRole | null;
 
   const isSuperAdmin = role === 'super_admin';
   const isAdmin = role === 'super_admin' || role === 'admin';
@@ -107,7 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setProfile(data as Profile | null);
+      setProfile(normalizeLoadedProfile(data));
     } finally {
       if (inFlightProfileUserId.current === userId) {
         inFlightProfileUserId.current = null;

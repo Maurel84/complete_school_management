@@ -36,7 +36,7 @@ export interface Profile {
   account_type: string;
   module_access: string[];
   active: boolean;
-  role?: Role;
+  role?: Role | Role[];
   school?: School;
 }
 

@@ -47,6 +47,16 @@ const EMPTY_FORM: UserForm = {
   module_access: getDefaultModuleKeys('teacher'),
 };
 
+function normalizeUserRow(value: UserRow): UserRow {
+  return {
+    ...value,
+    role: Array.isArray(value.role) ? value.role[0] : value.role,
+    email: value.email || '',
+    account_type: value.account_type || 'staff',
+    module_access: Array.isArray(value.module_access) ? value.module_access : [],
+  };
+}
+
 export default function UsersPage() {
   const { school } = useApp();
   const { isAdmin, isSuperAdmin, profile } = useAuth();
@@ -79,7 +89,7 @@ export default function UsersPage() {
       supabase.from('roles').select('*').order('display_name'),
     ]);
 
-    setUsers((profileRes.data as UserRow[]) || []);
+    setUsers(((profileRes.data as UserRow[]) || []).map(normalizeUserRow));
     setRoles((roleRes.data as Role[]) || []);
     setLoading(false);
   }

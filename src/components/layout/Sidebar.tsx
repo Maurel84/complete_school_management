@@ -75,6 +75,7 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, role, signOut } = useAuth();
+  const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
   const { school, sidebarOpen, setSidebarOpen } = useApp();
 
   const items = role === 'parent'
@@ -165,7 +166,7 @@ export default function Sidebar() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">{profile.first_name} {profile.last_name}</p>
-                  <p className="truncate text-xs text-slate-300">{profile.role?.display_name}</p>
+                  <p className="truncate text-xs text-slate-300">{profileRole?.display_name}</p>
                 </div>
               </div>
             </div>
