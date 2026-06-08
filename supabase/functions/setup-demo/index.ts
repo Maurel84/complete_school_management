@@ -26,17 +26,23 @@ const allModules = [
   "settings",
 ];
 
+const adminEmail = Deno.env.get("BOOTSTRAP_ADMIN_EMAIL");
+const adminPassword = Deno.env.get("BOOTSTRAP_ADMIN_PASSWORD");
+
 const accounts = [
-  {
-    email: "admin@schoolmanager.pro",
-    password: "Admin123!",
-    first_name: "Admin",
-    last_name: "General",
-    phone: "+225 07 00 00 01",
-    role_name: "super_admin",
-    school_id: "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-    account_type: "admin",
-  },
+  ...(adminEmail && adminPassword
+    ? [{
+        email: adminEmail,
+        password: adminPassword,
+        first_name: "Admin",
+        last_name: "General",
+        phone: "+225 07 00 00 01",
+        role_name: "super_admin",
+        school_id: "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        account_type: "admin",
+        expose_password: false,
+      }]
+    : []),
   {
     email: "demo@schoolmanager.pro",
     password: "Demo123!",
@@ -46,6 +52,7 @@ const accounts = [
     role_name: "admin",
     school_id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
     account_type: "demo",
+    expose_password: true,
   },
 ];
 
@@ -137,7 +144,7 @@ Deno.serve(async (req: Request) => {
 
       results.push({
         email: account.email,
-        password: account.password,
+        ...(account.expose_password ? { password: account.password } : {}),
         user_id: authResult.user.id,
         status: profileError ? "profile_error" : existingUser ? "updated" : "created",
         error: profileError?.message,
@@ -145,7 +152,7 @@ Deno.serve(async (req: Request) => {
     }
 
     return jsonResponse({
-      message: "Demo and admin accounts are ready",
+      message: "Demo account and optional admin bootstrap are ready",
       accounts: results,
     });
   } catch (error) {

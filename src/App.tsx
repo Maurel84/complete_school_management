@@ -1,4 +1,5 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import MainLayout from './components/layout/MainLayout';
 import LoginPage from './pages/auth/LoginPage';
@@ -19,7 +20,7 @@ import MessagesPage from './pages/messages/MessagesPage';
 import DocumentsPage from './pages/documents/DocumentsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import UsersPage from './pages/users/UsersPage';
-import { AlertTriangle, Loader2 } from 'lucide-react';
+import { AlertTriangle, Loader2, LogOut } from 'lucide-react';
 import type { ModuleKey } from './lib/moduleAccess';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -36,7 +37,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function ModuleRoute({ moduleKey, children }: { moduleKey: ModuleKey; children: React.ReactNode }) {
-  const { loading, profileError, canAccessModule } = useAuth();
+  const { loading, profileError, canAccessModule, signOut } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleSignOut() {
+    await signOut();
+    navigate('/login', { replace: true });
+  }
 
   if (loading) return null;
   if (profileError) {
@@ -50,6 +57,13 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: ModuleKey; children: 
           Le compte est connecte, mais le profil ne peut pas etre lu. Applique la migration SQL 019 pour corriger la recursion RLS sur profiles.
         </p>
         <p className="mt-3 rounded-md bg-slate-100 px-3 py-2 text-xs text-slate-600">{profileError}</p>
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="mt-5 inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+        >
+          <LogOut size={16} /> Se deconnecter
+        </button>
       </div>
     );
   }
@@ -65,6 +79,13 @@ function ModuleRoute({ moduleKey, children }: { moduleKey: ModuleKey; children: 
       <p className="mt-2 text-sm leading-6 text-slate-500">
         Ce compte n'a pas acces a ce module. Un administrateur peut modifier les modules autorises depuis la page Utilisateurs.
       </p>
+      <button
+        type="button"
+        onClick={handleSignOut}
+        className="mt-5 inline-flex items-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+      >
+        <LogOut size={16} /> Se deconnecter
+      </button>
     </div>
   );
 }
@@ -76,9 +97,30 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function LogoutPage() {
+  const { signOut } = useAuth();
+  const navigate = useNavigate();
+  const hasSignedOut = useRef(false);
+
+  useEffect(() => {
+    if (hasSignedOut.current) return;
+
+    hasSignedOut.current = true;
+    void signOut().finally(() => navigate('/login', { replace: true }));
+  }, [navigate, signOut]);
+
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-slate-50 text-slate-600">
+      <Loader2 className="animate-spin text-slate-900" size={28} />
+      <p className="text-sm font-medium">Deconnexion en cours...</p>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <Routes>
+      <Route path="/logout" element={<LogoutPage />} />
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
       <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>

@@ -162,9 +162,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    await supabase.auth.signOut();
+    inFlightProfileUserId.current = null;
+    setUser(null);
+    setSession(null);
     setProfile(null);
     setProfileError(null);
+    setLoading(false);
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) {
+        console.warn('Supabase sign out returned an error; local session was cleared anyway.', error);
+      }
+    } catch (error) {
+      console.warn('Supabase sign out failed; local session was cleared anyway.', error);
+    } finally {
+      clearSupabaseAuthStorage();
+    }
   }
 
   return (
@@ -177,6 +191,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
+}
+
+function clearSupabaseAuthStorage() {
+  if (typeof window === 'undefined') return;
+
+  const clearStorage = (storage: Storage) => {
+    Object.keys(storage).forEach(key => {
+      if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        storage.removeItem(key);
+      }
+    });
+  };
+
+  clearStorage(window.localStorage);
+  clearStorage(window.sessionStorage);
 }
 
 export function useAuth() {

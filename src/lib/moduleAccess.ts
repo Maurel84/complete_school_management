@@ -173,7 +173,7 @@ export function getDefaultModuleKeys(role: UserRole | null): ModuleKey[] {
 }
 
 export function getAllowedModuleKeys(profile: Profile | null, role: UserRole | null): ModuleKey[] {
-  if (!profile || !role) return [];
+  if (!profile || profile.active === false || !role) return [];
   if (role === 'super_admin') return ALL_MODULE_KEYS;
 
   const explicitAccess = normalizeModuleAccess(profile.module_access);

@@ -6,9 +6,8 @@ import { BookOpen, GraduationCap, KeyRound, Loader2, Lock, Mail, ShieldCheck, Us
 const quickAccounts = [
   {
     label: 'Admin',
-    description: 'Compte propre pour creer les utilisateurs et piloter les acces.',
-    email: 'admin@schoolmanager.pro',
-    password: 'Admin123!',
+    description: 'Compte reel pour creer les utilisateurs et piloter les acces.',
+    email: 'tarieljeremie@gmail.com',
     icon: ShieldCheck,
   },
   {
@@ -40,7 +39,7 @@ export default function LoginPage() {
 
   function fillAccount(account: typeof quickAccounts[number]) {
     setEmail(account.email);
-    setPassword(account.password);
+    setPassword(account.password ?? '');
     setError('');
   }
 

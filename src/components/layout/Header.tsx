@@ -55,6 +55,7 @@ export default function Header() {
   const { school, academicYear, academicYears, setAcademicYear, sidebarOpen, setSidebarOpen } = useApp();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const yearMenuRef = useRef<HTMLDivElement>(null);
   const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
@@ -78,6 +79,13 @@ export default function Header() {
     if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
+
+  async function handleSignOut() {
+    setSigningOut(true);
+    setUserMenuOpen(false);
+    await signOut();
+    navigate('/login', { replace: true });
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white">
@@ -191,8 +199,12 @@ export default function Header() {
                   </button>
                 )}
                 <div className="my-2 h-px bg-slate-100" />
-                <button onClick={signOut} className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-sm text-red-600 transition hover:bg-red-50">
-                  <LogOut size={16} /> Deconnexion
+                <button
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-2.5 text-sm text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <LogOut size={16} /> {signingOut ? 'Deconnexion...' : 'Deconnexion'}
                 </button>
               </div>
             )}
