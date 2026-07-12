@@ -1,852 +1,466 @@
-import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { useState } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '../../lib/supabase';
 import DataTable from '../../components/common/DataTable';
 import type { Column } from '../../components/common/DataTable';
-import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
-import FormField from '../../components/common/FormField';
-import StatCard from '../../components/common/StatCard';
-import { PAYMENT_METHODS, formatCurrency, formatDate, generateReceiptNumber } from '../../lib/utils';
-import { buildPaymentReceiptHtml, downloadTextDocument, openPrintPreview } from '../../lib/printableDocuments';
-import { saveGeneratedDocument } from '../../lib/generatedDocuments';
-import { recordAuditLog } from '../../lib/audit';
-import type { CashRegister, Fee, FeeType, Level } from '../../types';
+import { PAYMENT_METHODS, formatCurrency, formatDate } from '../../lib/utils';
+import { buildPaymentReceiptHtml, openPrintPreview } from '../../lib/printableDocuments';
+import { useFinance } from '../../hooks/useFinance';
+
+import FinanceDashboard from './components/FinanceDashboard';
+import StudentDebts from './components/StudentDebts';
+import CanteenModule from './components/CanteenModule';
+import FinanceAdminConfig from './components/FinanceAdminConfig';
+import FinanceReports from './components/FinanceReports';
+import PaymentFormModal from './components/PaymentFormModal';
+
 import {
-  AlertTriangle,
-  CheckCircle,
+  CreditCard,
   DollarSign,
-  Download,
-  Edit,
-  Eye,
+  FileSpreadsheet,
+  GraduationCap,
+  History,
+  LayoutDashboard,
   Plus,
   Printer,
-  Receipt,
+  Settings,
+  Utensils,
 } from 'lucide-react';
-
-type PaymentRow = {
-  id: string;
-  school_id: string;
-  student_id: string;
-  fee_id: string;
-  parent_id: string;
-  receipt_number: string;
-  amount: number;
-  payment_method: string;
-  payment_date: string;
-  status: string;
-  academic_year_id: string;
-  processed_by: string;
-  notes: string;
-  student?: {
-    id: string;
-    first_name: string;
-    last_name: string;
-    matricule: string;
-    photo_url?: string;
-    class?: { name: string };
-  };
-  parent?: { id?: string; first_name: string; last_name: string; phone?: string; email?: string };
-  fee?: { id?: string; description?: string; amount?: number; fee_type?: FeeType };
-  processor?: { first_name: string; last_name: string };
-};
-
-type PaymentStudentSummary = NonNullable<PaymentRow['student']>;
-type PaymentParentSummary = NonNullable<PaymentRow['parent']>;
-type PaymentFeeSummary = NonNullable<PaymentRow['fee']>;
-type PaymentProcessorSummary = NonNullable<PaymentRow['processor']>;
-
-type StudentOption = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  matricule: string;
-  photo_url: string;
-  class?: { name: string };
-};
-type FamilyLinkOption = {
-  id: string;
-  student_id: string;
-  parent_id: string;
-  relationship: string;
-  is_primary: boolean;
-  is_billing_contact: boolean;
-  is_pickup_authorized: boolean;
-  emergency_priority: number;
-  notes: string;
-  parent?: { id: string; first_name: string; last_name: string; phone?: string; email?: string };
-};
-type ParentLinkLookup = Record<string, FamilyLinkOption[]>;
-
-const EMPTY_PAYMENT_FORM = {
-  student_id: '',
-  parent_id: '',
-  fee_id: '',
-  amount: 0,
-  payment_method: 'cash',
-  payment_date: new Date().toISOString().split('T')[0],
-  status: 'paid',
-  notes: '',
-};
-
-const EMPTY_FEE_FORM = {
-  fee_type_id: '',
-  amount: 0,
-  level_id: '',
-  class_id: '',
-  due_date: '',
-  description: '',
-};
 
 export default function FinancePage() {
   const { school, academicYear, academicYears } = useApp();
-  const { isAdmin, isDirector, isCashier, isAccountant, profile } = useAuth();
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
-  const [fees, setFees] = useState<Fee[]>([]);
-  const [feeTypes, setFeeTypes] = useState<FeeType[]>([]);
-  const [students, setStudents] = useState<StudentOption[]>([]);
-  const [levels, setLevels] = useState<Level[]>([]);
-  const [familyLinksByStudent, setFamilyLinksByStudent] = useState<ParentLinkLookup>({});
-  const [activeRegister, setActiveRegister] = useState<CashRegister | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState<'payments' | 'fees' | 'discounts'>('payments');
+  const { profile, isAdmin, isDirector, isCashier, isAccountant } = useAuth();
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState<'dashboard' | 'payments' | 'debts' | 'canteen' | 'reports' | 'admin'>('dashboard');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [feeModalOpen, setFeeModalOpen] = useState(false);
-  const [paymentDetailOpen, setPaymentDetailOpen] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [selectedPayment, setSelectedPayment] = useState<PaymentRow | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [savingPayment, setSavingPayment] = useState(false);
 
-  const [paymentForm, setPaymentForm] = useState(EMPTY_PAYMENT_FORM);
-  const [feeForm, setFeeForm] = useState(EMPTY_FEE_FORM);
+  const canManage = isAdmin || isDirector || isCashier || isAccountant;
+  const canConfig = isAdmin || isDirector;
 
-  const canManagePayments = isAdmin || isDirector || isCashier || isAccountant;
+  const schoolId = school?.id;
+  const yearId = academicYear?.id;
 
-  useEffect(() => {
-    if (!school) return;
-    void fetchData();
-  }, [school, academicYear]);
+  // Custom hook containing plans, student assignments, installments, canteen payments
+  const {
+    plansQuery,
+    studentFeesQuery,
+    studentInstallmentsQuery,
+    canteenPaymentsQuery,
+    savePlan,
+    assignStudentPlan,
+    saveDetailedPayment,
+    saveCanteenPayment,
+  } = useFinance(schoolId, yearId);
 
-  function takeFirst<T>(value: T | T[] | null | undefined) {
-    if (Array.isArray(value)) return value[0];
-    return value ?? undefined;
-  }
-
-  function normalizePaymentStudent(value: Record<string, unknown> | undefined): PaymentStudentSummary | undefined {
-    if (!value) return undefined;
-
-    return {
-      id: String(value.id || ''),
-      first_name: String(value.first_name || ''),
-      last_name: String(value.last_name || ''),
-      matricule: String(value.matricule || ''),
-      photo_url: value.photo_url ? String(value.photo_url) : undefined,
-      class: takeFirst(value.class as { name: string } | Array<{ name: string }>) || undefined,
-    };
-  }
-
-  function normalizePaymentParent(value: Record<string, unknown> | undefined): PaymentParentSummary | undefined {
-    if (!value) return undefined;
-
-    return {
-      id: value.id ? String(value.id) : undefined,
-      first_name: String(value.first_name || ''),
-      last_name: String(value.last_name || ''),
-      phone: value.phone ? String(value.phone) : undefined,
-      email: value.email ? String(value.email) : undefined,
-    };
-  }
-
-  function normalizePaymentFee(value: Record<string, unknown> | undefined): PaymentFeeSummary | undefined {
-    if (!value) return undefined;
-
-    return {
-      id: value.id ? String(value.id) : undefined,
-      description: value.description ? String(value.description) : undefined,
-      amount: value.amount ? Number(value.amount) : undefined,
-      fee_type: takeFirst(value.fee_type as FeeType | FeeType[]) || undefined,
-    };
-  }
-
-  function normalizePaymentProcessor(value: Record<string, unknown> | undefined): PaymentProcessorSummary | undefined {
-    if (!value) return undefined;
-
-    return {
-      first_name: String(value.first_name || ''),
-      last_name: String(value.last_name || ''),
-    };
-  }
-
-  async function fetchData() {
-    if (!school) return;
-    setLoading(true);
-    const schoolId = school.id;
-
-    const [paymentRes, feeRes, feeTypeRes, studentRes, levelRes, familyRes, registerRes] = await Promise.all([
-      supabase
+  // Query: tuition payments list
+  const paymentsQuery = useQuery({
+    queryKey: ['payments_all', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
         .from('payments')
-        .select('*, student:students(id, first_name, last_name, matricule, photo_url, class:classes(name)), parent:parents(id, first_name, last_name, phone, email), fee:fees(*, fee_type:fee_types(*)), processor:profiles(first_name, last_name)')
+        .select(`
+          *,
+          student:students(id, first_name, last_name, matricule, class:classes(name, level_id)),
+          parent:parents(id, first_name, last_name, phone, email),
+          processor:profiles(first_name, last_name)
+        `)
         .eq('school_id', schoolId)
-        .order('created_at', { ascending: false }),
-      supabase.from('fees').select('*, fee_type:fee_types(*)').eq('school_id', schoolId).order('created_at', { ascending: false }),
-      supabase.from('fee_types').select('*').eq('school_id', schoolId).order('name'),
-      supabase.from('students').select('id, first_name, last_name, matricule, photo_url, class:classes(name)').eq('school_id', schoolId).eq('status', 'active').order('last_name'),
-      supabase.from('levels').select('*').eq('school_id', schoolId).order('order_index'),
-      supabase.from('student_parents').select('id, student_id, parent_id, relationship, is_primary, is_billing_contact, is_pickup_authorized, emergency_priority, notes, parent:parents(id, first_name, last_name, phone, email)'),
-      supabase.from('cash_registers').select('*').eq('school_id', schoolId).eq('status', 'open').order('opened_at', { ascending: false }).limit(1).maybeSingle(),
-    ]);
+        .order('created_at', { ascending: false });
 
-    const normalizedFamilyLinks: FamilyLinkOption[] = ((familyRes.data as Array<Record<string, unknown>>) || []).map(link => ({
-      id: String(link.id || ''),
-      student_id: String(link.student_id || ''),
-      parent_id: String(link.parent_id || ''),
-      relationship: String(link.relationship || 'pere'),
-      is_primary: Boolean(link.is_primary),
-      is_billing_contact: Boolean(link.is_billing_contact),
-      is_pickup_authorized: Boolean(link.is_pickup_authorized),
-      emergency_priority: Number(link.emergency_priority || 1),
-      notes: String(link.notes || ''),
-      parent: takeFirst(link.parent as { id: string; first_name: string; last_name: string; phone?: string; email?: string } | Array<{ id: string; first_name: string; last_name: string; phone?: string; email?: string }>),
-    }));
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
 
-    const familyMap = normalizedFamilyLinks.reduce<ParentLinkLookup>((accumulator, link) => {
-      if (!accumulator[link.student_id]) {
-        accumulator[link.student_id] = [];
-      }
-      accumulator[link.student_id].push(link);
-      return accumulator;
-    }, {});
+  // Query: active student profiles (with their parents list)
+  const studentsQuery = useQuery({
+    queryKey: ['students_finance', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
+        .from('students')
+        .select(`
+          id, first_name, last_name, matricule, class_id, phone, status,
+          class:classes(name, level_id),
+          parents:student_parents(parent_id, relationship, parent:parents(id, first_name, last_name, phone, email))
+        `)
+        .eq('school_id', schoolId)
+        .eq('status', 'active')
+        .order('last_name');
 
-    const normalizedPayments: PaymentRow[] = ((paymentRes.data as Array<Record<string, unknown>>) || []).map(payment => {
-      const rawStudent = takeFirst(payment.student as Record<string, unknown> | Array<Record<string, unknown>>);
-      const rawParent = takeFirst(payment.parent as Record<string, unknown> | Array<Record<string, unknown>>);
-      const rawFee = takeFirst(payment.fee as Record<string, unknown> | Array<Record<string, unknown>>);
-      const rawProcessor = takeFirst(payment.processor as Record<string, unknown> | Array<Record<string, unknown>>);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
 
-      return {
-        id: String(payment.id || ''),
-        school_id: String(payment.school_id || ''),
-        student_id: String(payment.student_id || ''),
-        fee_id: String(payment.fee_id || ''),
-        parent_id: String(payment.parent_id || ''),
-        receipt_number: String(payment.receipt_number || ''),
-        amount: Number(payment.amount || 0),
-        payment_method: String(payment.payment_method || ''),
-        payment_date: String(payment.payment_date || ''),
-        status: String(payment.status || ''),
-        academic_year_id: String(payment.academic_year_id || ''),
-        processed_by: String(payment.processed_by || ''),
-        notes: String(payment.notes || ''),
-        student: normalizePaymentStudent(rawStudent),
-        parent: normalizePaymentParent(rawParent),
-        fee: normalizePaymentFee(rawFee),
-        processor: normalizePaymentProcessor(rawProcessor),
-      };
-    });
+  // Query: classes
+  const classesQuery = useQuery({
+    queryKey: ['classes_finance', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
+        .from('classes')
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('name');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
 
-    const normalizedStudents: StudentOption[] = ((studentRes.data as Array<Record<string, unknown>>) || []).map(student => ({
-      id: String(student.id || ''),
-      first_name: String(student.first_name || ''),
-      last_name: String(student.last_name || ''),
-      matricule: String(student.matricule || ''),
-      photo_url: String(student.photo_url || ''),
-      class: takeFirst(student.class as { name: string } | Array<{ name: string }>),
-    }));
+  // Query: levels
+  const levelsQuery = useQuery({
+    queryKey: ['levels_finance', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return [];
+      const { data, error } = await supabase
+        .from('levels')
+        .select('*')
+        .eq('school_id', schoolId)
+        .order('order_index');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!schoolId,
+  });
 
-    setPayments(normalizedPayments);
-    setFees((feeRes.data as Fee[]) || []);
-    setFeeTypes((feeTypeRes.data as FeeType[]) || []);
-    setStudents(normalizedStudents);
-    setLevels((levelRes.data as Level[]) || []);
-    setFamilyLinksByStudent(familyMap);
-    setActiveRegister((registerRes.data as CashRegister) || null);
-    setLoading(false);
-  }
+  // Query: Active Cash Register (caisse)
+  const activeRegisterQuery = useQuery({
+    queryKey: ['cash_register_active', schoolId],
+    queryFn: async () => {
+      if (!schoolId) return null;
+      const { data, error } = await supabase
+        .from('cash_registers')
+        .select('*')
+        .eq('school_id', schoolId)
+        .eq('status', 'open')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-  function getParentOptionsForStudent(studentId: string) {
-    return (familyLinksByStudent[studentId] || []).slice().sort((left, right) => {
-      if (left.is_billing_contact === right.is_billing_contact) {
-        if (left.is_primary === right.is_primary) {
-          return (left.emergency_priority || 99) - (right.emergency_priority || 99);
-        }
-        return left.is_primary ? -1 : 1;
-      }
-      return left.is_billing_contact ? -1 : 1;
-    });
-  }
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!schoolId,
+  });
 
-  function openCreatePayment() {
-    setEditMode(false);
-    setSelectedPayment(null);
-    setNotice(null);
-    setPaymentForm(EMPTY_PAYMENT_FORM);
-    setPaymentModalOpen(true);
-  }
-
-  function openEditPayment(payment: PaymentRow) {
-    setEditMode(true);
-    setSelectedPayment(payment);
-    setNotice(null);
-    setPaymentForm({
-      student_id: payment.student_id,
-      parent_id: payment.parent_id || '',
-      fee_id: payment.fee_id || '',
-      amount: Number(payment.amount),
-      payment_method: payment.payment_method,
-      payment_date: payment.payment_date,
-      status: payment.status,
-      notes: payment.notes || '',
-    });
-    setPaymentModalOpen(true);
-  }
-
-  function openPaymentDetail(payment: PaymentRow) {
-    setSelectedPayment(payment);
-    setPaymentDetailOpen(true);
-  }
-
-  function handleStudentChange(studentId: string) {
-    const recommendedParent = getParentOptionsForStudent(studentId)[0];
-    setPaymentForm(current => ({
-      ...current,
-      student_id: studentId,
-      parent_id: recommendedParent?.parent_id || '',
-    }));
-  }
-
-  function handleFeeChange(feeId: string) {
-    const selectedFee = fees.find(fee => fee.id === feeId);
-    setPaymentForm(current => ({
-      ...current,
-      fee_id: feeId,
-      amount: selectedFee ? Number(selectedFee.amount) : current.amount,
-    }));
-  }
-
-  async function syncCashTransaction(paymentId: string, studentName: string, amount: number, paymentMethod: string) {
-    if (!school) return;
-
-    const { data: existingTransaction } = await supabase
-      .from('cash_transactions')
-      .select('*')
-      .eq('payment_id', paymentId)
-      .maybeSingle();
-
-    const needsRegisterEntry = paymentMethod === 'cash';
-
-    if (!needsRegisterEntry && existingTransaction?.id) {
-      await supabase.from('cash_transactions').delete().eq('id', existingTransaction.id);
-      return;
-    }
-
-    if (!needsRegisterEntry) return;
-
-    if (!existingTransaction?.id && !activeRegister?.id) {
-      throw new Error("Ouvre d'abord une caisse avant d'enregistrer un paiement en especes.");
-    }
+  // Helper to record transaction to cash register if payment mode is cash
+  async function syncCashRegisterTransaction(paymentId: string, studentName: string, amount: number, isCanteen = false) {
+    const register = activeRegisterQuery.data;
+    if (!register?.id) return; // Cashier register is closed
 
     const payload = {
-      school_id: school.id,
-      cash_register_id: existingTransaction?.cash_register_id || activeRegister?.id || null,
-      transaction_number: existingTransaction?.transaction_number || `TRX-${Date.now()}`,
+      school_id: schoolId,
+      cash_register_id: register.id,
+      transaction_number: `TRX-${Date.now()}`,
       type: 'in',
       amount,
-      description: `Paiement - ${studentName}`,
+      description: `${isCanteen ? 'Cantine' : 'Frais Scolaires'} - ${studentName}`,
       category: 'payment',
-      payment_id: paymentId,
+      payment_id: isCanteen ? null : paymentId,
       processed_by: profile?.id,
       validated: true,
     };
 
-    if (existingTransaction?.id) {
-      await supabase.from('cash_transactions').update(payload).eq('id', existingTransaction.id);
-      return;
-    }
-
     await supabase.from('cash_transactions').insert(payload);
   }
 
-  async function handleSavePayment() {
-    if (!school) return;
-    setSaving(true);
-    setNotice(null);
-
+  // Register standard tuition payment
+  async function handleSaveTuitionPayment(payload: any, details: any[], qrHash: string, digitalSig: string) {
+    setSavingPayment(true);
     try {
-      const selectedStudent = students.find(student => student.id === paymentForm.student_id);
-      if (!selectedStudent) {
-        throw new Error('Selectionne un eleve avant de valider le paiement.');
-      }
+      const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
+      const studentName = student ? `${student.last_name} ${student.first_name}` : 'Élève';
 
-      const payload = {
-        ...paymentForm,
-        school_id: school.id,
-        academic_year_id: academicYear?.id,
-        processed_by: profile?.id,
-        amount: Number(paymentForm.amount) || 0,
-        parent_id: paymentForm.parent_id || null,
-        fee_id: paymentForm.fee_id || null,
-      };
-
-      let savedPaymentId = selectedPayment?.id || '';
-
-      if (editMode && selectedPayment) {
-        await supabase.from('payments').update(payload).eq('id', selectedPayment.id);
-        savedPaymentId = selectedPayment.id;
-      } else {
-        const { data } = await supabase
-          .from('payments')
-          .insert({
-            ...payload,
-            receipt_number: generateReceiptNumber(),
-          })
-          .select('id')
-          .single();
-
-        if (!data?.id) {
-          throw new Error("Le paiement a ete cree mais son identifiant n'a pas pu etre relu.");
-        }
-
-        savedPaymentId = data.id;
-      }
-
-      await syncCashTransaction(
-        savedPaymentId,
-        `${selectedStudent.last_name} ${selectedStudent.first_name}`,
-        Number(paymentForm.amount) || 0,
-        paymentForm.payment_method,
-      );
-
-      await recordAuditLog({
-        schoolId: school.id,
-        userId: profile?.id,
-        action: editMode ? 'payment_updated' : 'payment_created',
-        entityType: 'payment',
-        entityId: savedPaymentId,
-        details: {
-          student_id: paymentForm.student_id,
-          amount: paymentForm.amount,
-          payment_method: paymentForm.payment_method,
-        },
+      // 1. Save payment details and receipt hash
+      const payment = await saveDetailedPayment({
+        paymentData: payload,
+        details,
+        profile,
+        qrHash,
+        digitalSig,
       });
+
+      // 2. Sync to active register if Cash payment
+      if (payload.payment_method === 'cash') {
+        await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+      }
 
       setPaymentModalOpen(false);
-      setPaymentForm(EMPTY_PAYMENT_FORM);
-      setSelectedPayment(null);
-      setEditMode(false);
-      await fetchData();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Le paiement n'a pas pu etre enregistre.");
+      void queryClient.invalidateQueries({ queryKey: ['payments_all', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['student_installments_all', schoolId, yearId] });
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
     } finally {
-      setSaving(false);
+      setSavingPayment(false);
     }
   }
 
-  async function handleSaveFee() {
-    if (!school) return;
-    setSaving(true);
+  // Register canteen payment
+  async function handleSaveCanteenPayment(payload: any, qrHash: string, digitalSig: string) {
+    setSavingPayment(true);
+    try {
+      const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
+      const studentName = student ? `${student.last_name} ${student.first_name}` : 'Élève';
 
-    await supabase.from('fees').insert({
-      ...feeForm,
-      school_id: school.id,
-      academic_year_id: academicYear?.id,
-    });
+      await saveCanteenPayment({
+        canteenData: payload,
+        profile,
+        qrHash,
+        digitalSig,
+      });
 
-    setSaving(false);
-    setFeeModalOpen(false);
-    setFeeForm(EMPTY_FEE_FORM);
-    await fetchData();
+      if (payload.payment_method === 'cash') {
+        await syncCashRegisterTransaction('', studentName, payload.amount, true);
+      }
+
+      setPaymentModalOpen(false);
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setSavingPayment(false);
+    }
   }
 
-  async function handleReceiptAction(payment: PaymentRow, mode: 'print' | 'download') {
-    if (!school || !payment.student) return;
+  // Fetch receipt metadata and trigger print preview
+  async function handlePrintReceipt(p: any, isCanteen = false) {
+    if (!school) return;
 
-    const paymentMethodLabel = PAYMENT_METHODS.find(method => method.value === payment.payment_method)?.label || payment.payment_method;
+    // Fetch details & metadata
+    const [receiptRes, detailsRes] = await Promise.all([
+      supabase
+        .from('receipts')
+        .select('*')
+        .eq(isCanteen ? 'canteen_payment_id' : 'payment_id', p.id)
+        .maybeSingle(),
+      isCanteen
+        ? Promise.resolve({ data: [] })
+        : supabase.from('payment_details').select('*').eq('payment_id', p.id),
+    ]);
+
+    const receiptMeta = receiptRes.data;
+    const compositions = detailsRes.data || [];
+
+    const paymentMethodLabel =
+      PAYMENT_METHODS.find(m => m.value === p.payment_method)?.label || p.payment_method;
+
     const html = buildPaymentReceiptHtml({
       school,
-      payment: { ...payment, payment_method: paymentMethodLabel },
-      student: payment.student,
-      academicYearName: academicYears.find(year => year.id === payment.academic_year_id)?.name,
-      className: payment.student.class?.name,
-      parentName: payment.parent ? `${payment.parent.first_name} ${payment.parent.last_name}` : undefined,
-      feeLabel: payment.fee?.fee_type?.name || payment.fee?.description || 'Paiement scolaire',
-      processedByName: payment.processor ? `${payment.processor.first_name} ${payment.processor.last_name}` : undefined,
+      payment: { ...p, payment_method: paymentMethodLabel },
+      student: p.student || { first_name: '', last_name: '', matricule: '' },
+      academicYearName: academicYears.find(y => y.id === p.academic_year_id)?.name,
+      className: p.student?.class?.name || '-',
+      parentName: p.parent ? `${p.parent.first_name} ${p.parent.last_name}` : 'Parent',
+      feeLabel: isCanteen ? `Cantine scolaire - Trimestre ${p.trimester}` : 'Scolarité annuelle',
+      processedByName: p.processor ? `${p.processor.first_name} ${p.processor.last_name}` : undefined,
+      compositions: compositions.length > 0 ? compositions : undefined,
+      qrCodeHash: receiptMeta?.qr_code_hash,
+      digitalSignature: receiptMeta?.digital_signature,
     });
 
-    try {
-      await saveGeneratedDocument({
-        schoolId: school.id,
-        entityType: 'payment',
-        entityId: payment.id,
-        documentType: 'receipt',
-        title: `Recu ${payment.receipt_number}`,
-        baseFileName: `recu-${payment.receipt_number}`,
-        html,
-        uploadedBy: profile?.id,
-      });
-    } catch (error) {
-      console.error('Unable to persist receipt document', error);
-    }
-
-    await recordAuditLog({
-      schoolId: school.id,
-      userId: profile?.id,
-      action: mode === 'print' ? 'receipt_printed' : 'receipt_downloaded',
-      entityType: 'payment',
-      entityId: payment.id,
-      details: { receipt_number: payment.receipt_number },
-    });
-
-    if (mode === 'print') {
-      openPrintPreview(html);
-      return;
-    }
-
-    downloadTextDocument(html, `recu-${payment.receipt_number}.html`);
+    openPrintPreview(html);
   }
 
-  const totalPaid = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const totalFees = fees.reduce((sum, fee) => sum + Number(fee.amount), 0);
-  const cashPayments = payments.filter(payment => payment.payment_method === 'cash').reduce((sum, payment) => sum + Number(payment.amount), 0);
+  // Assign tuition plan to a student (done in administration or student profile)
+  async function handleAssignStudentPlan(studentId: string, planId: string, canteenOption: string, discount: number) {
+    try {
+      await assignStudentPlan({ studentId, planId, canteenOption, discountAmount: discount, profile });
+      alert('Plan de scolarité assigné avec succès !');
+    } catch (e: any) {
+      alert(`Erreur d'assignation : ${e.message}`);
+    }
+  }
 
-  const paymentColumns: Column<PaymentRow>[] = [
-    { key: 'receipt_number', label: 'Recu' },
+  // Columns for the simple list of tuition payments
+  const paymentsColumns: Column<any>[] = [
+    { key: 'receipt_number', label: 'Reçu' },
     {
       key: 'student',
-      label: 'Eleve',
-      render: (payment: PaymentRow) => payment.student ? `${payment.student.first_name} ${payment.student.last_name}` : '-',
+      label: 'Élève',
+      render: row => (row.student ? `${row.student.first_name} ${row.student.last_name}` : '-'),
     },
     {
       key: 'parent',
-      label: 'Payeur',
-      render: (payment: PaymentRow) => payment.parent ? `${payment.parent.first_name} ${payment.parent.last_name}` : '-',
+      label: 'Responsable',
+      render: row => (row.parent ? `${row.parent.first_name} ${row.parent.last_name}` : '-'),
     },
-    { key: 'amount', label: 'Montant', render: (payment: PaymentRow) => formatCurrency(Number(payment.amount)) },
+    { key: 'amount', label: 'Montant', render: row => formatCurrency(Number(row.amount)) },
     {
       key: 'payment_method',
       label: 'Mode',
-      render: (payment: PaymentRow) => PAYMENT_METHODS.find(method => method.value === payment.payment_method)?.label || payment.payment_method,
+      render: row => PAYMENT_METHODS.find(m => m.value === row.payment_method)?.label || row.payment_method,
     },
-    { key: 'payment_date', label: 'Date', render: (payment: PaymentRow) => formatDate(payment.payment_date) },
-    { key: 'status', label: 'Statut', render: (payment: PaymentRow) => <Badge status={payment.status} /> },
+    { key: 'payment_date', label: 'Date', render: row => formatDate(row.payment_date) },
+    { key: 'status', label: 'Statut', render: row => <Badge status={row.status} /> },
     {
       key: 'actions',
-      label: 'Actions',
-      render: (payment: PaymentRow) => (
-        <div className="flex flex-wrap gap-1">
-          <button onClick={() => openPaymentDetail(payment)} className="rounded-xl p-2 text-blue-600 transition hover:bg-blue-50">
-            <Eye size={16} />
-          </button>
-          {canManagePayments && (
-            <button onClick={() => openEditPayment(payment)} className="rounded-xl p-2 text-amber-600 transition hover:bg-amber-50">
-              <Edit size={16} />
-            </button>
-          )}
-          <button onClick={() => void handleReceiptAction(payment, 'print')} className="rounded-xl p-2 text-emerald-600 transition hover:bg-emerald-50">
-            <Printer size={16} />
-          </button>
-          <button onClick={() => void handleReceiptAction(payment, 'download')} className="rounded-xl p-2 text-slate-600 transition hover:bg-slate-100">
-            <Download size={16} />
-          </button>
-        </div>
+      label: 'Imprimer',
+      render: row => (
+        <button
+          onClick={() => void handlePrintReceipt(row, false)}
+          className="rounded-xl p-2 text-emerald-600 hover:bg-emerald-50 transition"
+        >
+          <Printer size={15} />
+        </button>
       ),
     },
   ];
 
-  const feeColumns: Column<Fee>[] = [
-    { key: 'fee_type', label: 'Type de frais', render: (fee: Fee & { fee_type?: FeeType }) => fee.fee_type?.name || '-' },
-    {
-      key: 'academic_year_id',
-      label: 'Annee',
-      render: (fee: Fee) => academicYears.find(year => year.id === fee.academic_year_id)?.name || '-',
-    },
-    {
-      key: 'level_id',
-      label: 'Niveau',
-      render: (fee: Fee) => levels.find(level => level.id === fee.level_id)?.name || 'Tous les niveaux',
-    },
-    { key: 'amount', label: 'Montant', render: (fee: Fee) => formatCurrency(Number(fee.amount)) },
-    { key: 'due_date', label: 'Echeance', render: (fee: Fee) => fee.due_date ? formatDate(fee.due_date) : '-' },
-    { key: 'description', label: 'Description' },
-  ];
-
-  const parentOptions = useMemo(
-    () => getParentOptionsForStudent(paymentForm.student_id),
-    [familyLinksByStudent, paymentForm.student_id],
-  );
-
-  const tabs = [
-    { key: 'payments', label: 'Paiements' },
-    { key: 'fees', label: 'Frais academiques' },
-    { key: 'discounts', label: 'Remises & bourses' },
-  ];
-
   return (
     <div className="space-y-6">
+      {/* Dashboard Top bar */}
       <section className="surface-card overflow-hidden">
-        <div className="grid gap-6 p-6 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div>
-            <h1 className="display-font text-3xl font-semibold text-slate-900">Finances scolaires & recus</h1>
+            <h1 className="display-font text-3xl font-semibold text-slate-900">Module Financier</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Les paiements sont maintenant lies aux eleves, aux responsables payeurs, a la caisse et a des recus imprimables ou telechargeables.
+              Gestion de la facturation par tranches, ventilation de premier versement, cantine trimestrielle et reçus sécurisés.
             </p>
           </div>
 
           <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">Caisse active</p>
-            <p className="mt-3 display-font text-2xl font-semibold text-slate-900">{activeRegister ? 'Ouverte' : 'Non ouverte'}</p>
-            <p className="mt-1 text-sm text-slate-500">
-              {activeRegister ? 'Les paiements en especes seront rattaches a la caisse en cours.' : "Ouvre la caisse pour journaliser les paiements en especes."}
+            <div className="flex justify-between items-center">
+              <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">Registre de Caisse</p>
+              <span
+                className={`h-2.5 w-2.5 rounded-full ${
+                  activeRegisterQuery.data ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
+                }`}
+              />
+            </div>
+            <p className="mt-2 display-font text-xl font-bold text-slate-800">
+              {activeRegisterQuery.data ? 'Caisse Ouverte' : 'Caisse Fermée'}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {activeRegisterQuery.data
+                ? 'Les versements en espèces sont enregistrés dans le journal de caisse en cours.'
+                : 'Ouvrez un tiroir-caisse dans le module caisse pour comptabiliser les paiements physiques.'}
             </p>
           </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard icon={<DollarSign size={20} />} value={formatCurrency(totalPaid)} label="Total encaisse" color="green" />
-        <StatCard icon={<CheckCircle size={20} />} value={payments.length} label="Paiements enregistres" color="blue" />
-        <StatCard icon={<Receipt size={20} />} value={formatCurrency(cashPayments)} label="Paiements especes" color="amber" />
-      </div>
-
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      {/* Tabs list */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between border-b border-slate-200 pb-3">
         <div className="flex flex-wrap gap-2">
-          {tabs.map(tabItem => (
+          {[
+            { key: 'dashboard', label: 'Tableau de bord', icon: <LayoutDashboard size={15} /> },
+            { key: 'payments', label: 'Versements Scolarité', icon: <History size={15} /> },
+            { key: 'debts', label: 'Suivi des Dettes', icon: <DollarSign size={15} /> },
+            { key: 'canteen', label: 'Module Cantine', icon: <Utensils size={15} /> },
+            { key: 'reports', label: 'Rapports & Balance', icon: <FileSpreadsheet size={15} /> },
+            { key: 'admin', label: 'Tarifs & Config', icon: <Settings size={15} /> },
+          ].map(t => (
             <button
-              key={tabItem.key}
-              onClick={() => setTab(tabItem.key as 'payments' | 'fees' | 'discounts')}
-              className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
-                tab === tabItem.key
-                  ? 'bg-slate-900 text-white shadow-[0_18px_40px_-24px_rgba(15,23,42,0.55)]'
-                  : 'bg-white/75 text-slate-600 hover:bg-white hover:text-slate-900'
+              key={t.key}
+              onClick={() => setTab(t.key as any)}
+              className={`flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold transition ${
+                tab === t.key
+                  ? 'bg-slate-900 text-white shadow-sm'
+                  : 'bg-white hover:bg-slate-50 text-slate-600 border border-slate-200'
               }`}
             >
-              {tabItem.label}
+              {t.icon}
+              {t.label}
             </button>
           ))}
         </div>
 
-        {canManagePayments && (
-          <div className="flex flex-wrap gap-2">
-            <button onClick={openCreatePayment} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
-              <Plus size={16} /> Nouveau paiement
-            </button>
-            <button onClick={() => setFeeModalOpen(true)} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700">
-              <Plus size={16} /> Nouveau frais
-            </button>
-          </div>
+        {canManage && (
+          <button
+            onClick={() => setPaymentModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-2xl bg-slate-900 px-4 py-3 text-xs font-semibold text-white transition hover:bg-slate-800 shadow-sm"
+          >
+            <Plus size={15} /> Nouveau versement
+          </button>
         )}
       </div>
 
+      {/* Rendering panels */}
+      {tab === 'dashboard' && (
+        <FinanceDashboard
+          students={studentsQuery.data || []}
+          payments={paymentsQuery.data || []}
+          canteenPayments={canteenPaymentsQuery.data || []}
+          studentFees={studentFeesQuery.data || []}
+          studentInstallments={studentInstallmentsQuery.data || []}
+          levels={levelsQuery.data || []}
+          classes={classesQuery.data || []}
+        />
+      )}
+
       {tab === 'payments' && (
-        <DataTable columns={paymentColumns} data={payments} searchPlaceholder="Rechercher un paiement..." searchKeys={['receipt_number', 'status', 'notes']} loading={loading} />
-      )}
-
-      {tab === 'fees' && (
-        <DataTable columns={feeColumns} data={fees} searchPlaceholder="Rechercher un frais..." searchKeys={['description']} loading={loading} />
-      )}
-
-      {tab === 'discounts' && (
-        <div className="surface-card p-8 text-center text-slate-400">
-          Les remises, bourses et exonérations pourront maintenant s'appuyer sur les familles et les responsables financiers.
+        <div className="surface-card p-6 space-y-4">
+          <h2 className="display-font text-lg font-semibold text-slate-900">Historique général de Scolarité</h2>
+          <DataTable
+            columns={paymentsColumns}
+            data={paymentsQuery.data || []}
+            searchPlaceholder="Rechercher un versement..."
+            searchKeys={['receipt_number', 'notes']}
+            loading={paymentsQuery.isLoading}
+          />
         </div>
       )}
 
-      <Modal
+      {tab === 'debts' && (
+        <StudentDebts
+          students={studentsQuery.data || []}
+          payments={paymentsQuery.data || []}
+          canteenPayments={canteenPaymentsQuery.data || []}
+          studentFees={studentFeesQuery.data || []}
+          studentInstallments={studentInstallmentsQuery.data || []}
+          classes={classesQuery.data || []}
+        />
+      )}
+
+      {tab === 'canteen' && (
+        <CanteenModule
+          canteenPayments={canteenPaymentsQuery.data || []}
+          onPrintReceipt={p => void handlePrintReceipt(p, true)}
+        />
+      )}
+
+      {tab === 'reports' && (
+        <FinanceReports
+          students={studentsQuery.data || []}
+          payments={paymentsQuery.data || []}
+          canteenPayments={canteenPaymentsQuery.data || []}
+          studentFees={studentFeesQuery.data || []}
+          studentInstallments={studentInstallmentsQuery.data || []}
+          levels={levelsQuery.data || []}
+          classes={classesQuery.data || []}
+        />
+      )}
+
+      {tab === 'admin' && (
+        <FinanceAdminConfig
+          plans={plansQuery.data || []}
+          levels={levelsQuery.data || []}
+          onSavePlan={async (plan, planId) => {
+            await savePlan({ plan, planId, profile });
+          }}
+          saving={plansQuery.isRefetching}
+        />
+      )}
+
+      {/* Unified Payment registration Modal */}
+      <PaymentFormModal
         isOpen={paymentModalOpen}
         onClose={() => setPaymentModalOpen(false)}
-        title={editMode ? 'Modifier le paiement' : 'Nouveau paiement'}
-        size="lg"
-        actions={
-          <>
-            <button onClick={() => setPaymentModalOpen(false)} className="rounded-2xl px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100">
-              Annuler
-            </button>
-            <button onClick={() => void handleSavePayment()} disabled={saving} className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
-              {editMode ? 'Mettre a jour' : 'Enregistrer le paiement'}
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-5">
-          {notice && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {notice}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <FormField label="Eleve" required>
-              <select value={paymentForm.student_id} onChange={event => handleStudentChange(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-                <option value="">Selectionner un eleve</option>
-                {students.map(student => (
-                  <option key={student.id} value={student.id}>
-                    {student.last_name} {student.first_name} ({student.matricule})
-                  </option>
-                ))}
-              </select>
-            </FormField>
-
-            <FormField label="Responsable payeur">
-              <select value={paymentForm.parent_id} onChange={event => setPaymentForm({ ...paymentForm, parent_id: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-                <option value="">Selectionner un responsable</option>
-                {parentOptions.map(link => (
-                  <option key={link.parent_id} value={link.parent_id}>
-                    {link.parent ? `${link.parent.last_name} ${link.parent.first_name}` : 'Parent'}{link.is_billing_contact ? ' • paiement' : link.is_primary ? ' • principal' : ''}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-
-            <FormField label="Frais">
-              <select value={paymentForm.fee_id} onChange={event => handleFeeChange(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-                <option value="">Selectionner un frais</option>
-                {fees.map(fee => (
-                  <option key={fee.id} value={fee.id}>
-                    {(fee as Fee & { fee_type?: FeeType }).fee_type?.name || 'Frais'} - {formatCurrency(Number(fee.amount))}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-
-            <FormField label="Montant" required>
-              <input type="number" value={paymentForm.amount} onChange={event => setPaymentForm({ ...paymentForm, amount: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-            </FormField>
-
-            <FormField label="Mode de paiement">
-              <select value={paymentForm.payment_method} onChange={event => setPaymentForm({ ...paymentForm, payment_method: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-                {PAYMENT_METHODS.map(method => (
-                  <option key={method.value} value={method.value}>
-                    {method.label}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-
-            <FormField label="Date de paiement">
-              <input type="date" value={paymentForm.payment_date} onChange={event => setPaymentForm({ ...paymentForm, payment_date: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-            </FormField>
-
-            <FormField label="Statut">
-              <select value={paymentForm.status} onChange={event => setPaymentForm({ ...paymentForm, status: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-                <option value="paid">Paye</option>
-                <option value="partial">Partiel</option>
-              </select>
-            </FormField>
-          </div>
-
-          <FormField label="Notes">
-            <textarea value={paymentForm.notes} onChange={event => setPaymentForm({ ...paymentForm, notes: event.target.value })} rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-          </FormField>
-
-          <div className="rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-            Les paiements en especes sont relies a la caisse ouverte. Les autres modes restent traces dans le dossier financier sans mouvement de caisse.
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={feeModalOpen} onClose={() => setFeeModalOpen(false)} title="Nouveau frais" size="md"
-        actions={
-          <>
-            <button onClick={() => setFeeModalOpen(false)} className="rounded-2xl px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100">
-              Annuler
-            </button>
-            <button onClick={() => void handleSaveFee()} disabled={saving} className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
-              Enregistrer
-            </button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <FormField label="Type de frais" required>
-            <select value={feeForm.fee_type_id} onChange={event => setFeeForm({ ...feeForm, fee_type_id: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-              <option value="">Selectionner</option>
-              {feeTypes.map(feeType => (
-                <option key={feeType.id} value={feeType.id}>
-                  {feeType.name}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label="Niveau concerne">
-            <select value={feeForm.level_id} onChange={event => setFeeForm({ ...feeForm, level_id: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
-              <option value="">Tous les niveaux</option>
-              {levels.map(level => (
-                <option key={level.id} value={level.id}>
-                  {level.name}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label="Montant" required>
-            <input type="number" value={feeForm.amount} onChange={event => setFeeForm({ ...feeForm, amount: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-          </FormField>
-          <FormField label="Echeance">
-            <input type="date" value={feeForm.due_date} onChange={event => setFeeForm({ ...feeForm, due_date: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-          </FormField>
-          <FormField label="Description">
-            <textarea value={feeForm.description} onChange={event => setFeeForm({ ...feeForm, description: event.target.value })} rows={2} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
-          </FormField>
-        </div>
-      </Modal>
-
-      <Modal isOpen={paymentDetailOpen} onClose={() => setPaymentDetailOpen(false)} title="Detail du paiement" size="lg">
-        {selectedPayment && (
-          <div className="space-y-5">
-            <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50 p-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Recu</p>
-                  <h3 className="display-font mt-2 text-2xl font-semibold text-slate-900">{selectedPayment.receipt_number}</h3>
-                  <p className="mt-2 text-sm text-slate-500">{formatDate(selectedPayment.payment_date)}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button onClick={() => void handleReceiptAction(selectedPayment, 'print')} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800">
-                    <Printer size={16} /> Imprimer
-                  </button>
-                  <button onClick={() => void handleReceiptAction(selectedPayment, 'download')} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
-                    <Download size={16} /> Telecharger
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Eleve</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{selectedPayment.student ? `${selectedPayment.student.first_name} ${selectedPayment.student.last_name}` : '-'}</p>
-                <p className="mt-1 text-sm text-slate-500">{selectedPayment.student?.matricule || '-'}</p>
-                <p className="mt-3 text-sm text-slate-600">Classe : <strong>{selectedPayment.student?.class?.name || '-'}</strong></p>
-              </div>
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Responsable payeur</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{selectedPayment.parent ? `${selectedPayment.parent.first_name} ${selectedPayment.parent.last_name}` : 'Non renseigne'}</p>
-                <p className="mt-1 text-sm text-slate-500">{selectedPayment.parent?.phone || selectedPayment.parent?.email || '-'}</p>
-              </div>
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Montant</p>
-                <p className="mt-2 text-2xl font-semibold text-emerald-700">{formatCurrency(Number(selectedPayment.amount))}</p>
-                <p className="mt-3 text-sm text-slate-600">Mode : <strong>{PAYMENT_METHODS.find(method => method.value === selectedPayment.payment_method)?.label || selectedPayment.payment_method}</strong></p>
-              </div>
-              <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Affectation</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">{selectedPayment.fee?.fee_type?.name || 'Paiement scolaire'}</p>
-                <p className="mt-1 text-sm text-slate-500">{selectedPayment.fee?.description || 'Sans description'}</p>
-                <div className="mt-3">
-                  <Badge status={selectedPayment.status} />
-                </div>
-              </div>
-            </div>
-
-            {selectedPayment.notes && (
-              <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                <p className="font-semibold text-slate-900">Notes</p>
-                <p className="mt-2 leading-6">{selectedPayment.notes}</p>
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
+        students={studentsQuery.data || []}
+        studentFees={studentFeesQuery.data || []}
+        plans={plansQuery.data || []}
+        onSavePayment={handleSaveTuitionPayment}
+        onSaveCanteen={handleSaveCanteenPayment}
+        saving={savingPayment}
+      />
     </div>
   );
 }

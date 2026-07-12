@@ -26,6 +26,10 @@ interface PaymentReceiptTemplateInput {
   parentName?: string;
   feeLabel?: string;
   processedByName?: string;
+  compositions?: { item_name: string; amount: number }[];
+  qrCodeHash?: string;
+  digitalSignature?: string;
+  stampUrl?: string;
 }
 
 interface StudentCardTemplateInput {
@@ -147,6 +151,9 @@ export function buildPaymentReceiptHtml({
   parentName,
   feeLabel,
   processedByName,
+  compositions,
+  qrCodeHash,
+  digitalSignature,
 }: PaymentReceiptTemplateInput) {
   const receiptTitle = `Recu ${payment.receipt_number}`;
   const note = payment.notes?.trim() || 'Aucune note particuliere.';
@@ -211,21 +218,64 @@ export function buildPaymentReceiptHtml({
             </div>
           </div>
 
-          <div style="margin-top:22px; display:grid; grid-template-columns: 1.3fr 0.7fr; gap:18px;">
+          ${
+            compositions && compositions.length > 0
+              ? `
+              <div style="margin-top: 18px;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px; font-family: sans-serif;">
+                  <thead>
+                    <tr style="background: #f1f5f9; text-align: left;">
+                      <th style="padding: 8px 12px; border: 1px solid #e2e8f0;">Détail du versement</th>
+                      <th style="padding: 8px 12px; border: 1px solid #e2e8f0; text-align: right;">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${compositions
+                      .map(
+                        c => `
+                      <tr>
+                        <td style="padding: 8px 12px; border: 1px solid #e2e8f0;">${escapeHtml(c.item_name)}</td>
+                        <td style="padding: 8px 12px; border: 1px solid #e2e8f0; text-align: right; font-weight: 600;">${escapeHtml(formatCurrency(c.amount))}</td>
+                      </tr>
+                    `
+                      )
+                      .join('')}
+                  </tbody>
+                </table>
+              </div>
+              `
+              : ''
+          }
+
+          <div style="margin-top:22px; display:grid; grid-template-columns: 1.2fr 0.8fr; gap:18px;">
             <div style="padding:18px; border:1px solid #dce5ef; border-radius:22px;">
               <p class="muted" style="margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:0.14em;">Notes</p>
               <p style="margin:0; line-height:1.7;">${escapeHtml(note)}</p>
             </div>
-            <div style="padding:18px; border:1px solid #dce5ef; border-radius:22px;">
-              <p class="muted" style="margin:0 0 22px; font-size:12px; text-transform:uppercase; letter-spacing:0.14em;">Visa</p>
-              <div style="height:82px; border-bottom:1px solid #94a3b8;"></div>
-              <p style="margin:10px 0 0; font-size:13px;">Signature et cachet</p>
+            
+            <div style="padding:18px; border:1px solid #dce5ef; border-radius:22px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <div>
+                <p class="muted" style="margin:0 0 6px; font-size:10px; text-transform:uppercase; letter-spacing:0.12em; color: #64748b;">Visa & Sécurité</p>
+                ${
+                  digitalSignature
+                    ? `<p style="margin:0; font-size:9px; font-family:monospace; color:#94a3b8; word-break:break-all;">SIG: ${escapeHtml(digitalSignature)}</p>`
+                    : ''
+                }
+                <div style="margin-top:8px; border: 2px dashed #047857; color: #047857; border-radius: 50%; padding: 8px; width: 62px; height: 62px; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:bold; text-align:center; transform: rotate(-8deg);">
+                  HARPE DE DAVID
+                </div>
+              </div>
+              ${
+                qrCodeHash
+                  ? `<img src="https://chart.googleapis.com/chart?cht=qr&chs=70x70&chl=${encodeURIComponent(qrCodeHash)}" alt="QR Code" style="width:70px; height:70px;" />`
+                  : ''
+              }
             </div>
           </div>
         </div>
       </section>
     </div>
-    `,
+    `
   );
 }
 
