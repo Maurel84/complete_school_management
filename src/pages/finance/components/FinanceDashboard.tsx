@@ -94,7 +94,9 @@ export default function FinanceDashboard({
       const levelName = levels.find(l => l.id === levelId)?.name || 'Inconnu';
       map[levelName] = (map[levelName] || 0) + Number(p.amount);
     });
-    return Object.entries(map).map(([name, value]) => ({ name, value }));
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.value > 0);
   }, [payments, canteenPayments, levels]);
 
   // Revenues by class

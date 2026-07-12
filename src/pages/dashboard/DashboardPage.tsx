@@ -101,7 +101,7 @@ export default function DashboardPage() {
       { name: 'Payé', value: paidCount },
       { name: 'Partiel', value: partialCount },
       { name: 'Impayé', value: unpaidCount },
-    ]);
+    ].filter(s => s.value > 0));
 
     // Recent payments
     const { data: recentData } = await supabase
@@ -194,9 +194,14 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height={280}>
               <PieChart>
                 <Pie data={paymentStatus} cx="50%" cy="50%" innerRadius={60} outerRadius={90} dataKey="value" label={({ name, percent }) => `${name} ${(((percent ?? 0) * 100)).toFixed(0)}%`}>
-                {paymentStatus.map((_, i) => (
-                  <Cell key={i} fill={['#059669', '#f59e0b', '#ef4444'][i] || COLORS[i]} />
-                ))}
+                {paymentStatus.map((entry, i) => {
+                  const colors: Record<string, string> = {
+                    'Payé': '#059669',
+                    'Partiel': '#f59e0b',
+                    'Impayé': '#ef4444'
+                  };
+                  return <Cell key={i} fill={colors[entry.name] || '#64748b'} />;
+                })}
                 </Pie>
                 <Tooltip />
               </PieChart>
