@@ -126,7 +126,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={event => setEmail(event.target.value)}
                   required
-                  className="w-full rounded-md border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                  className="w-full rounded-md border border-slate-200 py-2.5 !pl-10 pr-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
                   placeholder="votre@email.com"
                 />
               </div>
@@ -141,7 +141,7 @@ export default function LoginPage() {
                   value={password}
                   onChange={event => setPassword(event.target.value)}
                   required
-                  className="w-full rounded-md border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
+                  className="w-full rounded-md border border-slate-200 py-2.5 !pl-10 pr-4 text-sm outline-none transition focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10"
                   placeholder="Mot de passe"
                 />
               </div>

@@ -68,7 +68,7 @@ export default function DataTable<T extends object>({
               setPage(1);
             }}
             placeholder={searchPlaceholder}
-            className="w-full rounded-md border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
+            className="w-full rounded-md border border-slate-200 bg-slate-50 py-2.5 !pl-10 pr-4 text-sm text-slate-700 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-500/10"
           />
         </div>
       </div>
