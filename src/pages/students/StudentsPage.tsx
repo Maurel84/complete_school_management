@@ -34,7 +34,7 @@ type StudentListItem = Student & { class?: Pick<Class, 'id' | 'name'>; family_co
 
 export default function StudentsPage() {
   const { school, academicYear } = useApp();
-  const { isAdmin, isDirector, isSupervisor, profile } = useAuth();
+  const { isAdmin, isSuperAdmin, isDirector, isSupervisor, profile } = useAuth();
 
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -42,7 +42,7 @@ export default function StudentsPage() {
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
-  const canManageStudents = isAdmin || isDirector || isSupervisor;
+  const canManageStudents = isSuperAdmin || isAdmin || isDirector || isSupervisor;
 
   // Custom Hooks with TanStack Query
   const {
