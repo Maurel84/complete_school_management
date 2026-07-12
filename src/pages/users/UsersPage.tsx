@@ -16,6 +16,7 @@ import {
   PencilLine,
   Plus,
   RefreshCw,
+  ShieldAlert,
   ShieldCheck,
   UserCog,
   Users,
@@ -167,24 +168,35 @@ export default function UsersPage() {
     setSaving(true);
     setNotice(null);
 
-    const { error } = await supabase.functions.invoke('admin-create-user', {
-      body: {
-        ...form,
-        school_id: school.id,
-        module_access: form.module_access,
-      },
-    });
+    try {
+      const { data, error } = await supabase.functions.invoke('admin-create-user', {
+        body: {
+          ...form,
+          school_id: school.id,
+          module_access: form.module_access,
+        },
+      });
 
-    if (error) {
-      setNotice(error.message || "Le compte n'a pas pu etre cree. Verifie que la fonction admin-create-user est deployee.");
+      if (error) {
+        throw error;
+      }
+
       setSaving(false);
-      return;
+      setCreateOpen(false);
+      resetForm();
+      await fetchData();
+    } catch (e: any) {
+      let msg = e.message || "Le compte n'a pas pu être créé.";
+      if (
+        msg.includes("Failed to send a request to the Edge Function") ||
+        msg.includes("Failed to fetch") ||
+        msg.includes("edge function")
+      ) {
+        msg = "Erreur : La fonction Edge 'admin-create-user' n'est pas déployée en production. Pour la déployer et permettre la création de comptes, veuillez exécuter la commande suivante dans votre terminal local : \n\n supabase functions deploy admin-create-user --project-ref <id_projet_supabase>";
+      }
+      setNotice(msg);
+      setSaving(false);
     }
-
-    setSaving(false);
-    setCreateOpen(false);
-    resetForm();
-    await fetchData();
   }
 
   async function updateUser() {
@@ -409,19 +421,23 @@ function UserModal({
       size="xl"
       actions={
         <>
-          <button onClick={onClose} className="rounded-md px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100">
+          <button onClick={onClose} className="btn-premium-secondary">
             Annuler
           </button>
-          <button onClick={onSubmit} disabled={saving} className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50">
-            {saving ? 'Enregistrement...' : mode === 'create' ? 'Creer le compte' : 'Enregistrer'}
+          <button onClick={onSubmit} disabled={saving} className="btn-premium-primary">
+            {saving ? 'Enregistrement...' : mode === 'create' ? 'Créer le compte' : 'Enregistrer'}
           </button>
         </>
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-5 animate-in">
         {notice && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            {notice}
+          <div className="rounded-2xl border border-red-200 bg-red-50/50 p-5 text-sm text-red-800 flex flex-col gap-2.5 shadow-sm">
+            <div className="flex items-center gap-2 font-bold text-red-700">
+              <ShieldAlert size={16} />
+              <span>Erreur lors de la création de compte</span>
+            </div>
+            <p className="whitespace-pre-wrap font-medium leading-relaxed font-sans text-xs bg-white/60 p-3 rounded-xl border border-red-100">{notice}</p>
           </div>
         )}
 
