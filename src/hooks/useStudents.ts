@@ -68,11 +68,19 @@ export function useStudents(schoolId?: string) {
     }) => {
       if (!schoolId) throw new Error('School ID is required');
 
+      const cleanedForm = {
+        ...form,
+        class_id: form.class_id || null,
+        date_of_birth: form.date_of_birth || null,
+        email: form.email || null,
+        phone: form.phone || null,
+      };
+
       if (studentId) {
         // Update
         const { data, error } = await supabase
           .from('students')
-          .update(form)
+          .update(cleanedForm)
           .eq('id', studentId)
           .select()
           .single();
@@ -95,7 +103,7 @@ export function useStudents(schoolId?: string) {
         const matricule = generateMatricule('ELV', count);
         const { data, error } = await supabase
           .from('students')
-          .insert({ ...form, school_id: schoolId, matricule })
+          .insert({ ...cleanedForm, school_id: schoolId, matricule })
           .select()
           .single();
 

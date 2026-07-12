@@ -102,6 +102,20 @@ export default function StudentFormModal({
     }
   }
 
+  const [localSaving, setLocalSaving] = useState(false);
+
+  async function handleSubmit() {
+    setLocalSaving(true);
+    setNotice(null);
+    try {
+      await onSave(form);
+    } catch (error: any) {
+      setNotice(error.message || "Une erreur est survenue lors de l'enregistrement de l'élève.");
+    } finally {
+      setLocalSaving(false);
+    }
+  }
+
   function handleFormChange(key: keyof StudentFormInput, value: any) {
     setForm(current => ({ ...current, [key]: value }));
   }
@@ -121,11 +135,11 @@ export default function StudentFormModal({
             Annuler
           </button>
           <button
-            onClick={() => void onSave(form)}
-            disabled={saving}
+            onClick={() => void handleSubmit()}
+            disabled={saving || localSaving}
             className="rounded-2xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {saving ? 'Enregistrement...' : 'Enregistrer'}
+            {saving || localSaving ? 'Enregistrement...' : 'Enregistrer'}
           </button>
         </>
       }

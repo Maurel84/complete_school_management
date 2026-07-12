@@ -96,6 +96,7 @@ export default function StudentsPage() {
       setSelectedStudent(null);
     } catch (error) {
       console.error('Failed to save student', error);
+      throw error;
     }
   }
 
