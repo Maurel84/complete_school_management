@@ -44,7 +44,8 @@ export function getInitials(firstName = '', lastName = ''): string {
 }
 
 export function generateMatricule(prefix: string, number: number): string {
-  return `${prefix}${String(number).padStart(4, '0')}`;
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}${String(number).padStart(3, '0')}-${randomSuffix}`;
 }
 
 export function generateReceiptNumber(): string {
