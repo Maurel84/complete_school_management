@@ -26,6 +26,7 @@ export default function ParentsPage() {
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState({ first_name: '', last_name: '', phone: '', email: '', address: '', profession: '' });
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!school) return;
@@ -64,6 +65,7 @@ export default function ParentsPage() {
   function openCreate() {
     setEditMode(false);
     setSelectedParent(null);
+    setNotice(null);
     setForm({ first_name: '', last_name: '', phone: '', email: '', address: '', profession: '' });
     setModalOpen(true);
   }
@@ -71,6 +73,7 @@ export default function ParentsPage() {
   function openEdit(parent: Parent) {
     setEditMode(true);
     setSelectedParent(parent);
+    setNotice(null);
     setForm({
       first_name: parent.first_name,
       last_name: parent.last_name,
@@ -97,16 +100,33 @@ export default function ParentsPage() {
   async function handleSave() {
     if (!school) return;
     setSaving(true);
+    setNotice(null);
 
-    if (editMode && selectedParent) {
-      await supabase.from('parents').update(form).eq('id', selectedParent.id);
-    } else {
-      await supabase.from('parents').insert({ ...form, school_id: school.id });
+    const payload = {
+      ...form,
+      email: form.email || null,
+      phone: form.phone || null,
+      address: form.address || null,
+      profession: form.profession || null,
+    };
+
+    try {
+      if (editMode && selectedParent) {
+        const { error } = await supabase.from('parents').update(payload).eq('id', selectedParent.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('parents').insert({ ...payload, school_id: school.id });
+        if (error) throw error;
+      }
+
+      setModalOpen(false);
+      await fetchParents();
+    } catch (err: any) {
+      console.error(err);
+      setNotice(err.message || "Une erreur est survenue lors de l'enregistrement.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setModalOpen(false);
-    await fetchParents();
   }
 
   async function handleDelete(id: string) {
@@ -209,7 +229,13 @@ export default function ParentsPage() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-4">
+          {notice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {notice}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <FormField label="Prenom" required>
             <input type="text" value={form.first_name} onChange={event => setForm({ ...form, first_name: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
           </FormField>
@@ -233,7 +259,8 @@ export default function ParentsPage() {
             </FormField>
           </div>
         </div>
-      </Modal>
+      </div>
+    </Modal>
 
       <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title="Fiche parent" size="lg">
         {selectedParent && (

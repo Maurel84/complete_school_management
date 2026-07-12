@@ -36,6 +36,8 @@ export default function TeachersPage() {
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [assignmentNotice, setAssignmentNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -117,6 +119,7 @@ export default function TeachersPage() {
   function openCreate() {
     setEditMode(false);
     setSelectedTeacher(null);
+    setNotice(null);
     resetTeacherForm();
     setModalOpen(true);
   }
@@ -124,6 +127,7 @@ export default function TeachersPage() {
   function openEdit(teacher: Teacher) {
     setEditMode(true);
     setSelectedTeacher(teacher);
+    setNotice(null);
     setForm({
       first_name: teacher.first_name,
       last_name: teacher.last_name,
@@ -142,6 +146,7 @@ export default function TeachersPage() {
 
   function openAssignmentModal(teacher: Teacher) {
     setSelectedTeacher(teacher);
+    setAssignmentNotice(null);
     resetAssignmentForm();
     setAssignmentOpen(true);
   }
@@ -149,18 +154,37 @@ export default function TeachersPage() {
   async function handleSaveTeacher() {
     if (!school) return;
     setSaving(true);
+    setNotice(null);
 
-    if (editMode && selectedTeacher) {
-      await supabase.from('teachers').update(form).eq('id', selectedTeacher.id);
-    } else {
-      const matricule = generateMatricule('ENS', teachers.length + 1);
-      await supabase.from('teachers').insert({ ...form, school_id: school.id, matricule });
+    const payload = {
+      ...form,
+      date_of_birth: form.date_of_birth || null,
+      hire_date: form.hire_date || null,
+      phone: form.phone || null,
+      email: form.email || null,
+      address: form.address || null,
+      specialty: form.specialty || null,
+    };
+
+    try {
+      if (editMode && selectedTeacher) {
+        const { error } = await supabase.from('teachers').update(payload).eq('id', selectedTeacher.id);
+        if (error) throw error;
+      } else {
+        const matricule = generateMatricule('ENS', teachers.length + 1);
+        const { error } = await supabase.from('teachers').insert({ ...payload, school_id: school.id, matricule });
+        if (error) throw error;
+      }
+
+      setModalOpen(false);
+      resetTeacherForm();
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      setNotice(err.message || "Une erreur est survenue lors de l'enregistrement de l'enseignant.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setModalOpen(false);
-    resetTeacherForm();
-    await fetchData();
   }
 
   async function handleDeleteTeacher(id: string) {
@@ -173,45 +197,55 @@ export default function TeachersPage() {
     if (!school || !selectedTeacher || !assignmentForm.class_id || !assignmentForm.subject_id) return;
 
     setAssignmentSaving(true);
+    setAssignmentNotice(null);
 
-    if (assignmentForm.is_principal) {
-      await supabase
-        .from('teacher_subjects')
-        .update({ is_principal: false })
-        .eq('school_id', school.id)
-        .eq('class_id', assignmentForm.class_id)
-        .eq('is_principal', true);
-    }
+    try {
+      if (assignmentForm.is_principal) {
+        const { error } = await supabase
+          .from('teacher_subjects')
+          .update({ is_principal: false })
+          .eq('school_id', school.id)
+          .eq('class_id', assignmentForm.class_id)
+          .eq('is_principal', true);
+        if (error) throw error;
+      }
 
-    const existingAssignment = assignments.find(
-      assignment =>
-        assignment.teacher_id === selectedTeacher.id &&
-        assignment.class_id === assignmentForm.class_id &&
-        assignment.subject_id === assignmentForm.subject_id,
-    );
+      const existingAssignment = assignments.find(
+        assignment =>
+          assignment.teacher_id === selectedTeacher.id &&
+          assignment.class_id === assignmentForm.class_id &&
+          assignment.subject_id === assignmentForm.subject_id,
+      );
 
-    if (existingAssignment) {
-      await supabase
-        .from('teacher_subjects')
-        .update({
-          is_principal: assignmentForm.is_principal,
+      if (existingAssignment) {
+        const { error } = await supabase
+          .from('teacher_subjects')
+          .update({
+            is_principal: assignmentForm.is_principal,
+            academic_year_id: academicYear?.id || null,
+          })
+          .eq('id', existingAssignment.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('teacher_subjects').insert({
+          school_id: school.id,
+          teacher_id: selectedTeacher.id,
+          subject_id: assignmentForm.subject_id,
+          class_id: assignmentForm.class_id,
           academic_year_id: academicYear?.id || null,
-        })
-        .eq('id', existingAssignment.id);
-    } else {
-      await supabase.from('teacher_subjects').insert({
-        school_id: school.id,
-        teacher_id: selectedTeacher.id,
-        subject_id: assignmentForm.subject_id,
-        class_id: assignmentForm.class_id,
-        academic_year_id: academicYear?.id || null,
-        is_principal: assignmentForm.is_principal,
-      });
-    }
+          is_principal: assignmentForm.is_principal,
+        });
+        if (error) throw error;
+      }
 
-    setAssignmentSaving(false);
-    resetAssignmentForm();
-    await fetchData();
+      resetAssignmentForm();
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      setAssignmentNotice(err.message || "Une erreur est survenue lors de l'enregistrement de l'affectation.");
+    } finally {
+      setAssignmentSaving(false);
+    }
   }
 
   async function handleDeleteAssignment(assignmentId: string) {
@@ -366,7 +400,13 @@ export default function TeachersPage() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-4">
+          {notice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {notice}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <FormField label="Prénom" required>
             <input type="text" value={form.first_name} onChange={event => setForm({ ...form, first_name: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
           </FormField>
@@ -413,7 +453,8 @@ export default function TeachersPage() {
             <input type="date" value={form.hire_date} onChange={event => setForm({ ...form, hire_date: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
           </FormField>
         </div>
-      </Modal>
+      </div>
+    </Modal>
 
       <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title="Fiche enseignant" size="md">
         {selectedTeacher && (
@@ -471,6 +512,11 @@ export default function TeachersPage() {
         }
       >
         <div className="space-y-5">
+          {assignmentNotice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {assignmentNotice}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <FormField label="Classe" required>
               <select value={assignmentForm.class_id} onChange={event => setAssignmentForm({ ...assignmentForm, class_id: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">

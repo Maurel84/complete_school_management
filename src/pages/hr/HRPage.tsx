@@ -54,6 +54,8 @@ export default function HRPage() {
   const [payrollEditMode, setPayrollEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tab, setTab] = useState<HRTab>('staff');
+  const [notice, setNotice] = useState<string | null>(null);
+  const [payrollNotice, setPayrollNotice] = useState<string | null>(null);
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -148,6 +150,7 @@ export default function HRPage() {
   function openCreate() {
     setEditMode(false);
     setSelectedStaff(null);
+    setNotice(null);
     resetStaffForm();
     setModalOpen(true);
   }
@@ -155,6 +158,7 @@ export default function HRPage() {
   function openEdit(staffMember: Staff) {
     setEditMode(true);
     setSelectedStaff(staffMember);
+    setNotice(null);
     setForm({
       first_name: staffMember.first_name,
       last_name: staffMember.last_name,
@@ -175,6 +179,7 @@ export default function HRPage() {
   function openCreatePayroll() {
     setPayrollEditMode(false);
     setSelectedPayroll(null);
+    setPayrollNotice(null);
     resetPayrollForm();
     setPayrollModalOpen(true);
   }
@@ -182,6 +187,7 @@ export default function HRPage() {
   function openEditPayroll(payroll: Payroll) {
     setPayrollEditMode(true);
     setSelectedPayroll(payroll);
+    setPayrollNotice(null);
     setPayrollForm({
       person_id: payroll.person_id,
       person_type: payroll.person_type as 'teacher' | 'staff',
@@ -199,42 +205,71 @@ export default function HRPage() {
   async function handleSaveStaff() {
     if (!school) return;
     setSaving(true);
+    setNotice(null);
 
-    if (editMode && selectedStaff) {
-      await supabase.from('staff').update(form).eq('id', selectedStaff.id);
-    } else {
-      const matricule = generateMatricule('ADM', staff.length + 1);
-      await supabase.from('staff').insert({ ...form, school_id: school.id, matricule });
+    const payload = {
+      ...form,
+      date_of_birth: form.date_of_birth || null,
+      hire_date: form.hire_date || null,
+      phone: form.phone || null,
+      email: form.email || null,
+      address: form.address || null,
+      department: form.department || null,
+      position: form.position || null,
+    };
+
+    try {
+      if (editMode && selectedStaff) {
+        const { error } = await supabase.from('staff').update(payload).eq('id', selectedStaff.id);
+        if (error) throw error;
+      } else {
+        const matricule = generateMatricule('ADM', staff.length + 1);
+        const { error } = await supabase.from('staff').insert({ ...payload, school_id: school.id, matricule });
+        if (error) throw error;
+      }
+
+      setModalOpen(false);
+      resetStaffForm();
+      await fetchStaff();
+    } catch (err: any) {
+      console.error(err);
+      setNotice(err.message || "Une erreur est survenue lors de l'enregistrement.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setModalOpen(false);
-    resetStaffForm();
-    await fetchStaff();
   }
 
   async function handleSavePayroll() {
     if (!school) return;
     setSaving(true);
+    setPayrollNotice(null);
 
     const netSalary = payrollForm.base_salary + payrollForm.bonuses - payrollForm.deductions;
     const payload = {
       ...payrollForm,
       school_id: school.id,
       net_salary: netSalary,
-      paid_date: payrollForm.status === 'paid' ? payrollForm.paid_date || new Date().toISOString().split('T')[0] : payrollForm.paid_date || null,
+      paid_date: (payrollForm.status === 'paid' ? payrollForm.paid_date || new Date().toISOString().split('T')[0] : payrollForm.paid_date) || null,
     };
 
-    if (payrollEditMode && selectedPayroll) {
-      await supabase.from('payrolls').update(payload).eq('id', selectedPayroll.id);
-    } else {
-      await supabase.from('payrolls').insert(payload);
-    }
+    try {
+      if (payrollEditMode && selectedPayroll) {
+        const { error } = await supabase.from('payrolls').update(payload).eq('id', selectedPayroll.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('payrolls').insert(payload);
+        if (error) throw error;
+      }
 
-    setSaving(false);
-    setPayrollModalOpen(false);
-    resetPayrollForm();
-    await fetchPayrollData();
+      setPayrollModalOpen(false);
+      resetPayrollForm();
+      await fetchPayrollData();
+    } catch (err: any) {
+      console.error(err);
+      setPayrollNotice(err.message || "Une erreur est survenue lors de l'enregistrement de la paie.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleDeletePayroll(payrollId: string) {
@@ -471,7 +506,13 @@ export default function HRPage() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-4">
+          {notice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {notice}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <FormField label="Prénom" required>
             <input type="text" value={form.first_name} onChange={event => setForm({ ...form, first_name: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
           </FormField>
@@ -520,7 +561,8 @@ export default function HRPage() {
             <input type="date" value={form.hire_date} onChange={event => setForm({ ...form, hire_date: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
           </FormField>
         </div>
-      </Modal>
+      </div>
+    </Modal>
 
       <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title="Fiche personnel" size="md">
         {selectedStaff && (
@@ -562,7 +604,13 @@ export default function HRPage() {
           </>
         }
       >
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="space-y-4">
+          {payrollNotice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {payrollNotice}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <FormField label="Type de collaborateur" required>
             <select
               value={payrollForm.person_type}
@@ -632,7 +680,8 @@ export default function HRPage() {
           <p className="text-sm font-medium text-slate-500">Net estimé</p>
           <p className="mt-2 display-font text-2xl font-semibold text-slate-900">{formatCurrency(netSalaryPreview)}</p>
         </div>
-      </Modal>
-    </div>
+      </div>
+    </Modal>
+  </div>
   );
 }

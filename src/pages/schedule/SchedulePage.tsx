@@ -17,6 +17,7 @@ export default function SchedulePage() {
   const [selectedClass, setSelectedClass] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState({ class_id: '', teacher_id: '', subject_id: '', day_of_week: 1, start_time: '08:00', end_time: '09:00', room: '' });
 
   useEffect(() => { if (school) fetchData(); }, [school]);
@@ -40,8 +41,32 @@ export default function SchedulePage() {
 
   async function handleSave() {
     setSaving(true);
-    await supabase.from('schedules').insert({ ...form, school_id: school!.id, academic_year_id: academicYear?.id });
-    setSaving(false); setModalOpen(false); fetchData();
+    setNotice(null);
+
+    const payload = {
+      class_id: form.class_id || null,
+      teacher_id: form.teacher_id || null,
+      subject_id: form.subject_id || null,
+      day_of_week: form.day_of_week,
+      start_time: form.start_time,
+      end_time: form.end_time,
+      room: form.room || null,
+      school_id: school!.id,
+      academic_year_id: academicYear?.id || null,
+    };
+
+    try {
+      const { error } = await supabase.from('schedules').insert(payload);
+      if (error) throw error;
+
+      setModalOpen(false);
+      void fetchData();
+    } catch (err: any) {
+      console.error(err);
+      setNotice(err.message || "Une erreur est survenue lors de l'enregistrement de l'emploi du temps.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const classSchedules = selectedClass
@@ -63,7 +88,7 @@ export default function SchedulePage() {
           <h1 className="text-2xl font-bold text-gray-900">Emploi du temps</h1>
           <p className="text-gray-500 mt-1">Planification hebdomadaire des cours</p>
         </div>
-        <button onClick={() => setModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+        <button onClick={() => { setNotice(null); setModalOpen(true); }} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
           <Plus size={18} /> Ajouter un créneau
         </button>
       </div>
@@ -122,9 +147,14 @@ export default function SchedulePage() {
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Ajouter un créneau" size="md"
         actions={<>
           <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
-          <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">Enregistrer</button>
+          <button onClick={() => void handleSave()} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">Enregistrer</button>
         </>}>
         <div className="space-y-4">
+          {notice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {notice}
+            </div>
+          )}
           <FormField label="Classe" required>
             <select value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
               <option value="">Sélectionner</option>

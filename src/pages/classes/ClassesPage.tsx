@@ -18,6 +18,7 @@ export default function ClassesPage() {
   const [selectedClass, setSelectedClass] = useState<Class | null>(null);
   const [form, setForm] = useState({ name: '', level_id: '', capacity: 40, room: '' });
   const [saving, setSaving] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!school) return;
@@ -50,6 +51,7 @@ export default function ClassesPage() {
   function openCreate() {
     setEditMode(false);
     setSelectedClass(null);
+    setNotice(null);
     setForm({ name: '', level_id: '', capacity: 40, room: '' });
     setModalOpen(true);
   }
@@ -57,6 +59,7 @@ export default function ClassesPage() {
   function openEdit(currentClass: Class) {
     setEditMode(true);
     setSelectedClass(currentClass);
+    setNotice(null);
     setForm({
       name: currentClass.name,
       level_id: currentClass.level_id,
@@ -69,18 +72,34 @@ export default function ClassesPage() {
   async function handleSave() {
     if (!school) return;
     setSaving(true);
+    setNotice(null);
 
-    const payload = { ...form, school_id: school.id, academic_year_id: academicYear?.id };
+    const payload = {
+      name: form.name,
+      level_id: form.level_id || null,
+      capacity: form.capacity,
+      room: form.room || null,
+      school_id: school.id,
+      academic_year_id: academicYear?.id || null,
+    };
 
-    if (editMode && selectedClass) {
-      await supabase.from('classes').update(payload).eq('id', selectedClass.id);
-    } else {
-      await supabase.from('classes').insert(payload);
+    try {
+      if (editMode && selectedClass) {
+        const { error } = await supabase.from('classes').update(payload).eq('id', selectedClass.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('classes').insert(payload);
+        if (error) throw error;
+      }
+
+      setModalOpen(false);
+      await fetchClasses();
+    } catch (err: any) {
+      console.error(err);
+      setNotice(err.message || "Une erreur est survenue lors de l'enregistrement de la classe.");
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
-    setModalOpen(false);
-    await fetchClasses();
   }
 
   async function handleDelete(classId: string) {
@@ -156,6 +175,11 @@ export default function ClassesPage() {
         }
       >
         <div className="space-y-4">
+          {notice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {notice}
+            </div>
+          )}
           <FormField label="Nom de la classe" required>
             <input type="text" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex: CP A" className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
           </FormField>

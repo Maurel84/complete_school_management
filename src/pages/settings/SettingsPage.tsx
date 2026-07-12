@@ -62,6 +62,7 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [schoolNotice, setSchoolNotice] = useState<string | null>(null);
+  const [yearNotice, setYearNotice] = useState<string | null>(null);
 
   const [subjectModal, setSubjectModal] = useState(false);
   const [feeTypeModal, setFeeTypeModal] = useState(false);
@@ -312,24 +313,33 @@ export default function SettingsPage() {
   async function createAcademicYearWithFees() {
     if (!school) return;
     setSaving(true);
+    setYearNotice(null);
 
     if (yearForm.active) {
-      await supabase.from('academic_years').update({ active: false }).eq('school_id', school.id);
+      const { error: deactivateError } = await supabase.from('academic_years').update({ active: false }).eq('school_id', school.id);
+      if (deactivateError) {
+        setYearNotice(deactivateError.message);
+        setSaving(false);
+        return;
+      }
     }
 
-    const { data: createdYear, error } = await supabase
-      .from('academic_years')
-      .insert({
-        school_id: school.id,
-        name: yearForm.name,
-        start_date: yearForm.start_date,
-        end_date: yearForm.end_date,
-        active: yearForm.active,
-      })
-      .select('*')
-      .single();
+    try {
+      const { data: createdYear, error } = await supabase
+        .from('academic_years')
+        .insert({
+          school_id: school.id,
+          name: yearForm.name,
+          start_date: yearForm.start_date || null,
+          end_date: yearForm.end_date || null,
+          active: yearForm.active,
+        })
+        .select('*')
+        .single();
 
-    if (!error && createdYear) {
+      if (error) throw error;
+      if (!createdYear) throw new Error("Impossible de créer l'année académique.");
+
       const registrationTypeId = await ensureCoreFeeType('Frais d\'inscription', 'Paiement unique à l\'entrée', false);
       const tuitionTypeId = await ensureCoreFeeType('Frais de scolarité', 'Paiement principal de l’année académique', true);
 
@@ -346,7 +356,7 @@ export default function SettingsPage() {
             academic_year_id: createdYear.id,
             level_id: template.level_id,
             amount: template.registration_amount,
-            due_date: registrationDueDate,
+            due_date: registrationDueDate || null,
             description: `Frais d’inscription ${createdYear.name} - ${template.level_name}`,
           });
         }
@@ -358,7 +368,7 @@ export default function SettingsPage() {
             academic_year_id: createdYear.id,
             level_id: template.level_id,
             amount: template.tuition_amount,
-            due_date: tuitionDueDate,
+            due_date: tuitionDueDate || null,
             description: `Frais de scolarité ${createdYear.name} - ${template.level_name}`,
           });
         }
@@ -367,32 +377,38 @@ export default function SettingsPage() {
       });
 
       if (feeRows.length > 0) {
-        await supabase.from('fees').insert(feeRows);
+        const { error: feeError } = await supabase.from('fees').insert(feeRows);
+        if (feeError) throw feeError;
       }
-    }
 
-    setSaving(false);
-    setYearModal(false);
-    setYearForm({
-      name: '',
-      start_date: '',
-      end_date: '',
-      active: true,
-      registration_due_date: '',
-      tuition_due_date: '',
-    });
-    setYearFeeTemplates(
-      levels.map(level => ({
-        level_id: level.id,
-        level_name: level.name,
-        registration_amount: 0,
-        tuition_amount: 0,
-      })),
-    );
-    await Promise.all([fetchAcademicYearsData(), refreshAcademicYears()]);
+      setYearModal(false);
+      setYearForm({
+        name: '',
+        start_date: '',
+        end_date: '',
+        active: true,
+        registration_due_date: '',
+        tuition_due_date: '',
+      });
+      setYearFeeTemplates(
+        levels.map(level => ({
+          level_id: level.id,
+          level_name: level.name,
+          registration_amount: 0,
+          tuition_amount: 0,
+        })),
+      );
+      await Promise.all([fetchAcademicYearsData(), refreshAcademicYears()]);
+    } catch (err: any) {
+      console.error(err);
+      setYearNotice(err.message || "Une erreur est survenue lors de la création de l'année.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function openYearModal() {
+    setYearNotice(null);
     setYearModal(true);
     setYearForm({
       name: '',
@@ -846,6 +862,11 @@ export default function SettingsPage() {
         }
       >
         <div className="space-y-6">
+          {yearNotice && (
+            <div className="rounded-2xl border border-red-200 bg-red-50/50 p-4 text-sm text-red-800 font-medium animate-in">
+              {yearNotice}
+            </div>
+          )}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <FormField label="Nom de l’année" required>
               <input type="text" value={yearForm.name} onChange={event => setYearForm({ ...yearForm, name: event.target.value })} placeholder="Ex: 2026-2027" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
