@@ -58,7 +58,7 @@ CREATE POLICY "School teams can upload student media"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'supervisor')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -72,7 +72,7 @@ CREATE POLICY "School teams can update student media"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'supervisor')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   )
   WITH CHECK (
@@ -83,7 +83,7 @@ CREATE POLICY "School teams can update student media"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'supervisor')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -97,7 +97,7 @@ CREATE POLICY "School teams can delete student media"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'supervisor')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -120,7 +120,7 @@ CREATE POLICY "School teams can upload school documents"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -134,7 +134,7 @@ CREATE POLICY "School teams can update school documents"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   )
   WITH CHECK (
@@ -145,7 +145,7 @@ CREATE POLICY "School teams can update school documents"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -159,7 +159,7 @@ CREATE POLICY "School teams can delete school documents"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 

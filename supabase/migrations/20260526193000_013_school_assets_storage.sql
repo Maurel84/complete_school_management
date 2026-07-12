@@ -38,7 +38,7 @@ CREATE POLICY "Admins can upload school assets"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -52,7 +52,7 @@ CREATE POLICY "Admins can update school assets"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   )
   WITH CHECK (
@@ -63,7 +63,7 @@ CREATE POLICY "Admins can update school assets"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
 
@@ -77,6 +77,6 @@ CREATE POLICY "Admins can delete school assets"
       JOIN public.roles r ON p.role_id = r.id
       WHERE p.id = auth.uid()
         AND r.name IN ('super_admin', 'admin')
-        AND p.school_id::text = split_part(name, '/', 1)
+        AND p.school_id::text = split_part(storage.objects.name, '/', 1)
     )
   );
