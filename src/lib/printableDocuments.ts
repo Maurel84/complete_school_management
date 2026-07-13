@@ -292,10 +292,10 @@ export function buildStudentCardHtml({
     <div class="page" style="display:flex; align-items:center; justify-content:center;">
       <section class="sheet" style="max-width: 320mm; padding: 34px;">
         <div style="display:grid; gap:24px; justify-content:center;">
-          <div style="width: 86mm; height: 54mm; border-radius: 24px; overflow: hidden; position: relative; box-shadow: 0 28px 70px rgba(15,23,42,0.22); background: linear-gradient(135deg, #0f172a 0%, #0f766e 52%, #14b8a6 100%); color: white;">
+          <div style="width: 86mm; height: 54mm; border-radius: 24px; overflow: hidden; position: relative; box-shadow: 0 28px 70px rgba(15,23,42,0.22); background: linear-gradient(135deg, #1d4ed8 0%, #ec4899 65%, #f59e0b 100%); color: white;">
             <div style="position:absolute; inset:0; background:
-              radial-gradient(circle at top right, rgba(255,255,255,0.18), transparent 24%),
-              radial-gradient(circle at bottom left, rgba(251,191,36,0.24), transparent 22%);
+              radial-gradient(circle at top right, rgba(255,255,255,0.22), transparent 30%),
+              radial-gradient(circle at bottom left, rgba(251,191,36,0.3), transparent 28%);
             "></div>
             <div style="position:relative; z-index:1; height:100%; padding:14px; display:grid; grid-template-columns: 1fr 74px; gap:12px;">
               <div style="display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
@@ -303,33 +303,38 @@ export function buildStudentCardHtml({
                   <div style="display:flex; align-items:center; gap:8px;">
                     ${
                       school.logo_url
-                        ? `<img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:28px; height:28px; border-radius:10px; object-fit:cover; border:1px solid rgba(255,255,255,0.3);" />`
-                        : `<div style="width:28px; height:28px; border-radius:10px; background:rgba(255,255,255,0.16);"></div>`
+                        ? `<div style="width:30px; height:30px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; padding:2px; box-shadow:0 2px 4px rgba(0,0,0,0.15); flex-shrink:0;">
+                            <img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />
+                          </div>`
+                        : `<div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">★</div>`
                     }
                     <div style="min-width:0;">
-                      <p style="margin:0; font-size:7px; letter-spacing:0.14em; text-transform:uppercase; opacity:0.78;">Carte scolaire</p>
-                      <p style="margin:2px 0 0; font-size:11px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(school.name)}</p>
+                      <div style="display:flex; align-items:center; gap:4px;">
+                        <span style="font-size:6px; letter-spacing:0.14em; text-transform:uppercase; opacity:0.85; font-weight:800;">Carte scolaire</span>
+                        <span style="font-size:6px; color:#fef08a;">★★★★★</span>
+                      </div>
+                      <p style="margin:1px 0 0; font-size:10px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff;">${escapeHtml(school.name)}</p>
                     </div>
                   </div>
-                  <p style="margin:14px 0 0; font-size:15px; line-height:1.05; font-weight:900;">${escapeHtml(student.first_name)}<br />${escapeHtml(student.last_name)}</p>
+                  <p style="margin:12px 0 0; font-size:15px; line-height:1.05; font-weight:900; letter-spacing:-0.01em;">${escapeHtml(student.first_name)}<br />${escapeHtml(student.last_name)}</p>
                 </div>
                 <div>
                   <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.16); font-size:7px; font-weight:700;">${escapeHtml(className || 'Classe en cours')}</span>
-                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.16); font-size:7px; font-weight:700;">${escapeHtml(academicYearName || 'Annee scolaire')}</span>
+                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.22); font-size:7px; font-weight:800; border:1px solid rgba(255,255,255,0.15); text-transform:uppercase; letter-spacing:0.04em;">${escapeHtml(className || 'Classe en cours')}</span>
+                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.22); font-size:7px; font-weight:800; border:1px solid rgba(255,255,255,0.15);">${escapeHtml(academicYearName || 'Annee scolaire')}</span>
                   </div>
-                  <p style="margin:8px 0 0; font-size:9px; opacity:0.86;">Matricule: <strong>${escapeHtml(student.matricule)}</strong></p>
+                  <p style="margin:8px 0 0; font-size:9px; opacity:0.9; letter-spacing:0.02em;">Matricule: <strong style="color:#fef08a;">${escapeHtml(student.matricule)}</strong></p>
                 </div>
               </div>
               <div style="display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end;">
                 ${
                   student.photo_url
-                    ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:66px; height:72px; border-radius:18px; object-fit:cover; border:2px solid rgba(255,255,255,0.25);" />`
-                    : `<div class="placeholder-photo" style="width:66px; height:72px; border-radius:18px; background:rgba(255,255,255,0.16); border:2px solid rgba(255,255,255,0.12); font-size:8px;">PHOTO</div>`
+                    ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:66px; height:72px; border-radius:18px; object-fit:cover; border:2px solid #ffffff; box-shadow:0 4px 10px rgba(0,0,0,0.2);" />`
+                    : `<div class="placeholder-photo" style="width:66px; height:72px; border-radius:18px; background:rgba(255,255,255,0.2); border:2px solid rgba(255,255,255,0.15); font-size:8px; display:flex; align-items:center; justify-content:center;">PHOTO</div>`
                 }
                 <div style="text-align:right;">
-                  <p style="margin:0; font-size:7px; opacity:0.72;">Responsable</p>
-                  <p style="margin:3px 0 0; font-size:8px; line-height:1.25; font-weight:700; max-width:72px;">${escapeHtml(primaryGuardian || school.phone || 'Administration')}</p>
+                  <p style="margin:0; font-size:6px; opacity:0.8; text-transform:uppercase; letter-spacing:0.05em;">Responsable</p>
+                  <p style="margin:2px 0 0; font-size:8px; line-height:1.2; font-weight:800; max-width:72px; color:#ffffff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(primaryGuardian || school.phone || 'Administration')}</p>
                 </div>
               </div>
             </div>
