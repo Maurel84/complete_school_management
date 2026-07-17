@@ -32,7 +32,7 @@ const navItems = [
   { label: 'Caisse', path: '/cash', icon: Wallet, roles: ['super_admin', 'admin', 'director', 'cashier', 'accountant'] },
   { label: 'Comptabilité', path: '/accounting', icon: Calculator, roles: ['super_admin', 'admin', 'director', 'accountant'] },
   { label: 'Enseignants & titulaires', path: '/teachers', icon: BookOpen, roles: ['super_admin', 'admin', 'director'] },
-  { label: 'Personnel & paie', path: '/hr', icon: Briefcase, roles: ['super_admin', 'admin', 'director'] },
+  { label: 'Personnel & paie', path: '/hr', icon: Briefcase, roles: ['super_admin', 'admin', 'director', 'accountant'] },
   { label: 'Notes & bulletins', path: '/grades', icon: ClipboardList, roles: ['super_admin', 'admin', 'director', 'teacher'] },
   { label: 'Absences & discipline', path: '/attendance', icon: CalendarCheck, roles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher'] },
   { label: 'Emploi du temps', path: '/schedule', icon: Clock, roles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'] },

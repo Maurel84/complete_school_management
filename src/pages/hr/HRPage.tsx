@@ -39,7 +39,8 @@ type PayrollForm = {
 
 export default function HRPage() {
   const { school } = useApp();
-  const { isSuperAdmin } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isAccountant } = useAuth();
+  const canManagePayroll = isSuperAdmin || isAdmin || isDirector || isAccountant;
   const [staff, setStaff] = useState<Staff[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [payrolls, setPayrolls] = useState<Payroll[]>([]);
@@ -85,14 +86,14 @@ export default function HRPage() {
   useEffect(() => {
     if (!school) return;
     void fetchStaff();
-    if (isSuperAdmin) {
+    if (canManagePayroll) {
       void fetchPayrollData();
     } else {
       setPayrolls([]);
       setTeachers([]);
       setPayrollLoading(false);
     }
-  }, [school, isSuperAdmin]);
+  }, [school, canManagePayroll]);
 
   async function fetchStaff() {
     if (!school) return;
@@ -375,7 +376,7 @@ export default function HRPage() {
             </span>
             <h1 className="mt-4 display-font text-3xl font-semibold text-slate-900">Ressources humaines</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Gère le personnel administratif, les postes sensibles et, pour le super administrateur général, la paie complète et confidentielle.
+              Gère le personnel administratif, les postes et la paie confidentielle des enseignants et du personnel.
             </p>
           </div>
 
@@ -387,11 +388,11 @@ export default function HRPage() {
               <div>
                 <p className="text-sm font-semibold text-slate-900">Confidentialité salariale</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Les salaires ne sont visibles et modifiables que par le super administrateur général.
+                  Les salaires ne sont visibles et modifiables que par les administrateurs et comptables autorisés.
                 </p>
               </div>
             </div>
-            {!isSuperAdmin && (
+            {!canManagePayroll && (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-white/80 px-4 py-3 text-sm text-amber-700">
                 Votre profil peut gérer les fiches du personnel, mais pas les rémunérations.
               </div>
@@ -400,7 +401,7 @@ export default function HRPage() {
         </div>
       </section>
 
-      {isSuperAdmin && (
+      {canManagePayroll && (
         <div className="grid gap-4 md:grid-cols-3">
           <StatCard icon={<WalletCards size={20} />} value={formatCurrency(payrollTotal)} label="Masse salariale suivie" color="blue" />
           <StatCard icon={<ReceiptText size={20} />} value={formatCurrency(payrollPaid)} label="Paie marquée comme versée" color="green" />
@@ -419,7 +420,7 @@ export default function HRPage() {
         >
           Personnel administratif
         </button>
-        {isSuperAdmin && (
+        {canManagePayroll && (
           <button
             onClick={() => setTab('payroll')}
             className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
@@ -455,7 +456,7 @@ export default function HRPage() {
         </section>
       )}
 
-      {tab === 'payroll' && isSuperAdmin && (
+      {tab === 'payroll' && canManagePayroll && (
         <section className="surface-card p-6">
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
