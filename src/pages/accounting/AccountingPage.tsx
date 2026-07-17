@@ -8,6 +8,7 @@ import StatCard from '../../components/common/StatCard';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Expense, AccountingAccount, AccountingEntry } from '../../types';
 import { Calculator, Plus, TrendingUp, TrendingDown, FileText } from 'lucide-react';
+import { createDoubleEntry, createCashTransaction } from '../../lib/accountingSync';
 
 export default function AccountingPage() {
   const { school } = useApp();
@@ -41,8 +42,39 @@ export default function AccountingPage() {
 
   async function handleSaveExpense() {
     setSaving(true);
-    await supabase.from('expenses').insert({ ...expenseForm, school_id: school!.id, status: 'pending' });
-    setSaving(false); setExpenseModal(false); fetchData();
+    try {
+      const { data, error } = await supabase.from('expenses').insert({
+        ...expenseForm,
+        school_id: school!.id,
+        status: 'validated'
+      }).select('id').single();
+
+      if (error) throw error;
+
+      // 1. Sync to Caisse (Sortie)
+      await createCashTransaction({
+        schoolId: school!.id,
+        type: 'out',
+        amount: expenseForm.amount,
+        description: `Dépense - ${expenseForm.description}`,
+        category: 'expense',
+      });
+
+      // 2. Sync to General Journal (Charges 605100 / Caisse 571100)
+      await createDoubleEntry({
+        schoolId: school!.id,
+        amount: expenseForm.amount,
+        description: `Règlement Dépense - ${expenseForm.description}`,
+        debitAccountNo: '605100',
+        creditAccountNo: '571100',
+        reference: expenseForm.invoice_number || '',
+      });
+    } catch (e) {
+      console.error("Failed to save and sync expense", e);
+    }
+    setSaving(false);
+    setExpenseModal(false);
+    fetchData();
   }
 
   async function handleSaveEntry() {
@@ -133,6 +165,7 @@ export default function AccountingPage() {
           <FormField label="Catégorie"><input type="text" value={expenseForm.category} onChange={e => setExpenseForm({...expenseForm, category: e.target.value})} placeholder="Ex: fournitures, entretien..." className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
           <FormField label="Montant" required><input type="number" value={expenseForm.amount} onChange={e => setExpenseForm({...expenseForm, amount: parseFloat(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
           <FormField label="Fournisseur"><input type="text" value={expenseForm.supplier} onChange={e => setExpenseForm({...expenseForm, supplier: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
+          <FormField label="N° Facture"><input type="text" value={expenseForm.invoice_number} onChange={e => setExpenseForm({...expenseForm, invoice_number: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
         </div>
       </Modal>
 

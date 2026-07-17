@@ -9,6 +9,7 @@ import Badge from '../../components/common/Badge';
 import { PAYMENT_METHODS, formatCurrency, formatDate } from '../../lib/utils';
 import { buildPaymentReceiptHtml, openPrintPreview } from '../../lib/printableDocuments';
 import { useFinance } from '../../hooks/useFinance';
+import { createDoubleEntry } from '../../lib/accountingSync';
 
 import FinanceDashboard from './components/FinanceDashboard';
 import StudentDebts from './components/StudentDebts';
@@ -194,6 +195,17 @@ export default function FinancePage() {
         await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
       }
 
+      // 3. Sync to general accounting journal
+      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+      await createDoubleEntry({
+        schoolId: schoolId!,
+        amount: payload.amount,
+        description: `Paiement Scolarité - ${studentName}`,
+        debitAccountNo: debitAcc,
+        creditAccountNo: '706100',
+        reference: payment.receipt_number || '',
+      });
+
       setPaymentModalOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['payments_all', schoolId] });
       void queryClient.invalidateQueries({ queryKey: ['student_installments_all', schoolId, yearId] });
@@ -221,6 +233,17 @@ export default function FinancePage() {
       if (payload.payment_method === 'cash') {
         await syncCashRegisterTransaction('', studentName, payload.amount, true);
       }
+
+      // 3. Sync to general accounting journal
+      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+      await createDoubleEntry({
+        schoolId: schoolId!,
+        amount: payload.amount,
+        description: `Paiement Cantine - ${studentName}`,
+        debitAccountNo: debitAcc,
+        creditAccountNo: '708200',
+        reference: payload.receipt_number || '',
+      });
 
       setPaymentModalOpen(false);
     } catch (e: any) {

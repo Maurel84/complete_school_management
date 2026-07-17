@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { createDoubleEntry, createCashTransaction } from '../../lib/accountingSync';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
@@ -21,9 +22,11 @@ import {
   getInitials,
 } from '../../lib/utils';
 import type { Payroll, Staff, Teacher } from '../../types';
-import { Plus, Briefcase, Edit, Eye, Shield, WalletCards, ReceiptText, Trash2 } from 'lucide-react';
+import { Plus, Briefcase, Edit, Eye, Shield, WalletCards, ReceiptText, Trash2, Printer } from 'lucide-react';
+import { buildPayslipHtml, openPrintPreview } from '../../lib/printableDocuments';
+import ContractsModule from './components/ContractsModule';
 
-type HRTab = 'staff' | 'payroll';
+type HRTab = 'staff' | 'payroll' | 'contracts';
 
 type PayrollForm = {
   person_id: string;
@@ -35,11 +38,22 @@ type PayrollForm = {
   deductions: number;
   status: string;
   paid_date: string;
+  sursalaire: number;
+  transport: number;
+  anciennete: number;
+  autres_primes: number;
+  gratification: number;
+  conges_payes: number;
+  pharmacie: number;
+  solidarite: number;
+  its: number;
+  cr: number;
+  mode_paiement: string;
 };
 
 export default function HRPage() {
   const { school } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isAccountant } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isAccountant, profile } = useAuth();
   const canManagePayroll = isSuperAdmin || isAdmin || isDirector || isAccountant;
   const [staff, setStaff] = useState<Staff[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -81,6 +95,17 @@ export default function HRPage() {
     deductions: 0,
     status: 'draft',
     paid_date: '',
+    sursalaire: 0,
+    transport: 0,
+    anciennete: 0,
+    autres_primes: 0,
+    gratification: 0,
+    conges_payes: 0,
+    pharmacie: 0,
+    solidarite: 0,
+    its: 0,
+    cr: 0,
+    mode_paiement: 'Virement',
   });
 
   useEffect(() => {
@@ -145,6 +170,17 @@ export default function HRPage() {
       deductions: 0,
       status: 'draft',
       paid_date: '',
+      sursalaire: 0,
+      transport: 0,
+      anciennete: 0,
+      autres_primes: 0,
+      gratification: 0,
+      conges_payes: 0,
+      pharmacie: 0,
+      solidarite: 0,
+      its: 0,
+      cr: 0,
+      mode_paiement: 'Virement',
     });
   }
 
@@ -189,6 +225,7 @@ export default function HRPage() {
     setPayrollEditMode(true);
     setSelectedPayroll(payroll);
     setPayrollNotice(null);
+    const details = (payroll as any).details || {};
     setPayrollForm({
       person_id: payroll.person_id,
       person_type: payroll.person_type as 'teacher' | 'staff',
@@ -199,6 +236,17 @@ export default function HRPage() {
       deductions: Number(payroll.deductions),
       status: payroll.status,
       paid_date: payroll.paid_date || '',
+      sursalaire: Number(details.sursalaire || 0),
+      transport: Number(details.transport || 0),
+      anciennete: Number(details.anciennete || 0),
+      autres_primes: Number(details.autres_primes || 0),
+      gratification: Number(details.gratification || 0),
+      conges_payes: Number(details.conges_payes || 0),
+      pharmacie: Number(details.pharmacie || 0),
+      solidarite: Number(details.solidarite || 0),
+      its: Number(details.its || 0),
+      cr: Number(details.cr || 0),
+      mode_paiement: details.mode_paiement || 'Virement',
     });
     setPayrollModalOpen(true);
   }
@@ -257,12 +305,35 @@ export default function HRPage() {
       return;
     }
 
-    const netSalary = payrollForm.base_salary + payrollForm.bonuses - payrollForm.deductions;
+    const totalGains = payrollForm.sursalaire + payrollForm.transport + payrollForm.anciennete + payrollForm.autres_primes + payrollForm.gratification + payrollForm.conges_payes;
+    const totalDeductions = payrollForm.pharmacie + payrollForm.solidarite + payrollForm.its + payrollForm.cr;
+    const netSalary = payrollForm.base_salary + totalGains - totalDeductions;
+
     const payload = {
-      ...payrollForm,
-      school_id: school.id,
+      person_id: payrollForm.person_id,
+      person_type: payrollForm.person_type,
+      month: payrollForm.month,
+      year: payrollForm.year,
+      base_salary: payrollForm.base_salary,
+      bonuses: totalGains,
+      deductions: totalDeductions,
       net_salary: netSalary,
+      status: payrollForm.status,
+      school_id: school.id,
       paid_date: (payrollForm.status === 'paid' ? payrollForm.paid_date || new Date().toISOString().split('T')[0] : payrollForm.paid_date) || null,
+      details: {
+        sursalaire: payrollForm.sursalaire,
+        transport: payrollForm.transport,
+        anciennete: payrollForm.anciennete,
+        autres_primes: payrollForm.autres_primes,
+        gratification: payrollForm.gratification,
+        conges_payes: payrollForm.conges_payes,
+        pharmacie: payrollForm.pharmacie,
+        solidarite: payrollForm.solidarite,
+        its: payrollForm.its,
+        cr: payrollForm.cr,
+        mode_paiement: payrollForm.mode_paiement,
+      }
     };
 
     try {
@@ -272,6 +343,33 @@ export default function HRPage() {
       } else {
         const { error } = await supabase.from('payrolls').insert(payload);
         if (error) throw error;
+      }
+
+      // Sync to general accounting journal and cash register if status is 'paid'
+      if (payrollForm.status === 'paid') {
+        const source = payrollForm.person_type === 'teacher' ? teachers : staff;
+        const person = source.find(item => item.id === payrollForm.person_id);
+        const personName = person ? `${person.last_name} ${person.first_name}` : 'Collaborateur';
+
+        // 1. Sync to Caisse (Sortie)
+        await createCashTransaction({
+          schoolId: school.id,
+          type: 'out',
+          amount: netSalary,
+          description: `Salaire - ${personName}`,
+          category: 'payroll',
+          processedBy: profile?.id,
+        });
+
+        // 2. Sync to General Journal (Charges personnel 661100 / Caisse 571100)
+        await createDoubleEntry({
+          schoolId: school.id,
+          amount: netSalary,
+          description: `Règlement Salaire - ${personName}`,
+          debitAccountNo: '661100',
+          creditAccountNo: '571100',
+          reference: `PAIE-${payrollForm.month}-${payrollForm.year}`,
+        });
       }
 
       setPayrollModalOpen(false);
@@ -291,6 +389,20 @@ export default function HRPage() {
     await fetchPayrollData();
   }
 
+  function handlePrintPayslip(payroll: Payroll) {
+    if (!school) return;
+    const source = payroll.person_type === 'teacher' ? teachers : staff;
+    const person = source.find(item => item.id === payroll.person_id);
+    if (!person) return;
+
+    const html = buildPayslipHtml({
+      school,
+      payroll,
+      person,
+    });
+    openPrintPreview(html);
+  }
+
   const allPeople = useMemo(
     () => ({
       staff,
@@ -300,7 +412,9 @@ export default function HRPage() {
   );
 
   const selectedPersonOptions = payrollForm.person_type === 'teacher' ? allPeople.teachers : allPeople.staff;
-  const netSalaryPreview = payrollForm.base_salary + payrollForm.bonuses - payrollForm.deductions;
+  const netSalaryPreview = payrollForm.base_salary +
+    (payrollForm.sursalaire + payrollForm.transport + payrollForm.anciennete + payrollForm.autres_primes + payrollForm.gratification + payrollForm.conges_payes) -
+    (payrollForm.pharmacie + payrollForm.solidarite + payrollForm.its + payrollForm.cr);
   const payrollTotal = payrolls.reduce((sum, payroll) => sum + Number(payroll.net_salary), 0);
   const payrollPaid = payrolls.filter(payroll => payroll.status === 'paid').reduce((sum, payroll) => sum + Number(payroll.net_salary), 0);
   const payrollPending = payrolls.filter(payroll => payroll.status !== 'paid').reduce((sum, payroll) => sum + Number(payroll.net_salary), 0);
@@ -367,6 +481,9 @@ export default function HRPage() {
       label: 'Actions',
       render: (payroll: Payroll) => (
         <div className="flex gap-1">
+          <button onClick={() => handlePrintPayslip(payroll)} className="rounded-full p-2 text-blue-600 transition hover:bg-blue-50" title="Imprimer le bulletin de paie">
+            <Printer size={15} />
+          </button>
           <button onClick={() => openEditPayroll(payroll)} className="rounded-full p-2 text-amber-600 transition hover:bg-amber-50">
             <Edit size={15} />
           </button>
@@ -444,6 +561,18 @@ export default function HRPage() {
             Salaires & paie
           </button>
         )}
+        {canManagePayroll && (
+          <button
+            onClick={() => setTab('contracts')}
+            className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
+              tab === 'contracts'
+                ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/15'
+                : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900'
+            }`}
+          >
+            Contrats de travail
+          </button>
+        )}
       </div>
 
       {tab === 'staff' && (
@@ -502,7 +631,9 @@ export default function HRPage() {
           )}
         </section>
       )}
-
+      {tab === 'contracts' && canManagePayroll && (
+        <ContractsModule teachers={teachers} staff={staff} />
+      )}
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -664,14 +795,57 @@ export default function HRPage() {
           <FormField label="Année">
             <input type="number" value={payrollForm.year} onChange={event => setPayrollForm({ ...payrollForm, year: parseInt(event.target.value, 10) || new Date().getFullYear() })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
+          <div className="md:col-span-2 border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">Éléments de Gains (Bruts)</h3>
+          </div>
           <FormField label="Salaire de base">
             <input type="number" value={payrollForm.base_salary} onChange={event => setPayrollForm({ ...payrollForm, base_salary: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
-          <FormField label="Primes">
-            <input type="number" value={payrollForm.bonuses} onChange={event => setPayrollForm({ ...payrollForm, bonuses: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          <FormField label="Sursalaire">
+            <input type="number" value={payrollForm.sursalaire} onChange={event => setPayrollForm({ ...payrollForm, sursalaire: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
-          <FormField label="Retenues">
-            <input type="number" value={payrollForm.deductions} onChange={event => setPayrollForm({ ...payrollForm, deductions: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          <FormField label="Indemnité de transport">
+            <input type="number" value={payrollForm.transport} onChange={event => setPayrollForm({ ...payrollForm, transport: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Ancienneté">
+            <input type="number" value={payrollForm.anciennete} onChange={event => setPayrollForm({ ...payrollForm, anciennete: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Autres primes">
+            <input type="number" value={payrollForm.autres_primes} onChange={event => setPayrollForm({ ...payrollForm, autres_primes: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Gratification">
+            <input type="number" value={payrollForm.gratification} onChange={event => setPayrollForm({ ...payrollForm, gratification: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Congés payés">
+            <input type="number" value={payrollForm.conges_payes} onChange={event => setPayrollForm({ ...payrollForm, conges_payes: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+
+          <div className="md:col-span-2 border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">Éléments de Retenues (Déductions)</h3>
+          </div>
+          <FormField label="CNPS (Retraite - CR)">
+            <input type="number" value={payrollForm.cr} onChange={event => setPayrollForm({ ...payrollForm, cr: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="ITS (Impôt sur salaire)">
+            <input type="number" value={payrollForm.its} onChange={event => setPayrollForm({ ...payrollForm, its: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Impôt de solidarité">
+            <input type="number" value={payrollForm.solidarite} onChange={event => setPayrollForm({ ...payrollForm, solidarite: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+          <FormField label="Crédit pharmacie">
+            <input type="number" value={payrollForm.pharmacie} onChange={event => setPayrollForm({ ...payrollForm, pharmacie: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+          </FormField>
+
+          <div className="md:col-span-2 border-t border-slate-100 pt-4">
+            <h3 className="text-sm font-semibold text-slate-900 mb-2">Règlement & Statut</h3>
+          </div>
+          <FormField label="Mode de paiement">
+            <select value={payrollForm.mode_paiement} onChange={event => setPayrollForm({ ...payrollForm, mode_paiement: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
+              <option value="Virement">Virement bancaire</option>
+              <option value="Espèces">Espèces</option>
+              <option value="Chèque">Chèque</option>
+              <option value="Mobile Money">Mobile Money</option>
+            </select>
           </FormField>
           <FormField label="Statut">
             <select value={payrollForm.status} onChange={event => setPayrollForm({ ...payrollForm, status: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10">
