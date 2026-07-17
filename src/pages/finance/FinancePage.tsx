@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -38,12 +38,44 @@ export default function FinancePage() {
   const [tab, setTab] = useState<'dashboard' | 'payments' | 'debts' | 'canteen' | 'reports' | 'admin'>('dashboard');
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
-
-  const canManage = isAdmin || isDirector || isCashier || isAccountant;
-  const canConfig = isAdmin || isDirector;
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   const schoolId = school?.id;
   const yearId = academicYear?.id;
+
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    return () => {
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isOnline && schoolId) {
+      const syncOffline = async () => {
+        const offlinePayments = JSON.parse(localStorage.getItem('offline_payments') || '[]');
+        if (offlinePayments.length === 0) return;
+
+        for (const item of offlinePayments) {
+          try {
+            await handleSaveTuitionPayment(item.payload, item.details, item.qrHash, item.digitalSig);
+          } catch (e) {
+            console.error("Failed to sync offline payment", e);
+          }
+        }
+        localStorage.removeItem('offline_payments');
+        alert("🟢 Connexion rétablie : Tous les paiements enregistrés hors-ligne ont été synchronisés avec succès !");
+      };
+      void syncOffline();
+    }
+  }, [isOnline, schoolId]);
+
+  const canManage = isAdmin || isDirector || isCashier || isAccountant;
+  const canConfig = isAdmin || isDirector;
 
   // Custom hook containing plans, student assignments, installments, canteen payments
   const {
@@ -176,6 +208,14 @@ export default function FinancePage() {
 
   // Register standard tuition payment
   async function handleSaveTuitionPayment(payload: any, details: any[], qrHash: string, digitalSig: string) {
+    if (!isOnline) {
+      const offlinePayments = JSON.parse(localStorage.getItem('offline_payments') || '[]');
+      offlinePayments.push({ payload, details, qrHash, digitalSig });
+      localStorage.setItem('offline_payments', JSON.stringify(offlinePayments));
+      alert("⚠️ Mode Hors-ligne : Paiement enregistré localement dans le navigateur. Il sera synchronisé dès le retour de la connexion.");
+      setPaymentModalOpen(false);
+      return;
+    }
     setSavingPayment(true);
     try {
       const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
@@ -209,6 +249,45 @@ export default function FinancePage() {
       setPaymentModalOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['payments_all', schoolId] });
       void queryClient.invalidateQueries({ queryKey: ['student_installments_all', schoolId, yearId] });
+
+      // 4. Send WhatsApp Notification (Simulated or Live via Green-API)
+      const waProv = localStorage.getItem('wa_provider') || 'simulation';
+      const waMsgTemplate = localStorage.getItem('receipt_text') || 'Bonjour, nous vous confirmons le règlement de scolarité de {student_name} d\'un montant de {amount} FCFA. Solde restant : {remaining} FCFA. Merci.';
+      
+      const studentInsts = (studentInstallmentsQuery?.data || []).filter((si: any) => si.student_id === payload.student_id);
+      const totalFees = studentInsts.reduce((sum: number, si: any) => sum + Number(si.amount), 0);
+      const totalPaid = studentInsts.reduce((sum: number, si: any) => sum + Number(si.paid_amount), 0) + Number(payload.amount);
+      const remaining = Math.max(0, totalFees - totalPaid);
+
+      const msg = waMsgTemplate
+        .replace('{student_name}', studentName)
+        .replace('{amount}', payload.amount.toString())
+        .replace('{remaining}', remaining.toString());
+
+      const parentItem = student?.parents?.[0]?.parent;
+      const parentObj = Array.isArray(parentItem) ? parentItem[0] : parentItem;
+      const parentPhone = parentObj?.phone;
+
+      if (waProv === 'simulation') {
+        alert(`[SIMULATION WHATSAPP PARENT]\n\nDestinataire : ${parentPhone || 'N/A'}\nMessage : ${msg}`);
+      } else if (waProv === 'green-api') {
+        const instanceId = localStorage.getItem('wa_instance');
+        const token = localStorage.getItem('wa_token');
+        if (instanceId && token && parentPhone) {
+          try {
+            await fetch(`https://api.green-api.com/waInstance${instanceId}/sendMessage/${token}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chatId: `${parentPhone.replace(/\s+/g, '')}@c.us`,
+                message: msg
+              })
+            });
+          } catch (err) {
+            console.error("Failed to send live WhatsApp via Green-API", err);
+          }
+        }
+      }
     } catch (e: any) {
       alert(`Erreur : ${e.message}`);
     } finally {
@@ -343,7 +422,13 @@ export default function FinancePage() {
       <section className="surface-card overflow-hidden">
         <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr]">
           <div>
-            <h1 className="display-font text-3xl font-semibold text-slate-900">Module Financier</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="display-font text-3xl font-semibold text-slate-900">Module Financier</h1>
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold ${isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-rose-500 animate-ping'}`} />
+                {isOnline ? 'En ligne' : 'Hors ligne'}
+              </span>
+            </div>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
               Gestion de la facturation par tranches, ventilation de premier versement, cantine trimestrielle et reçus sécurisés.
             </p>

@@ -905,3 +905,204 @@ export function buildContractHtml({
     `
   );
 }
+
+export function buildReportCardHtml({
+  school,
+  student,
+  className,
+  academicYearName,
+  term,
+  subjects,
+  overallAverage,
+  rank,
+  totalStudents,
+  classAverage,
+  maxAverage,
+  minAverage,
+}: {
+  school: School;
+  student: PrintableStudent;
+  className: string;
+  academicYearName: string;
+  term: string;
+  subjects: {
+    name: string;
+    devoirsAvg: number;
+    compScore: number | null;
+    subjectAvg: number;
+    coefficient: number;
+    weightedScore: number;
+  }[];
+  overallAverage: number;
+  rank: number;
+  totalStudents: number;
+  classAverage: number;
+  maxAverage: number;
+  minAverage: number;
+}) {
+  const title = `Bulletin de Notes - ${student.first_name} ${student.last_name}`;
+  const termName = term === '1' ? '1er Trimestre' : term === '2' ? '2ème Trimestre' : '3ème Trimestre';
+
+  // Determine decisions and honors
+  let appreciation = 'Moyen';
+  let color = '#f59e0b';
+  let honor = '';
+
+  if (overallAverage >= 16) {
+    appreciation = 'Excellent';
+    color = '#10b981';
+    honor = 'FÉLICITATIONS';
+  } else if (overallAverage >= 14) {
+    appreciation = 'Très Bien';
+    color = '#10b981';
+    honor = 'TABLEAU D\'HONNEUR & ENCOURAGEMENTS';
+  } else if (overallAverage >= 12) {
+    appreciation = 'Bien';
+    color = '#2563eb';
+    honor = 'TABLEAU D\'HONNEUR';
+  } else if (overallAverage >= 10) {
+    appreciation = 'Assez Bien';
+    color = '#2563eb';
+  } else {
+    appreciation = 'Insuffisant';
+    color = '#ef4444';
+  }
+
+  const getSubjectAppreciation = (avg: number) => {
+    if (avg >= 16) return 'Excellent';
+    if (avg >= 14) return 'Très Bien';
+    if (avg >= 12) return 'Bien';
+    if (avg >= 10) return 'Assez Bien';
+    return 'Insuffisant';
+  };
+
+  const totalCoeff = subjects.reduce((sum, s) => sum + s.coefficient, 0);
+  const totalWeighted = subjects.reduce((sum, s) => sum + s.weightedScore, 0);
+
+  return printableShell(
+    title,
+    `
+    <div class="page" style="background: #f1f5f9; padding: 40px 20px;">
+      <section class="sheet" style="padding: 40px; border-top: 10px solid #db2777; border-radius: 12px; position: relative;">
+        <!-- Header -->
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 25px;">
+          <div>
+            <h1 style="margin: 0; font-size: 22px; font-weight: 800; color: #1e3a8a; text-transform: uppercase;">${escapeHtml(school.name)}</h1>
+            <p style="margin: 4px 0 0 0; font-size: 11px; font-weight: 700; color: #db2777;">RÉPUBLIQUE DE CÔTE D'IVOIRE • BONOUA</p>
+            <p style="margin: 6px 0 0 0; font-size: 10px; color: #64748b;">BP 506 BONOUA • Devise: ${escapeHtml(school.phone || 'Avec Dieu nous ferons des exploits')}</p>
+          </div>
+          <div>
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 64px; height: 64px; border-radius: 50%; border: 1.5px solid #db2777; object-fit: cover;" />`
+                : ''
+            }
+          </div>
+        </div>
+
+        <!-- Bulletin Title -->
+        <div style="text-align: center; margin-bottom: 25px;">
+          <h2 style="margin: 0; font-size: 18px; font-weight: 900; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 3px double #db2777; display: inline-block; padding-bottom: 4px;">
+            BULLETIN DE NOTES - ${escapeHtml(termName.toUpperCase())}
+          </h2>
+          <p style="margin: 4px 0 0 0; font-size: 11px; color: #64748b; font-weight: bold;">Année Académique: ${escapeHtml(academicYearName)}</p>
+        </div>
+
+        <!-- Student Info Details -->
+        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; margin-bottom: 20px; font-size: 12px;">
+          <div style="border: 1px solid #d8e3ef; border-radius: 12px; padding: 12px; background: #f8fafc;">
+            <p style="margin: 0 0 4px 0; font-size: 10px; text-transform: uppercase; font-weight: 800; color: #64748b;">Élève</p>
+            <p style="margin: 0; font-size: 16px; font-weight: 800; color: #1e3a8a;">${escapeHtml(student.last_name.toUpperCase())} ${escapeHtml(student.first_name)}</p>
+            <p style="margin: 8px 0 0 0;">Matricule: <strong>${escapeHtml(student.matricule)}</strong></p>
+            <p style="margin: 4px 0 0 0;">Classe: <strong>${escapeHtml(className)}</strong></p>
+          </div>
+          <div style="border: 1px solid #d8e3ef; border-radius: 12px; padding: 12px; background: #f8fafc; display: flex; flex-direction: column; justify-content: center; text-align: center;">
+            <span style="font-size: 10px; text-transform: uppercase; font-weight: 800; color: #64748b;">Moyenne Générale</span>
+            <strong style="font-size: 26px; font-weight: 900; color: ${color}; margin-top: 4px;">${overallAverage.toFixed(2)} / 20</strong>
+            ${honor ? `<span style="font-size: 9px; font-weight: 900; color: #10b981; margin-top: 4px; letter-spacing: 0.05em;">${honor}</span>` : ''}
+          </div>
+        </div>
+
+        <!-- Subjects Table -->
+        <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 25px; border: 1.5px solid #d8e3ef;">
+          <thead>
+            <tr style="background: #1e3a8a; color: white; text-align: left; font-weight: bold;">
+              <th style="padding: 8px; border: 1px solid #d8e3ef;">MATIÈRES</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; width: 90px;">MOY. DEVOIRS</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; width: 90px;">COMPOSITION</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; width: 90px;">MOY. GÉNÉRALE</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; text-align: center; width: 50px;">COEFF</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; width: 90px;">MOY. COEFF.</th>
+              <th style="padding: 8px; border: 1px solid #d8e3ef; width: 140px;">APPRÉCIATIONS</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${subjects
+              .map(
+                s => `
+              <tr>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; font-weight: bold; text-transform: uppercase;">${escapeHtml(s.name)}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right;">${s.devoirsAvg.toFixed(2)}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; font-weight: bold;">${s.compScore !== null ? s.compScore.toFixed(2) : '-'}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; font-weight: 800; background: #f8fafc;">${s.subjectAvg.toFixed(2)}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: center;">${s.coefficient}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right; font-weight: bold;">${s.weightedScore.toFixed(2)}</td>
+                <td style="padding: 8px; border: 1px solid #d8e3ef; font-style: italic;">${getSubjectAppreciation(s.subjectAvg)}</td>
+              </tr>
+            `
+              )
+              .join('')}
+            <!-- Totals Row -->
+            <tr style="background: #f1f5f9; font-weight: bold;">
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-transform: uppercase;">TOTAL</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right;">-</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right;">-</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right;">-</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: center;">${totalCoeff}</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef; text-align: right;">${totalWeighted.toFixed(2)}</td>
+              <td style="padding: 8px; border: 1px solid #d8e3ef;">-</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Class Summary Block -->
+        <div style="border: 1px solid #d8e3ef; border-radius: 12px; padding: 15px; font-size: 11px; margin-bottom: 25px; background: #f8fafc;">
+          <h3 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1e3a8a; border-bottom: 1px solid #e2e8f0; padding-bottom: 4px; text-transform: uppercase;">Profil et Rang dans la classe</h3>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center;">
+            <div style="padding: 6px; border-right: 1px solid #e2e8f0;">
+              <span>Rang</span><br/>
+              <strong style="font-size: 14px; color: #1e3a8a;">${rank}<sup>${rank === 1 ? 'er' : 'ème'}</sup> sur ${totalStudents}</strong>
+            </div>
+            <div style="padding: 6px; border-right: 1px solid #e2e8f0;">
+              <span>Moyenne Classe</span><br/>
+              <strong style="font-size: 14px; color: #64748b;">${classAverage.toFixed(2)} / 20</strong>
+            </div>
+            <div style="padding: 6px; border-right: 1px solid #e2e8f0;">
+              <span>Moyenne Max.</span><br/>
+              <strong style="font-size: 14px; color: #10b981;">${maxAverage.toFixed(2)} / 20</strong>
+            </div>
+            <div style="padding: 6px;">
+              <span>Moyenne Min.</span><br/>
+              <strong style="font-size: 14px; color: #ef4444;">${minAverage.toFixed(2)} / 20</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Signatures -->
+        <div style="margin-top: 30px; display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; border-top: 1px solid #e2e8f0; padding-top: 20px;">
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0 0 60px 0; text-decoration: underline; color: #db2777;">L'Enseignant Titulaire</p>
+          </div>
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0 0 60px 0; text-decoration: underline; color: #1e3a8a;">Le Directeur de l'École</p>
+            <!-- Stamp simulation -->
+            <div style="margin: 10px auto 0; border: 2px dashed #db2777; color: #db2777; border-radius: 50%; padding: 6px; width: 66px; height: 66px; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:bold; text-align:center; transform: rotate(-8deg); background: rgba(255,255,255,0.85);">
+              HARPE DE DAVID
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    `
+  );
+}

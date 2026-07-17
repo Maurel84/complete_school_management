@@ -10,33 +10,47 @@ import type { Expense, AccountingAccount, AccountingEntry } from '../../types';
 import { Calculator, Plus, TrendingUp, TrendingDown, FileText } from 'lucide-react';
 import { createDoubleEntry, createCashTransaction } from '../../lib/accountingSync';
 
+type InventoryItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  min_threshold: number;
+  unit_price: number;
+};
+
 export default function AccountingPage() {
   const { school } = useApp();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [entries, setEntries] = useState<AccountingEntry[]>([]);
   const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'expenses' | 'entries' | 'plan'>('expenses');
+  const [tab, setTab] = useState<'expenses' | 'entries' | 'plan' | 'inventory'>('expenses');
   const [expenseModal, setExpenseModal] = useState(false);
   const [entryModal, setEntryModal] = useState(false);
+  const [inventoryModal, setInventoryModal] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [saving, setSaving] = useState(false);
 
   const [expenseForm, setExpenseForm] = useState({ category: '', description: '', amount: 0, supplier: '', invoice_number: '' });
   const [entryForm, setEntryForm] = useState({ account_id: '', entry_number: '', debit: 0, credit: 0, description: '', reference: '' });
+  const [adjustForm, setAdjustForm] = useState({ quantity: 0, type: 'in' as 'in' | 'out', description: '' });
 
   useEffect(() => { if (school) fetchData(); }, [school]);
 
   async function fetchData() {
     setLoading(true);
     const sid = school!.id;
-    const [expRes, entRes, accRes] = await Promise.all([
+    const [expRes, entRes, accRes, invRes] = await Promise.all([
       supabase.from('expenses').select('*').eq('school_id', sid).order('expense_date', { ascending: false }),
       supabase.from('accounting_entries').select('*').eq('school_id', sid).order('entry_date', { ascending: false }),
       supabase.from('accounting_accounts').select('*').eq('school_id', sid).order('account_number'),
+      supabase.from('inventory_items').select('*').eq('school_id', sid).order('name'),
     ]);
     setExpenses((expRes.data as Expense[]) || []);
     setEntries((entRes.data as AccountingEntry[]) || []);
     setAccounts((accRes.data as AccountingAccount[]) || []);
+    setInventoryItems((invRes.data as InventoryItem[]) || []);
     setLoading(false);
   }
 
@@ -83,6 +97,33 @@ export default function AccountingPage() {
     setSaving(false); setEntryModal(false); fetchData();
   }
 
+  async function handleAdjustStock() {
+    if (!selectedItem || !school) return;
+    setSaving(true);
+    const change = adjustForm.type === 'in' ? adjustForm.quantity : -adjustForm.quantity;
+    const newQty = selectedItem.quantity + change;
+
+    try {
+      await supabase.from('inventory_items').update({ quantity: newQty }).eq('id', selectedItem.id);
+      await supabase.from('inventory_transactions').insert({
+        school_id: school.id,
+        item_id: selectedItem.id,
+        transaction_type: adjustForm.type,
+        quantity: adjustForm.quantity,
+        unit_price: selectedItem.unit_price,
+        description: adjustForm.description || `Ajustement de stock (${adjustForm.type === 'in' ? 'Entrée' : 'Sortie'})`,
+      });
+
+      setInventoryModal(false);
+      setAdjustForm({ quantity: 0, type: 'in', description: '' });
+      await fetchData();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
   const totalDebit = entries.reduce((s, e) => s + Number(e.debit), 0);
   const totalCredit = entries.reduce((s, e) => s + Number(e.credit), 0);
@@ -113,10 +154,30 @@ export default function AccountingPage() {
     )},
   ];
 
+  const inventoryColumns = [
+    { key: 'name', label: 'Nom de l\'article' },
+    { key: 'quantity', label: 'En Stock', render: (item: InventoryItem) => (
+      <span className={`font-bold ${item.quantity <= item.min_threshold ? 'text-red-600 animate-pulse' : 'text-slate-800'}`}>
+        {item.quantity} {item.quantity <= item.min_threshold && '⚠️ (Seuil critique)'}
+      </span>
+    )},
+    { key: 'min_threshold', label: 'Seuil d\'Alerte' },
+    { key: 'unit_price', label: 'Prix Unitaire', render: (item: InventoryItem) => formatCurrency(item.unit_price) },
+    { key: 'actions', label: 'Actions', render: (item: InventoryItem) => (
+      <button
+        onClick={() => { setSelectedItem(item); setInventoryModal(true); }}
+        className="rounded-full px-3 py-1 bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition"
+      >
+        Ajuster stock
+      </button>
+    )},
+  ];
+
   const tabs = [
     { key: 'expenses', label: 'Dépenses' },
     { key: 'entries', label: 'Écritures' },
     { key: 'plan', label: 'Plan comptable' },
+    { key: 'inventory', label: 'Stock & Inventaire' },
   ];
 
   return (
@@ -154,6 +215,7 @@ export default function AccountingPage() {
       {tab === 'expenses' && <DataTable columns={expenseColumns} data={expenses as any[]} searchKeys={['description', 'category', 'supplier']} searchPlaceholder="Rechercher une dépense..." loading={loading} />}
       {tab === 'entries' && <DataTable columns={entryColumns} data={entries as any[]} searchKeys={['entry_number', 'description']} searchPlaceholder="Rechercher une écriture..." loading={loading} />}
       {tab === 'plan' && <DataTable columns={accountColumns} data={accounts as any[]} searchKeys={['account_number', 'name']} searchPlaceholder="Rechercher un compte..." loading={loading} />}
+      {tab === 'inventory' && <DataTable columns={inventoryColumns} data={inventoryItems as any[]} searchKeys={['name']} searchPlaceholder="Rechercher un article..." loading={loading} />}
 
       <Modal isOpen={expenseModal} onClose={() => setExpenseModal(false)} title="Nouvelle dépense" size="md"
         actions={<>
@@ -187,6 +249,27 @@ export default function AccountingPage() {
             <FormField label="Crédit"><input type="number" value={entryForm.credit} onChange={e => setEntryForm({...entryForm, credit: parseFloat(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
           </div>
           <FormField label="Libellé"><input type="text" value={entryForm.description} onChange={e => setEntryForm({...entryForm, description: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
+        </div>
+      </Modal>
+
+      <Modal isOpen={inventoryModal} onClose={() => setInventoryModal(false)} title={`Ajuster le stock - ${selectedItem?.name || ''}`} size="md"
+        actions={<>
+          <button onClick={() => setInventoryModal(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Annuler</button>
+          <button onClick={handleAdjustStock} disabled={saving} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-800 disabled:opacity-50">Enregistrer</button>
+        </>}>
+        <div className="space-y-4">
+          <FormField label="Type d'opération" required>
+            <select value={adjustForm.type} onChange={e => setAdjustForm({...adjustForm, type: e.target.value as 'in' | 'out'})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+              <option value="in">Entrée de stock (Approvisionnement)</option>
+              <option value="out">Sortie de stock (Vente / Consommation)</option>
+            </select>
+          </FormField>
+          <FormField label="Quantité" required>
+            <input type="number" value={adjustForm.quantity} onChange={e => setAdjustForm({...adjustForm, quantity: parseInt(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </FormField>
+          <FormField label="Commentaire / Justification">
+            <textarea value={adjustForm.description} onChange={e => setAdjustForm({...adjustForm, description: e.target.value})} rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" placeholder="Ex: Livraison mensuelle..." />
+          </FormField>
         </div>
       </Modal>
     </div>

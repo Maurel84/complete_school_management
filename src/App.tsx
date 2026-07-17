@@ -20,6 +20,7 @@ import MessagesPage from './pages/messages/MessagesPage';
 import DocumentsPage from './pages/documents/DocumentsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import UsersPage from './pages/users/UsersPage';
+import ParentPortal from './pages/parent-portal/ParentPortal';
 import { AlertTriangle, Loader2, LogOut } from 'lucide-react';
 import type { ModuleKey } from './lib/moduleAccess';
 
@@ -121,6 +122,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/logout" element={<LogoutPage />} />
+      <Route path="/parent-portal" element={<ParentPortal />} />
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
       <Route element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>

@@ -26,9 +26,10 @@ import {
   Trash2,
   Upload,
   CalendarDays,
+  MessageSquare,
 } from 'lucide-react';
 
-type SettingsTab = 'school' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles';
+type SettingsTab = 'school' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
 type LevelItem = { id: string; name: string; order_index: number };
 type SubjectItem = { id: string; name: string; code: string; coefficient: number };
 type FeeTypeItem = { id: string; name: string; description: string; is_recurring: boolean };
@@ -81,6 +82,19 @@ export default function SettingsPage() {
     tuition_due_date: '',
   });
   const [yearFeeTemplates, setYearFeeTemplates] = useState<YearFeeTemplateRow[]>([]);
+
+  const [waProvider, setWaProvider] = useState(() => localStorage.getItem('wa_provider') || 'green-api');
+  const [waToken, setWaToken] = useState(() => localStorage.getItem('wa_token') || '');
+  const [waInstance, setWaInstance] = useState(() => localStorage.getItem('wa_instance') || '');
+  const [receiptText, setReceiptText] = useState(() => localStorage.getItem('receipt_text') || 'Bonjour, nous vous confirmons le règlement de scolarité de {student_name} d\'un montant de {amount} FCFA. Solde restant : {remaining} FCFA. Merci.');
+
+  function saveNotificationConfig() {
+    localStorage.setItem('wa_provider', waProvider);
+    localStorage.setItem('wa_token', waToken);
+    localStorage.setItem('wa_instance', waInstance);
+    localStorage.setItem('receipt_text', receiptText);
+    alert('Paramètres de notification WhatsApp enregistrés !');
+  }
 
   const canManage = isAdmin || isSuperAdmin;
   const canCreateAcademicYear = canManage && levels.length > 0;
@@ -448,6 +462,7 @@ export default function SettingsPage() {
     { key: 'subjects', label: 'Matières', icon: BookOpen },
     { key: 'fees', label: 'Frais', icon: Coins },
     { key: 'roles', label: 'Accès', icon: ShieldCheck },
+    { key: 'notifications', label: 'Notifications', icon: MessageSquare },
   ];
 
   if (!school) {
@@ -777,7 +792,45 @@ export default function SettingsPage() {
           ))}
         </div>
       )}
+      {tab === 'notifications' && (
+        <div className="surface-card p-6 space-y-6">
+          <div>
+            <h2 className="display-font text-xl font-semibold text-slate-900">Notifications & Alertes API</h2>
+            <p className="mt-1 text-sm text-slate-500">Configurez vos accès API pour l'envoi automatique de reçus de paiement et relances de scolarité via WhatsApp.</p>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <FormField label="Fournisseur d'API" required>
+              <select value={waProvider} onChange={e => setWaProvider(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none">
+                <option value="green-api">Green-API (Recommandé pour WhatsApp en Afrique)</option>
+                <option value="twilio">Twilio SMS / WhatsApp Business</option>
+                <option value="simulation">Mode Simulation (Affichage en direct)</option>
+              </select>
+            </FormField>
+
+            <FormField label="ID Instance (Green-API uniquement)">
+              <input type="text" value={waInstance} onChange={e => setWaInstance(e.target.value)} placeholder="Ex: 1101859384" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" />
+            </FormField>
+
+            <FormField label="Clé API / Token d'accès">
+              <input type="password" value={waToken} onChange={e => setWaToken(e.target.value)} placeholder="Clé d'authentification ou Token" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" />
+            </FormField>
+
+            <div className="md:col-span-2">
+              <FormField label="Modèle de message pour reçu de scolarité">
+                <textarea value={receiptText} onChange={e => setReceiptText(e.target.value)} rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" placeholder="Bonjour..." />
+                <p className="mt-1.5 text-xs text-slate-400">Variables utilisables : <code>{'{student_name}'}</code>, <code>{'{amount}'}</code>, <code>{'{remaining}'}</code></p>
+              </FormField>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-100">
+            <button onClick={saveNotificationConfig} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+              <Save size={16} /> Enregistrer la configuration
+            </button>
+          </div>
+        </div>
+      )}
       <Modal
         isOpen={subjectModal}
         onClose={() => {
