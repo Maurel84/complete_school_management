@@ -208,6 +208,12 @@ export default function HRPage() {
     setSaving(true);
     setNotice(null);
 
+    if (!form.first_name.trim() || !form.last_name.trim()) {
+      setNotice("Le prénom et le nom sont requis.");
+      setSaving(false);
+      return;
+    }
+
     const payload = {
       ...form,
       date_of_birth: form.date_of_birth || null,
@@ -244,6 +250,12 @@ export default function HRPage() {
     if (!school) return;
     setSaving(true);
     setPayrollNotice(null);
+
+    if (!payrollForm.person_id) {
+      setPayrollNotice("Veuillez sélectionner un collaborateur.");
+      setSaving(false);
+      return;
+    }
 
     const netSalary = payrollForm.base_salary + payrollForm.bonuses - payrollForm.deductions;
     const payload = {
