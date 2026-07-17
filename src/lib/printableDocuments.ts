@@ -372,15 +372,32 @@ export function buildStudentCardHtml({
 }
 
 export function openPrintPreview(html: string) {
-  const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1200,height=900');
-  if (!printWindow) return false;
+  // Find or create a hidden iframe for print preview to bypass browser popup blockers
+  let iframe = document.getElementById('print-preview-iframe') as HTMLIFrameElement;
+  if (!iframe) {
+    iframe = document.createElement('iframe');
+    iframe.id = 'print-preview-iframe';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+  }
 
-  printWindow.document.open();
-  printWindow.document.write(html);
-  printWindow.document.close();
-  printWindow.focus();
+  const doc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!doc) return false;
+
+  doc.open();
+  doc.write(html);
+  doc.close();
+
   window.setTimeout(() => {
-    printWindow.print();
+    if (iframe.contentWindow) {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }
   }, 450);
 
   return true;
