@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { BookOpen, GraduationCap, KeyRound, Loader2, Lock, Mail, ShieldCheck, Users } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
+import { BookOpen, GraduationCap, KeyRound, Loader2, Lock, Mail, ShieldCheck, Users, ImageIcon } from 'lucide-react';
 
 const quickAccounts = [
   {
     label: 'Admin',
-    description: 'Compte reel pour creer les utilisateurs et piloter les acces.',
+    description: 'Compte réel pour créer les utilisateurs et piloter les accès.',
     email: 'tarieljeremie@gmail.com',
     icon: ShieldCheck,
   },
   {
     label: 'Demo',
-    description: 'Compte de presentation avec donnees mock et parcours complet.',
+    description: 'Compte de présentation avec données mock et parcours complet.',
     email: 'demo@schoolmanager.pro',
     password: 'Demo123!',
     icon: BookOpen,
@@ -26,6 +27,30 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
+
+  const [schools, setSchools] = useState<any[]>([]);
+  const [selectedSchool, setSelectedSchool] = useState<any>(null);
+
+  useEffect(() => {
+    async function loadSchools() {
+      const { data } = await supabase.from('schools').select('*').eq('active', true).order('name');
+      if (data && data.length > 0) {
+        setSchools(data);
+        const lastId = localStorage.getItem('last_school_id');
+        const matched = data.find((s: any) => s.id === lastId);
+        setSelectedSchool(matched || data[0]);
+      }
+    }
+    void loadSchools();
+  }, []);
+
+  function handleSchoolChange(schoolId: string) {
+    const matched = schools.find((s: any) => s.id === schoolId);
+    if (matched) {
+      setSelectedSchool(matched);
+      localStorage.setItem('last_school_id', matched.id);
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -45,57 +70,124 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-screen bg-slate-50 lg:grid-cols-[0.92fr_1.08fr]">
-      <section className="hidden border-r border-slate-200 bg-slate-950 px-12 py-10 text-white lg:flex lg:flex-col lg:justify-between">
+      {/* Visual left panel */}
+      <section 
+        className="hidden border-r border-slate-200 bg-slate-950 px-12 py-10 text-white lg:flex lg:flex-col lg:justify-between relative overflow-hidden transition-all duration-700"
+        style={{
+          backgroundImage: selectedSchool?.facade_url ? `linear-gradient(to bottom, rgba(15, 23, 42, 0.8), rgba(15, 23, 42, 0.95)), url(${selectedSchool.facade_url})` : undefined,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        {!selectedSchool?.facade_url && (
+          <div className="absolute inset-0 bg-gradient-to-tr from-indigo-950 via-slate-900 to-emerald-950 opacity-90 -z-10" />
+        )}
+
         <div>
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500 text-white">
-              <GraduationCap size={25} />
-            </div>
+            {selectedSchool?.logo_url ? (
+              <img 
+                src={selectedSchool.logo_url} 
+                alt="Logo" 
+                className="h-12 w-12 rounded-2xl object-cover border border-white/20 shadow-md bg-white" 
+              />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-md">
+                <GraduationCap size={24} />
+              </div>
+            )}
             <div>
-              <h1 className="text-xl font-semibold">SchoolManager Pro</h1>
-              <p className="text-sm text-slate-400">Maternelle et primaire</p>
+              <h1 className="text-xl font-bold tracking-tight text-white">
+                {selectedSchool?.name || 'SchoolManager Pro'}
+              </h1>
+              <p className="text-xs text-slate-400 font-medium">Maternelle et primaire</p>
             </div>
           </div>
 
           <div className="mt-16 max-w-lg">
-            <p className="text-sm font-semibold uppercase text-emerald-300">Plateforme operationnelle</p>
-            <h2 className="mt-4 text-4xl font-semibold leading-tight">
-              Une console calme pour gerer l'ecole, les familles et les finances.
+            <p className="text-xs uppercase tracking-wider font-extrabold text-emerald-400">Établissement Partenaire</p>
+            <h2 className="mt-4 text-3xl font-black leading-tight text-white drop-shadow-sm">
+              {selectedSchool?.motto ? `« ${selectedSchool.motto} »` : 'Une console calme pour gérer l\'école, les familles et les finances.'}
             </h2>
             <p className="mt-5 text-sm leading-7 text-slate-300">
-              L'interface se concentre sur les actions frequentes: dossiers eleves, paiements,
-              cartes scolaires, comptes utilisateurs et acces par module.
+              L'interface centralisée se concentre sur les actions quotidiennes : dossiers des élèves, suivi financier,
+              bulletins scolaires et gestion de l'inventaire.
             </p>
           </div>
         </div>
 
-        <div className="grid gap-3">
-          {[
-            { icon: Users, text: 'Familles, eleves et titulaires relies' },
-            { icon: KeyRound, text: 'Comptes utilisateurs avec acces controles' },
-            { icon: Lock, text: 'Separation claire entre demo et administration' },
-          ].map(item => (
-            <div key={item.text} className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
-              <item.icon size={18} className="text-emerald-300" />
-              <span className="text-sm text-slate-200">{item.text}</span>
-            </div>
-          ))}
-        </div>
+        {/* Children in uniform card */}
+        {selectedSchool?.students_uniform_url ? (
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-slate-950/40 p-2 backdrop-blur-md shadow-2xl max-w-sm mt-6">
+            <img 
+              src={selectedSchool.students_uniform_url} 
+              alt="Élèves en tenue" 
+              className="w-full h-40 object-cover rounded-2xl bg-slate-900" 
+            />
+            <p className="text-center text-xs font-bold text-slate-200 mt-2 py-1 tracking-wide">
+              Nos élèves en tenue officielle
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-3">
+            {[
+              { icon: Users, text: 'Familles, élèves et scolarité reliés' },
+              { icon: KeyRound, text: 'Comptes utilisateurs avec accès contrôlés' },
+              { icon: Lock, text: 'Séparation claire entre démo et administration' },
+            ].map(item => (
+              <div key={item.text} className="flex items-center gap-3 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                <item.icon size={18} className="text-emerald-300" />
+                <span className="text-sm text-slate-200">{item.text}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
+      {/* Right side form */}
       <main className="flex items-center justify-center px-5 py-10">
         <div className="w-full max-w-md">
-          <div className="mb-8 lg:hidden">
-            <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600 text-white">
-              <GraduationCap size={23} />
+          {/* Mobile branding header */}
+          <div className="mb-8 lg:hidden flex items-center gap-3">
+            {selectedSchool?.logo_url ? (
+              <img 
+                src={selectedSchool.logo_url} 
+                alt="Logo" 
+                className="h-11 w-11 rounded-xl object-cover border border-slate-200 shadow-sm" 
+              />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-600 text-white">
+                <GraduationCap size={23} />
+              </div>
+            )}
+            <div>
+              <h1 className="text-lg font-bold text-slate-950">{selectedSchool?.name || 'SchoolManager Pro'}</h1>
+              <p className="text-xs text-slate-500 font-medium">Maternelle & primaire</p>
             </div>
-            <h1 className="text-xl font-semibold text-slate-950">SchoolManager Pro</h1>
           </div>
 
           <div className="mb-6">
             <h2 className="text-2xl font-semibold text-slate-950">Connexion</h2>
-            <p className="mt-1 text-sm text-slate-500">Choisis un profil ou connecte-toi avec tes identifiants.</p>
+            <p className="mt-1 text-sm text-slate-500">Choisissez votre établissement et connectez-vous.</p>
           </div>
+
+          {/* School Selector Dropdown */}
+          {schools.length > 1 && (
+            <div className="mb-5">
+              <label className="mb-1 block text-xs font-bold text-slate-500 uppercase tracking-wider">Sélectionner l'établissement</label>
+              <select
+                value={selectedSchool?.id || ''}
+                onChange={e => handleSchoolChange(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-slate-900"
+              >
+                {schools.map(s => (
+                  <option key={s.id} value={s.id}>
+                    🏫 {s.name} ({s.city || s.country || 'Côte d\'Ivoire'})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div className="mb-5 grid gap-3 sm:grid-cols-2">
             {quickAccounts.map(account => (
@@ -113,10 +205,10 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+            <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-semibold">{error}</div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">Email</label>
               <div className="relative">
@@ -150,7 +242,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="flex w-full items-center justify-center gap-2 rounded-md bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading && <Loader2 size={16} className="animate-spin" />}
               Se connecter

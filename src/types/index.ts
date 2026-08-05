@@ -9,6 +9,8 @@ export interface School {
   phone: string;
   email: string;
   logo_url: string;
+  facade_url?: string;
+  students_uniform_url?: string;
   motto: string;
   establishment_type: string;
   is_demo: boolean;

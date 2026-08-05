@@ -53,6 +53,8 @@ export default function SettingsPage() {
     email: '',
     motto: '',
     logo_url: '',
+    facade_url: '',
+    students_uniform_url: '',
     establishment_type: 'maternelle_primaire',
   });
   const [levels, setLevels] = useState<LevelItem[]>([]);
@@ -62,6 +64,8 @@ export default function SettingsPage() {
   const [yearFeeCounts, setYearFeeCounts] = useState<Record<string, number>>({});
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [uploadingFacade, setUploadingFacade] = useState(false);
+  const [uploadingUniform, setUploadingUniform] = useState(false);
   const [schoolNotice, setSchoolNotice] = useState<string | null>(null);
   const [yearNotice, setYearNotice] = useState<string | null>(null);
 
@@ -111,6 +115,8 @@ export default function SettingsPage() {
       email: school.email,
       motto: school.motto,
       logo_url: school.logo_url,
+      facade_url: school.facade_url || '',
+      students_uniform_url: school.students_uniform_url || '',
       establishment_type: 'maternelle_primaire',
     });
 
@@ -180,6 +186,8 @@ export default function SettingsPage() {
       email: schoolForm.email,
       motto: schoolForm.motto,
       logo_url: schoolForm.logo_url,
+      facade_url: schoolForm.facade_url,
+      students_uniform_url: schoolForm.students_uniform_url,
       establishment_type: 'maternelle_primaire',
     }).eq('id', school.id);
     setSaving(false);
@@ -224,6 +232,84 @@ export default function SettingsPage() {
     setSchoolForm(current => ({ ...current, logo_url: '' }));
     await refreshSchool();
     setSchoolNotice('Logo supprimé.');
+  }
+
+  async function handleFacadeUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!school) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingFacade(true);
+    setSchoolNotice(null);
+
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${school.id}/branding/facade-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('school-assets').upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
+      setSchoolForm(current => ({ ...current, facade_url: data.publicUrl }));
+      await supabase.from('schools').update({ facade_url: data.publicUrl }).eq('id', school.id);
+      await refreshSchool();
+      setSchoolNotice('Image de la façade mise à jour.');
+    } catch (error) {
+      setSchoolNotice("L'image n'a pas pu être envoyée. Vérifie le bucket Supabase school-assets.");
+    } finally {
+      setUploadingFacade(false);
+      event.target.value = '';
+    }
+  }
+
+  async function clearFacade() {
+    if (!school) return;
+    await supabase.from('schools').update({ facade_url: '' }).eq('id', school.id);
+    setSchoolForm(current => ({ ...current, facade_url: '' }));
+    await refreshSchool();
+    setSchoolNotice('Image de la façade retirée.');
+  }
+
+  async function handleUniformUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!school) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingUniform(true);
+    setSchoolNotice(null);
+
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${school.id}/branding/uniform-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('school-assets').upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
+      setSchoolForm(current => ({ ...current, students_uniform_url: data.publicUrl }));
+      await supabase.from('schools').update({ students_uniform_url: data.publicUrl }).eq('id', school.id);
+      await refreshSchool();
+      setSchoolNotice('Image des élèves en tenue mise à jour.');
+    } catch (error) {
+      setSchoolNotice("L'image n'a pas pu être envoyée. Vérifie le bucket Supabase school-assets.");
+    } finally {
+      setUploadingUniform(false);
+      event.target.value = '';
+    }
+  }
+
+  async function clearUniform() {
+    if (!school) return;
+    await supabase.from('schools').update({ students_uniform_url: '' }).eq('id', school.id);
+    setSchoolForm(current => ({ ...current, students_uniform_url: '' }));
+    await refreshSchool();
+    setSchoolNotice('Image des élèves en tenue retirée.');
   }
 
   async function saveSubject() {
@@ -537,31 +623,98 @@ export default function SettingsPage() {
 
       {tab === 'school' && (
         <div className="surface-card p-6">
-          <div className="mb-6 flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="mb-6">
             <div>
               <h2 className="display-font text-xl font-semibold text-slate-900">Identité visuelle et administrative</h2>
-              <p className="mt-1 text-sm text-slate-500">Le logo sera utilisé dans les reçus de paiement et les documents administratifs.</p>
+              <p className="mt-1 text-sm text-slate-500">Configurez le logo, l'image de la façade et la tenue scolaire de votre établissement.</p>
             </div>
 
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4 text-center">
-              {schoolForm.logo_url ? (
-                <img src={schoolForm.logo_url} alt={schoolForm.name} className="mx-auto h-24 w-24 rounded-3xl border border-slate-200 bg-white object-cover" />
-              ) : (
-                <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-400">
-                  <ImageIcon size={28} />
+            <div className="mt-6 grid gap-6 md:grid-cols-3">
+              {/* Logo Card */}
+              <div className="surface-card p-5 border border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-between text-center">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Logo de l'école</h3>
+                  <p className="text-xs text-slate-400 mt-1">Utilisé sur les reçus, bulletins et documents officiels.</p>
                 </div>
-              )}
-              <div className="mt-3 space-y-2">
-                <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-emerald-700">
-                  <Upload size={16} />
-                  {uploadingLogo ? 'Envoi...' : 'Uploader le logo'}
-                  <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
-                </label>
-                {schoolForm.logo_url && (
-                  <button onClick={() => void clearLogo()} className="block w-full rounded-2xl border border-slate-200 px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100">
-                    Retirer le logo
-                  </button>
-                )}
+                <div className="my-5">
+                  {schoolForm.logo_url ? (
+                    <img src={schoolForm.logo_url} alt="Logo" className="mx-auto h-24 w-24 rounded-3xl border border-slate-100 object-cover shadow-md" />
+                  ) : (
+                    <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 shadow-inner">
+                      <ImageIcon size={28} />
+                    </div>
+                  )}
+                </div>
+                <div className="w-full space-y-2">
+                  <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                    <Upload size={14} />
+                    {uploadingLogo ? 'Envoi...' : 'Uploader le logo'}
+                    <input type="file" accept="image/*" onChange={handleLogoUpload} className="hidden" />
+                  </label>
+                  {schoolForm.logo_url && (
+                    <button onClick={() => void clearLogo()} className="w-full rounded-2xl border border-slate-200 py-2 text-xs text-rose-600 font-semibold transition hover:bg-rose-50">
+                      Retirer
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Facade Card */}
+              <div className="surface-card p-5 border border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-between text-center">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Façade de l'école</h3>
+                  <p className="text-xs text-slate-400 mt-1">Affichée en fond sur la page de connexion.</p>
+                </div>
+                <div className="my-5">
+                  {schoolForm.facade_url ? (
+                    <img src={schoolForm.facade_url} alt="Façade" className="mx-auto h-24 w-24 rounded-3xl border border-slate-100 object-cover shadow-md" />
+                  ) : (
+                    <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 shadow-inner">
+                      <ImageIcon size={28} />
+                    </div>
+                  )}
+                </div>
+                <div className="w-full space-y-2">
+                  <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800">
+                    <Upload size={14} />
+                    {uploadingFacade ? 'Envoi...' : 'Uploader la façade'}
+                    <input type="file" accept="image/*" onChange={handleFacadeUpload} className="hidden" />
+                  </label>
+                  {schoolForm.facade_url && (
+                    <button onClick={() => void clearFacade()} className="w-full rounded-2xl border border-slate-200 py-2 text-xs text-rose-600 font-semibold transition hover:bg-rose-50">
+                      Retirer
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Uniform Card */}
+              <div className="surface-card p-5 border border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-between text-center">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Élèves en tenue</h3>
+                  <p className="text-xs text-slate-400 mt-1">Illustration pour le portail d'accueil.</p>
+                </div>
+                <div className="my-5">
+                  {schoolForm.students_uniform_url ? (
+                    <img src={schoolForm.students_uniform_url} alt="Tenue scolaire" className="mx-auto h-24 w-24 rounded-3xl border border-slate-100 object-cover shadow-md" />
+                  ) : (
+                    <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-3xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 shadow-inner">
+                      <ImageIcon size={28} />
+                    </div>
+                  )}
+                </div>
+                <div className="w-full space-y-2">
+                  <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-slate-800">
+                    <Upload size={14} />
+                    {uploadingUniform ? 'Envoi...' : 'Uploader la tenue'}
+                    <input type="file" accept="image/*" onChange={handleUniformUpload} className="hidden" />
+                  </label>
+                  {schoolForm.students_uniform_url && (
+                    <button onClick={() => void clearUniform()} className="w-full rounded-2xl border border-slate-200 py-2 text-xs text-rose-600 font-semibold transition hover:bg-rose-50">
+                      Retirer
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
