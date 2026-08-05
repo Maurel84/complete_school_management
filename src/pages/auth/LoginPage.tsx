@@ -2,23 +2,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
-import { BookOpen, GraduationCap, KeyRound, Loader2, Lock, Mail, ShieldCheck, Users, ImageIcon } from 'lucide-react';
+import { GraduationCap, KeyRound, Loader2, Lock, Mail, Users, ImageIcon } from 'lucide-react';
 
-const quickAccounts = [
-  {
-    label: 'Admin',
-    description: 'Compte réel pour créer les utilisateurs et piloter les accès.',
-    email: 'tarieljeremie@gmail.com',
-    icon: ShieldCheck,
-  },
-  {
-    label: 'Demo',
-    description: 'Compte de présentation avec données mock et parcours complet.',
-    email: 'demo@schoolmanager.pro',
-    password: 'Demo123!',
-    icon: BookOpen,
-  },
-];
+
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -50,11 +36,7 @@ export default function LoginPage() {
     else navigate('/');
   }
 
-  function fillAccount(account: typeof quickAccounts[number]) {
-    setEmail(account.email);
-    setPassword(account.password ?? '');
-    setError('');
-  }
+
 
   return (
     <div className="grid min-h-screen bg-slate-50 lg:grid-cols-[0.92fr_1.08fr]">
@@ -161,20 +143,7 @@ export default function LoginPage() {
 
 
 
-          <div className="mb-5 grid gap-3 sm:grid-cols-2">
-            {quickAccounts.map(account => (
-              <button
-                key={account.email}
-                type="button"
-                onClick={() => fillAccount(account)}
-                className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50/40"
-              >
-                <account.icon size={20} className="text-emerald-700" />
-                <p className="mt-3 text-sm font-semibold text-slate-950">{account.label}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{account.description}</p>
-              </button>
-            ))}
-          </div>
+
 
           {error && (
             <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 font-semibold">{error}</div>
