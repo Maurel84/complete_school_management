@@ -28,29 +28,17 @@ export default function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
-  const [schools, setSchools] = useState<any[]>([]);
   const [selectedSchool, setSelectedSchool] = useState<any>(null);
 
   useEffect(() => {
-    async function loadSchools() {
-      const { data } = await supabase.from('schools').select('*').eq('active', true).order('name');
-      if (data && data.length > 0) {
-        setSchools(data);
-        const lastId = localStorage.getItem('last_school_id');
-        const matched = data.find((s: any) => s.id === lastId);
-        setSelectedSchool(matched || data[0]);
+    async function loadSchool() {
+      const { data } = await supabase.from('schools').select('*').limit(1).maybeSingle();
+      if (data) {
+        setSelectedSchool(data);
       }
     }
-    void loadSchools();
+    void loadSchool();
   }, []);
-
-  function handleSchoolChange(schoolId: string) {
-    const matched = schools.find((s: any) => s.id === schoolId);
-    if (matched) {
-      setSelectedSchool(matched);
-      localStorage.setItem('last_school_id', matched.id);
-    }
-  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -168,26 +156,10 @@ export default function LoginPage() {
 
           <div className="mb-6">
             <h2 className="text-2xl font-semibold text-slate-950">Connexion</h2>
-            <p className="mt-1 text-sm text-slate-500">Choisissez votre établissement et connectez-vous.</p>
+            <p className="mt-1 text-sm text-slate-500">Connectez-vous avec vos identifiants pour accéder à la console.</p>
           </div>
 
-          {/* School Selector Dropdown */}
-          {schools.length > 1 && (
-            <div className="mb-5">
-              <label className="mb-1 block text-xs font-bold text-slate-500 uppercase tracking-wider">Sélectionner l'établissement</label>
-              <select
-                value={selectedSchool?.id || ''}
-                onChange={e => handleSchoolChange(e.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-800 shadow-sm outline-none focus:border-slate-900"
-              >
-                {schools.map(s => (
-                  <option key={s.id} value={s.id}>
-                    🏫 {s.name} ({s.city || s.country || 'Côte d\'Ivoire'})
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+
 
           <div className="mb-5 grid gap-3 sm:grid-cols-2">
             {quickAccounts.map(account => (
