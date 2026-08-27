@@ -88,8 +88,9 @@ export default function StudentDebts({
       const remaining = Math.max(0, totalExpected - totalPaid);
 
       // Determine payment status
-      let status: 'paid' | 'partial' | 'unpaid' = 'unpaid';
-      if (remaining === 0) status = 'paid';
+      let status: 'paid' | 'partial' | 'unpaid' | 'not_configured' = 'unpaid';
+      if (totalExpected === 0) status = 'not_configured';
+      else if (remaining === 0) status = 'paid';
       else if (totalPaid > 0) status = 'partial';
 
       // Check installments for delay today
@@ -198,7 +199,9 @@ export default function StudentDebts({
       key: 'status',
       label: 'Statut',
       render: row => {
-        if (row.status === 'paid') {
+        if (row.status === 'not_configured') {
+          return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">⚪ Non configuré</span>;
+        } else if (row.status === 'paid') {
           return <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">🟢 Payé</span>;
         } else if (row.status === 'partial') {
           return <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">🟠 Partiel</span>;
