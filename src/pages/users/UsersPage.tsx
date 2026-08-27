@@ -187,6 +187,17 @@ export default function UsersPage() {
       await fetchData();
     } catch (e: any) {
       let msg = e.message || "Le compte n'a pas pu être créé.";
+      
+      // Try to parse the HTTP response body if it's a FunctionsHttpError
+      if (e.context && typeof e.context.json === 'function') {
+        try {
+          const body = await e.context.json();
+          if (body && body.error) {
+            msg = body.error;
+          }
+        } catch (_) {}
+      }
+
       if (
         msg.includes("Failed to send a request to the Edge Function") ||
         msg.includes("Failed to fetch") ||
