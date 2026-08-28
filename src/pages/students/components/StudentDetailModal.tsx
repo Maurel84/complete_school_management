@@ -1,6 +1,6 @@
 import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
-import { formatDate } from '../../../lib/utils';
+import { formatDate, formatCurrency } from '../../../lib/utils';
 import { Download, Link2, Printer } from 'lucide-react';
 import type { AcademicYear, Class, School, Student } from '../../../types';
 
@@ -141,6 +141,37 @@ export default function StudentDetailModal({
                   <span className="font-medium text-slate-800">{student.previous_school || '-'}</span>
                 </div>
               </div>
+
+              {/* Point Financier / Facture */}
+              {(student as any).financial_has_plan ? (
+                <div className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50/50 p-4">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Facturation &amp; Scolarité</p>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="bg-white border border-slate-200 rounded-xl p-3">
+                      <p className="text-[10px] text-slate-500 uppercase">Attendu</p>
+                      <p className="text-sm font-bold text-slate-800 mt-1">
+                        {formatCurrency((student as any).financial_expected)}
+                      </p>
+                    </div>
+                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3">
+                      <p className="text-[10px] text-emerald-600 uppercase">Payé</p>
+                      <p className="text-sm font-bold text-emerald-700 mt-1">
+                        {formatCurrency((student as any).financial_paid)}
+                      </p>
+                    </div>
+                    <div className="bg-red-50/50 border border-red-100 rounded-xl p-3">
+                      <p className="text-[10px] text-red-600 uppercase">Reste</p>
+                      <p className="text-sm font-bold text-red-700 mt-1">
+                        {formatCurrency((student as any).financial_remaining)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-[22px] border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
+                  Aucun plan de scolarité n'est encore configuré pour cet élève.
+                </div>
+              )}
 
               {student.medical_info && (
                 <div className="mt-6 rounded-[22px] border border-amber-200 bg-amber-50 p-4">

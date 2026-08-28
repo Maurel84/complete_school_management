@@ -108,6 +108,23 @@ export default function HRPage() {
     mode_paiement: 'Virement',
   });
 
+  function updatePayrollFormFields(updatedFields: Partial<PayrollForm>) {
+    setPayrollForm(current => {
+      const merged = { ...current, ...updatedFields };
+      const baseImposable = (merged.base_salary || 0) + (merged.sursalaire || 0) + (merged.anciennete || 0) + (merged.autres_primes || 0);
+      
+      // Auto-compute CNPS (6.3%) and ITS (1.2%)
+      const cr = Math.round(baseImposable * 0.063);
+      const its = Math.round(baseImposable * 0.012);
+      
+      return {
+        ...merged,
+        cr,
+        its,
+      };
+    });
+  }
+
   useEffect(() => {
     if (!school) return;
     void fetchStaff();
@@ -799,19 +816,19 @@ export default function HRPage() {
             <h3 className="text-sm font-semibold text-slate-900 mb-2">Éléments de Gains (Bruts)</h3>
           </div>
           <FormField label="Salaire de base">
-            <input type="number" value={payrollForm.base_salary} onChange={event => setPayrollForm({ ...payrollForm, base_salary: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+            <input type="number" value={payrollForm.base_salary} onChange={event => updatePayrollFormFields({ base_salary: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Sursalaire">
-            <input type="number" value={payrollForm.sursalaire} onChange={event => setPayrollForm({ ...payrollForm, sursalaire: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+            <input type="number" value={payrollForm.sursalaire} onChange={event => updatePayrollFormFields({ sursalaire: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Indemnité de transport">
             <input type="number" value={payrollForm.transport} onChange={event => setPayrollForm({ ...payrollForm, transport: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Ancienneté">
-            <input type="number" value={payrollForm.anciennete} onChange={event => setPayrollForm({ ...payrollForm, anciennete: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+            <input type="number" value={payrollForm.anciennete} onChange={event => updatePayrollFormFields({ anciennete: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Autres primes">
-            <input type="number" value={payrollForm.autres_primes} onChange={event => setPayrollForm({ ...payrollForm, autres_primes: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
+            <input type="number" value={payrollForm.autres_primes} onChange={event => updatePayrollFormFields({ autres_primes: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Gratification">
             <input type="number" value={payrollForm.gratification} onChange={event => setPayrollForm({ ...payrollForm, gratification: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { formatCurrency } from '../../lib/utils';
 import DataTable from '../../components/common/DataTable';
 import type { Column } from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
@@ -230,6 +231,25 @@ export default function StudentsPage() {
       render: (student: StudentListItem) => (
         <span className="font-medium">{student.family_count} lien(s)</span>
       ),
+    },
+    {
+      key: 'financial_status',
+      label: 'Scolarité / Solde',
+      render: (student: any) => {
+        if (!student.financial_has_plan) {
+          return <span className="text-slate-400 text-xs italic">Non configuré</span>;
+        }
+        return (
+          <div className="text-xs">
+            <p className="font-semibold text-slate-800">
+              Reste : {formatCurrency(student.financial_remaining)}
+            </p>
+            <p className="text-slate-400 mt-0.5">
+              Payé : {formatCurrency(student.financial_paid)} / {formatCurrency(student.financial_expected)}
+            </p>
+          </div>
+        );
+      },
     },
     {
       key: 'status',

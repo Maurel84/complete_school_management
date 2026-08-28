@@ -40,16 +40,50 @@ export function useStudents(schoolId?: string) {
       if (!schoolId) return [];
       const { data, error } = await supabase
         .from('students')
-        .select('*, class:classes(id, name), student_parents(parent_id)')
+        .select(`
+          *,
+          class:classes(id, name),
+          student_parents(parent_id),
+          student_fees(discount_amount, canteen_option, plan:payment_plans(total_amount, canteen_quarterly)),
+          payments(amount, status),
+          canteen_payments(amount)
+        `)
         .eq('school_id', schoolId)
         .order('last_name');
 
       if (error) throw error;
 
-      return (data || []).map(student => ({
-        ...student,
-        family_count: student.student_parents?.length || 0,
-      }));
+      return (data || []).map(student => {
+        const planLink = Array.isArray(student.student_fees)
+          ? student.student_fees[0]
+          : (student.student_fees as any);
+
+        const basePlanAmount = Number(planLink?.plan?.total_amount || 0);
+        const discount = Number(planLink?.discount_amount || 0);
+        const canteenOption = planLink?.canteen_option || 'none';
+        const canteenRate = canteenOption === 'none' ? 0 : Number(planLink?.plan?.canteen_quarterly || 0) * 3;
+        
+        const expected = Math.max(0, basePlanAmount - discount) + canteenRate;
+        
+        const paidTuition = (student.payments || [])
+          .filter((p: any) => p.status === 'paid')
+          .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+          
+        const paidCanteen = (student.canteen_payments || [])
+          .reduce((sum: number, cp: any) => sum + Number(cp.amount), 0);
+          
+        const paid = paidTuition + paidCanteen;
+        const remaining = Math.max(0, expected - paid);
+
+        return {
+          ...student,
+          family_count: student.student_parents?.length || 0,
+          financial_expected: expected,
+          financial_paid: paid,
+          financial_remaining: remaining,
+          financial_has_plan: !!planLink,
+        };
+      });
     },
     enabled: !!schoolId,
   });

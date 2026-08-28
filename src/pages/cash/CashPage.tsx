@@ -205,12 +205,18 @@ export default function CashPage() {
   async function openRegister() {
     if (!school) return;
     setSaving(true);
-    const { data } = await supabase.from('cash_registers').insert({
+    const { data, error } = await supabase.from('cash_registers').insert({
       school_id: school.id,
       cashier_id: profile?.id,
       opening_balance: 0,
       status: 'open',
     }).select().maybeSingle();
+
+    if (error) {
+      alert(`Erreur lors de l'ouverture de la caisse : ${error.message}`);
+      setSaving(false);
+      return;
+    }
 
     if (data) setActiveRegister(data as CashRegister);
     setSaving(false);
@@ -219,21 +225,34 @@ export default function CashPage() {
 
   async function closeRegister() {
     if (!activeRegister) return;
+    setSaving(true);
 
-    const { data } = await supabase
+    const { data, error: fetchErr } = await supabase
       .from('cash_transactions')
       .select('amount, type')
       .eq('cash_register_id', activeRegister.id);
+
+    if (fetchErr) {
+      alert(`Erreur lors de la fermeture de la caisse : ${fetchErr.message}`);
+      setSaving(false);
+      return;
+    }
 
     const registerTransactions = data || [];
     const inTotal = registerTransactions.filter(item => item.type === 'in').reduce((sum, item) => sum + Number(item.amount), 0);
     const outTotal = registerTransactions.filter(item => item.type === 'out').reduce((sum, item) => sum + Number(item.amount), 0);
 
-    await supabase.from('cash_registers').update({
+    const { error: updateErr } = await supabase.from('cash_registers').update({
       closing_balance: Number(activeRegister.opening_balance) + inTotal - outTotal,
       closed_at: new Date().toISOString(),
       status: 'closed',
     }).eq('id', activeRegister.id);
+
+    if (updateErr) {
+      alert(`Erreur lors de la fermeture de la caisse : ${updateErr.message}`);
+      setSaving(false);
+      return;
+    }
 
     await recordAuditLog({
       schoolId: school!.id,
@@ -245,6 +264,7 @@ export default function CashPage() {
     });
 
     setActiveRegister(null);
+    setSaving(false);
     await fetchData();
   }
 
@@ -279,6 +299,43 @@ export default function CashPage() {
     const student = payment?.student;
     if (!school || !payment || !student) return;
 
+    // Fetch student financial balance
+    const [feeLinkRes, installmentsRes, tuitionPaymentsRes, canteenPaymentsRes] = await Promise.all([
+      supabase
+        .from('student_fees')
+        .select('*, plan:payment_plans(*)')
+        .eq('student_id', student.id)
+        .maybeSingle(),
+      supabase
+        .from('student_installments')
+        .select('*')
+        .eq('student_id', student.id)
+        .order('installment_number'),
+      supabase
+        .from('payments')
+        .select('amount')
+        .eq('student_id', student.id)
+        .eq('status', 'paid'),
+      supabase
+        .from('canteen_payments')
+        .select('amount')
+        .eq('student_id', student.id),
+    ]);
+
+    const feeLink = feeLinkRes.data as any;
+    const installments = (installmentsRes.data || []) as any[];
+    
+    const basePlanAmount = Number(feeLink?.plan?.total_amount || 0);
+    const discount = Number(feeLink?.discount_amount || 0);
+    const canteenOption = feeLink?.canteen_option || 'none';
+    const canteenRate = canteenOption === 'none' ? 0 : Number(feeLink?.plan?.canteen_quarterly || 0) * 3;
+    const totalExpected = Math.max(0, basePlanAmount - discount) + canteenRate;
+    
+    const paidTuition = (tuitionPaymentsRes.data || []).reduce((sum, pay) => sum + Number(pay.amount), 0);
+    const paidCanteen = (canteenPaymentsRes.data || []).reduce((sum, cp) => sum + Number(cp.amount), 0);
+    const totalPaid = paidTuition + paidCanteen;
+    const remaining = Math.max(0, totalExpected - totalPaid);
+
     const html = buildPaymentReceiptHtml({
       school: school as School,
       payment,
@@ -288,6 +345,10 @@ export default function CashPage() {
       parentName: payment.parent ? `${payment.parent.first_name} ${payment.parent.last_name}` : undefined,
       feeLabel: payment.fee?.fee_type?.name || payment.fee?.description || 'Paiement scolaire',
       processedByName: payment.processor ? `${payment.processor.first_name} ${payment.processor.last_name}` : undefined,
+      totalExpected: feeLink ? totalExpected : undefined,
+      totalPaid: feeLink ? totalPaid : undefined,
+      remaining: feeLink ? remaining : undefined,
+      installments: feeLink ? installments : undefined,
     });
 
     try {

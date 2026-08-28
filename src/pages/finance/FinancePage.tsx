@@ -336,20 +336,54 @@ export default function FinancePage() {
   async function handlePrintReceipt(p: any, isCanteen = false) {
     if (!school) return;
 
-    // Fetch details & metadata
-    const [receiptRes, detailsRes] = await Promise.all([
+    // Fetch details & metadata, plus student financial balance
+    const [receiptRes, detailsRes, feeLinkRes, installmentsRes, tuitionPaymentsRes, canteenPaymentsRes] = await Promise.all([
       supabase
         .from('receipts')
         .select('*')
         .eq(isCanteen ? 'canteen_payment_id' : 'payment_id', p.id)
         .maybeSingle(),
       isCanteen
-        ? Promise.resolve({ data: [] })
+        ? Promise.resolve({ data: [] as any[] })
         : supabase.from('payment_details').select('*').eq('payment_id', p.id),
+      supabase
+        .from('student_fees')
+        .select('*, plan:payment_plans(*)')
+        .eq('student_id', p.student_id)
+        .maybeSingle(),
+      supabase
+        .from('student_installments')
+        .select('*')
+        .eq('student_id', p.student_id)
+        .order('installment_number'),
+      supabase
+        .from('payments')
+        .select('amount')
+        .eq('student_id', p.student_id)
+        .eq('status', 'paid'),
+      supabase
+        .from('canteen_payments')
+        .select('amount')
+        .eq('student_id', p.student_id),
     ]);
 
     const receiptMeta = receiptRes.data;
     const compositions = detailsRes.data || [];
+    
+    // Calculate balance
+    const feeLink = feeLinkRes.data as any;
+    const installments = (installmentsRes.data || []) as any[];
+    
+    const basePlanAmount = Number(feeLink?.plan?.total_amount || 0);
+    const discount = Number(feeLink?.discount_amount || 0);
+    const canteenOption = feeLink?.canteen_option || 'none';
+    const canteenRate = canteenOption === 'none' ? 0 : Number(feeLink?.plan?.canteen_quarterly || 0) * 3;
+    const totalExpected = Math.max(0, basePlanAmount - discount) + canteenRate;
+    
+    const paidTuition = (tuitionPaymentsRes.data || []).reduce((sum, pay) => sum + Number(pay.amount), 0);
+    const paidCanteen = (canteenPaymentsRes.data || []).reduce((sum, cp) => sum + Number(cp.amount), 0);
+    const totalPaid = paidTuition + paidCanteen;
+    const remaining = Math.max(0, totalExpected - totalPaid);
 
     const paymentMethodLabel =
       PAYMENT_METHODS.find(m => m.value === p.payment_method)?.label || p.payment_method;
@@ -366,6 +400,10 @@ export default function FinancePage() {
       compositions: compositions.length > 0 ? compositions : undefined,
       qrCodeHash: receiptMeta?.qr_code_hash,
       digitalSignature: receiptMeta?.digital_signature,
+      totalExpected: feeLink ? totalExpected : undefined,
+      totalPaid: feeLink ? totalPaid : undefined,
+      remaining: feeLink ? remaining : undefined,
+      installments: feeLink ? installments : undefined,
     });
 
     openPrintPreview(html);
