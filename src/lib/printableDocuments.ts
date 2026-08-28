@@ -34,6 +34,7 @@ interface PaymentReceiptTemplateInput {
   totalPaid?: number;
   remaining?: number;
   installments?: { installment_number: number; label: string; amount: number; due_date: string }[];
+  paymentHistory?: { receipt_number: string; payment_date: string; payment_method: string; amount: number; is_canteen: boolean }[];
 }
 
 interface StudentCardTemplateInput {
@@ -162,6 +163,7 @@ export function buildPaymentReceiptHtml({
   totalPaid,
   remaining,
   installments,
+  paymentHistory,
 }: PaymentReceiptTemplateInput) {
   const receiptTitle = `Recu ${payment.receipt_number}`;
   const note = payment.notes?.trim() || 'Aucune note particuliere.';
@@ -228,57 +230,130 @@ export function buildPaymentReceiptHtml({
 
           ${
             totalExpected !== undefined || totalPaid !== undefined || remaining !== undefined
-              ? `
-              <div style="margin-top:22px; padding:20px; border:1px solid #dce5ef; border-radius:22px; background:#f8fafc; font-family:sans-serif;">
-                <h3 style="margin:0 0 12px; font-size:14px; font-weight:800; color:#0f3f57; text-transform:uppercase; letter-spacing:0.05em;">État financier de l'élève</h3>
-                <div style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px; text-align:center;">
-                  <div style="padding:10px; background:white; border:1px solid #e2e8f0; border-radius:12px;">
-                    <p style="margin:0 0 4px; font-size:10px; color:#64748b; text-transform:uppercase;">Total Scolarité</p>
-                    <p style="margin:0; font-size:15px; font-weight:700; color:#1e293b;">${escapeHtml(formatCurrency(totalExpected || 0))}</p>
-                  </div>
-                  <div style="padding:10px; background:white; border:1px solid #e2e8f0; border-radius:12px;">
-                    <p style="margin:0 0 4px; font-size:10px; color:#64748b; text-transform:uppercase;">Déjà Encaissé</p>
-                    <p style="margin:0; font-size:15px; font-weight:700; color:#047857;">${escapeHtml(formatCurrency(totalPaid || 0))}</p>
-                  </div>
-                  <div style="padding:10px; background:white; border:1px solid #e2e8f0; border-radius:12px;">
-                    <p style="margin:0 0 4px; font-size:10px; color:#64748b; text-transform:uppercase;">Reste à Payer</p>
-                    <p style="margin:0; font-size:15px; font-weight:700; color:#b91c1c;">${escapeHtml(formatCurrency(remaining || 0))}</p>
-                  </div>
-                </div>
-                
-                ${
-                  installments && installments.length > 0
-                    ? `
-                    <div style="margin-top:16px;">
-                      <p style="margin:0 0 6px; font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Échéancier des tranches</p>
-                      <table style="width:100%; border-collapse:collapse; font-size:11px; background:white; border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;">
-                        <thead>
-                          <tr style="background:#f1f5f9; text-align:left; color:#475569;">
-                            <th style="padding:6px 10px; border-bottom:1px solid #e2e8f0;">Tranche</th>
-                            <th style="padding:6px 10px; border-bottom:1px solid #e2e8f0; text-align:center;">Date d'échéance</th>
-                            <th style="padding:6px 10px; border-bottom:1px solid #e2e8f0; text-align:right;">Montant</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          ${installments
-                            .map(
-                              inst => `
-                            <tr style="color:#334155;">
-                              <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9;">${escapeHtml(inst.label)}</td>
-                              <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9; text-align:center;">${escapeHtml(formatDate(inst.due_date))}</td>
-                              <td style="padding:6px 10px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:600;">${escapeHtml(formatCurrency(inst.amount))}</td>
-                            </tr>
-                          `
-                            )
-                            .join('')}
-                        </tbody>
-                      </table>
+              ? (() => {
+                  // Allocate totalPaid chronologically across installments
+                  let runningPaid = totalPaid || 0;
+                  const enrichedInstallments = (installments || []).map(inst => {
+                    const amt = Number(inst.amount) || 0;
+                    const paidForThisInst = Math.min(amt, runningPaid);
+                    const remainingForThisInst = Math.max(0, amt - paidForThisInst);
+                    runningPaid -= paidForThisInst;
+
+                    let statusLabel = 'Impayé';
+                    let statusColor = '#dc2626'; // red
+                    if (paidForThisInst >= amt) {
+                      statusLabel = 'Soldé';
+                      statusColor = '#16a34a'; // green
+                    } else if (paidForThisInst > 0) {
+                      statusLabel = 'Partiel';
+                      statusColor = '#ca8a04'; // orange
+                    }
+
+                    return {
+                      ...inst,
+                      paid: paidForThisInst,
+                      remaining: remainingForThisInst,
+                      statusLabel,
+                      statusColor,
+                    };
+                  });
+
+                  return `
+                  <div style="margin-top:16px; padding:15px; border:1px solid #dce5ef; border-radius:20px; background:#f8fafc; font-family:sans-serif;">
+                    <h3 style="margin:0 0 10px; font-size:13px; font-weight:800; color:#0f3f57; text-transform:uppercase; letter-spacing:0.05em;">État financier de l'élève</h3>
+                    <div style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:10px; text-align:center; margin-bottom:12px;">
+                      <div style="padding:6px 10px; background:white; border:1px solid #e2e8f0; border-radius:10px;">
+                        <p style="margin:0 0 2px; font-size:9px; color:#64748b; text-transform:uppercase;">Total Scolarité</p>
+                        <p style="margin:0; font-size:14px; font-weight:700; color:#1e293b;">${escapeHtml(formatCurrency(totalExpected || 0))}</p>
+                      </div>
+                      <div style="padding:6px 10px; background:white; border:1px solid #e2e8f0; border-radius:10px;">
+                        <p style="margin:0 0 2px; font-size:9px; color:#64748b; text-transform:uppercase;">Déjà Encaissé</p>
+                        <p style="margin:0; font-size:14px; font-weight:700; color:#047857;">${escapeHtml(formatCurrency(totalPaid || 0))}</p>
+                      </div>
+                      <div style="padding:6px 10px; background:white; border:1px solid #e2e8f0; border-radius:10px;">
+                        <p style="margin:0 0 2px; font-size:9px; color:#64748b; text-transform:uppercase;">Reste à Payer</p>
+                        <p style="margin:0; font-size:14px; font-weight:700; color:#b91c1c;">${escapeHtml(formatCurrency(remaining || 0))}</p>
+                      </div>
                     </div>
-                    `
-                    : ''
-                }
-              </div>
-              `
+                    
+                    ${
+                      enrichedInstallments.length > 0
+                        ? `
+                        <div>
+                          <p style="margin:0 0 6px; font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Détails de l'échéancier des tranches</p>
+                          <table style="width:100%; border-collapse:collapse; font-size:10px; background:white; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden;">
+                            <thead>
+                              <tr style="background:#f1f5f9; text-align:left; color:#475569;">
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0;">Tranche</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:center;">Date d'échéance</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Montant</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Versé</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Reste</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:center; width:60px;">Statut</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${enrichedInstallments
+                                .map(
+                                  inst => `
+                                <tr style="color:#334155;">
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(inst.label)}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:center;">${escapeHtml(formatDate(inst.due_date))}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:600;">${escapeHtml(formatCurrency(inst.amount))}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#047857; font-weight:600;">${escapeHtml(formatCurrency(inst.paid))}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:right; color:#b91c1c; font-weight:600;">${escapeHtml(formatCurrency(inst.remaining))}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:center;">
+                                    <span style="display:inline-block; font-size:9px; font-weight:700; padding:2px 6px; border-radius:10px; background:${inst.statusColor}22; color:${inst.statusColor}; text-transform:uppercase;">
+                                      ${inst.statusLabel}
+                                    </span>
+                                  </td>
+                                </tr>
+                              `
+                                )
+                                .join('')}
+                            </tbody>
+                          </table>
+                        </div>
+                        `
+                        : ''
+                    }
+
+                    ${
+                      paymentHistory && paymentHistory.length > 0
+                        ? `
+                        <div style="margin-top:14px;">
+                          <p style="margin:0 0 6px; font-size:10px; font-weight:700; color:#64748b; text-transform:uppercase;">Historique des versements effectués</p>
+                          <table style="width:100%; border-collapse:collapse; font-size:9px; background:white; border:1px solid #e2e8f0; border-radius:10px; overflow:hidden;">
+                            <thead>
+                              <tr style="background:#f1f5f9; text-align:left; color:#475569;">
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0;">Date du versement</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0;">N° Reçu / Référence</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0;">Mode de paiement</th>
+                                <th style="padding:5px 8px; border-bottom:1px solid #e2e8f0; text-align:right;">Montant versé</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              ${paymentHistory
+                                .map(
+                                  ph => `
+                                <tr style="color:#334155;">
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9;">${escapeHtml(formatDate(ph.payment_date))}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; font-family:monospace; font-weight:600;">${escapeHtml(ph.receipt_number)}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-transform:capitalize;">${escapeHtml(ph.payment_method)}</td>
+                                  <td style="padding:5px 8px; border-bottom:1px solid #f1f5f9; text-align:right; font-weight:700; color:#047857;">${escapeHtml(formatCurrency(ph.amount))}</td>
+                                </tr>
+                              `
+                                )
+                                .join('')}
+                            </tbody>
+                          </table>
+                        </div>
+                        `
+                        : ''
+                    }
+                  </div>
+                  `;
+                })()
               : ''
           }
 

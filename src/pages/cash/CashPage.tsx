@@ -313,12 +313,12 @@ export default function CashPage() {
         .order('installment_number'),
       supabase
         .from('payments')
-        .select('amount')
+        .select('receipt_number, payment_date, payment_method, amount')
         .eq('student_id', student.id)
         .eq('status', 'paid'),
       supabase
         .from('canteen_payments')
-        .select('amount')
+        .select('receipt_number, payment_date, payment_method, amount')
         .eq('student_id', student.id),
     ]);
 
@@ -336,6 +336,23 @@ export default function CashPage() {
     const totalPaid = paidTuition + paidCanteen;
     const remaining = Math.max(0, totalExpected - totalPaid);
 
+    // Compile historical payments list
+    const tuitionHistory = (tuitionPaymentsRes.data || []).map(tp => ({
+      receipt_number: tp.receipt_number,
+      payment_date: tp.payment_date,
+      payment_method: tp.payment_method,
+      amount: Number(tp.amount),
+      is_canteen: false,
+    }));
+    const canteenHistory = (canteenPaymentsRes.data || []).map(cp => ({
+      receipt_number: cp.receipt_number,
+      payment_date: cp.payment_date,
+      payment_method: cp.payment_method,
+      amount: Number(cp.amount),
+      is_canteen: true,
+    }));
+    const paymentHistory = [...tuitionHistory, ...canteenHistory];
+
     const html = buildPaymentReceiptHtml({
       school: school as School,
       payment,
@@ -349,6 +366,7 @@ export default function CashPage() {
       totalPaid: feeLink ? totalPaid : undefined,
       remaining: feeLink ? remaining : undefined,
       installments: feeLink ? installments : undefined,
+      paymentHistory: feeLink ? paymentHistory : undefined,
     });
 
     try {
