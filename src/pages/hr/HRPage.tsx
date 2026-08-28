@@ -243,6 +243,19 @@ export default function HRPage() {
     setSelectedPayroll(payroll);
     setPayrollNotice(null);
     const details = (payroll as any).details || {};
+    
+    const baseImposable = Number(payroll.base_salary) + Number(details.sursalaire || 0) + Number(details.anciennete || 0) + Number(details.autres_primes || 0);
+    let crAmount = Number(details.cr || 0);
+    let itsAmount = Number(details.its || 0);
+
+    // Self-healing: if legacy percentage rates were stored (e.g. 6.3 or 1.2), convert them to actual FCFA amounts
+    if (crAmount > 0 && crAmount <= 10) {
+      crAmount = Math.round(baseImposable * (crAmount / 100));
+    }
+    if (itsAmount > 0 && itsAmount <= 5) {
+      itsAmount = Math.round(baseImposable * (itsAmount / 100));
+    }
+
     setPayrollForm({
       person_id: payroll.person_id,
       person_type: payroll.person_type as 'teacher' | 'staff',
@@ -261,8 +274,8 @@ export default function HRPage() {
       conges_payes: Number(details.conges_payes || 0),
       pharmacie: Number(details.pharmacie || 0),
       solidarite: Number(details.solidarite || 0),
-      its: Number(details.its || 0),
-      cr: Number(details.cr || 0),
+      its: itsAmount,
+      cr: crAmount,
       mode_paiement: details.mode_paiement || 'Virement',
     });
     setPayrollModalOpen(true);
@@ -840,10 +853,10 @@ export default function HRPage() {
           <div className="md:col-span-2 border-t border-slate-100 pt-4">
             <h3 className="text-sm font-semibold text-slate-900 mb-2">Éléments de Retenues (Déductions)</h3>
           </div>
-          <FormField label="CNPS (Retraite - CR)">
+          <FormField label="CNPS Retraite Salarié (6,30% - Montant en F CFA)">
             <input type="number" value={payrollForm.cr} onChange={event => setPayrollForm({ ...payrollForm, cr: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
-          <FormField label="ITS (Impôt sur salaire)">
+          <FormField label="ITS Impôt sur Salaire (1,20% - Montant en F CFA)">
             <input type="number" value={payrollForm.its} onChange={event => setPayrollForm({ ...payrollForm, its: parseFloat(event.target.value) || 0 })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none focus:ring-4 focus:ring-slate-900/10" />
           </FormField>
           <FormField label="Impôt de solidarité">

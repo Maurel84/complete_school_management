@@ -581,15 +581,25 @@ export function buildPayslipHtml({
   const gratification = Number(details.gratification) || 0;
   const congesPayes = Number(details.conges_payes) || 0;
 
-  const cr = Number(details.cr) || 0;
-  const its = Number(details.its) || 0;
+  const baseImposable = baseSalary + sursalaire + anciennete + autresPrimes;
+
+  let cr = Number(details.cr) || 0;
+  let its = Number(details.its) || 0;
+
+  // Self-healing: if rates were entered instead of absolute FCFA amounts, compute them
+  if (cr > 0 && cr <= 10) {
+    cr = Math.round(baseImposable * (cr / 100));
+  }
+  if (its > 0 && its <= 5) {
+    its = Math.round(baseImposable * (its / 100));
+  }
+
   const solidarite = Number(details.solidarite) || 0;
   const pharmacie = Number(details.pharmacie) || 0;
 
   const totalGains = baseSalary + sursalaire + transport + anciennete + autresPrimes + gratification + congesPayes;
   const totalRetenues = cr + its + solidarite + pharmacie;
   const netPay = totalGains - totalRetenues;
-  const baseImposable = baseSalary + sursalaire + anciennete + autresPrimes;
 
   const title = `Bulletin de paie - ${person.first_name} ${person.last_name}`;
 
