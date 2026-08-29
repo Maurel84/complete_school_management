@@ -28,6 +28,7 @@ export default function AccountingPage() {
   const [tab, setTab] = useState<'expenses' | 'entries' | 'plan' | 'inventory'>('expenses');
   const [expenseModal, setExpenseModal] = useState(false);
   const [entryModal, setEntryModal] = useState(false);
+  const [accountModal, setAccountModal] = useState(false);
   const [inventoryModal, setInventoryModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
   const [saving, setSaving] = useState(false);
@@ -47,6 +48,11 @@ export default function AccountingPage() {
     amount: 0,
     description: '',
     reference: '',
+  });
+  const [accountForm, setAccountForm] = useState({
+    account_number: '',
+    name: '',
+    account_type: 'asset' as 'asset' | 'liability' | 'revenue' | 'expense',
   });
   const [adjustForm, setAdjustForm] = useState({ quantity: 0, type: 'in' as 'in' | 'out', description: '' });
 
@@ -180,6 +186,74 @@ export default function AccountingPage() {
     fetchData();
   }
 
+  async function handleSaveAccount() {
+    if (!accountForm.account_number || !accountForm.name) {
+      alert("Veuillez remplir les champs obligatoires (N° Compte, Intitulé).");
+      return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('accounting_accounts').insert({
+        ...accountForm,
+        school_id: school!.id,
+      });
+
+      if (error) throw error;
+
+      // Reset form
+      setAccountForm({
+        account_number: '',
+        name: '',
+        account_type: 'asset',
+      });
+    } catch (e: any) {
+      console.error("Failed to save account", e);
+      alert(`Erreur lors de l'enregistrement du compte : ${e.message}`);
+    }
+    setSaving(false);
+    setAccountModal(false);
+    fetchData();
+  }
+
+  const DEFAULT_SYSCOHADA_ACCOUNTS = [
+    { account_number: '101000', name: 'Capital Social', account_type: 'liability' },
+    { account_number: '411100', name: 'Élèves / Parents (Créances scolarité)', account_type: 'asset' },
+    { account_number: '421100', name: 'Personnel Enseignant (Salaires dus)', account_type: 'liability' },
+    { account_number: '421200', name: 'Personnel Administratif (Salaires dus)', account_type: 'liability' },
+    { account_number: '521100', name: 'Banque (Compte Courant)', account_type: 'asset' },
+    { account_number: '571100', name: 'Caisse École', account_type: 'asset' },
+    { account_number: '605100', name: 'Achats de fournitures scolaires', account_type: 'expense' },
+    { account_number: '611000', name: 'Transports du personnel', account_type: 'expense' },
+    { account_number: '625000', name: 'Frais d\'entretien et réparations', account_type: 'expense' },
+    { account_number: '661100', name: 'Rémunérations brutes du personnel', account_type: 'expense' },
+    { account_number: '664000', name: 'Charges sociales (CNPS part patronale)', account_type: 'expense' },
+    { account_number: '706100', name: 'Recettes - Droits de scolarité', account_type: 'revenue' },
+    { account_number: '706200', name: 'Recettes - Droits d\'inscription', account_type: 'revenue' },
+    { account_number: '707100', name: 'Recettes - Tissu, Tenues & Sport', account_type: 'revenue' },
+    { account_number: '707200', name: 'Recettes - Macarons & divers', account_type: 'revenue' },
+    { account_number: '708200', name: 'Recettes - Cantine scolaire', account_type: 'revenue' }
+  ];
+
+  async function handleSeedDefaultAccounts() {
+    if (!school) return;
+    setSaving(true);
+    try {
+      const payload = DEFAULT_SYSCOHADA_ACCOUNTS.map(acc => ({
+        ...acc,
+        school_id: school.id,
+      }));
+      const { error } = await supabase.from('accounting_accounts').insert(payload);
+      if (error) throw error;
+      alert("Plan comptable par défaut initialisé avec succès !");
+      await fetchData();
+    } catch (e: any) {
+      console.error(e);
+      alert(`Erreur d'initialisation : ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleAdjustStock() {
     if (!selectedItem || !school) return;
     setSaving(true);
@@ -274,6 +348,9 @@ export default function AccountingPage() {
           <p className="text-gray-500 mt-1">Gestion comptable et financière</p>
         </div>
         <div className="flex gap-2">
+          <button onClick={() => setAccountModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">
+            <Plus size={18} /> Compte
+          </button>
           <button onClick={() => setExpenseModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
             <Plus size={18} /> Dépense
           </button>
@@ -300,7 +377,25 @@ export default function AccountingPage() {
 
       {tab === 'expenses' && <DataTable columns={expenseColumns} data={expenses as any[]} searchKeys={['description', 'category', 'supplier']} searchPlaceholder="Rechercher une dépense..." loading={loading} />}
       {tab === 'entries' && <DataTable columns={entryColumns} data={entries as any[]} searchKeys={['entry_number', 'description']} searchPlaceholder="Rechercher une écriture..." loading={loading} />}
-      {tab === 'plan' && <DataTable columns={accountColumns} data={accounts as any[]} searchKeys={['account_number', 'name']} searchPlaceholder="Rechercher un compte..." loading={loading} />}
+      {tab === 'plan' && (
+        accounts.length === 0 && !loading ? (
+          <div className="rounded-[24px] border border-blue-200 bg-blue-50/50 p-6 text-center space-y-4">
+            <h3 className="display-font text-lg font-semibold text-blue-900">Plan comptable non configuré</h3>
+            <p className="text-sm text-blue-700 max-w-md mx-auto">
+              Votre établissement n'a pas encore configuré son plan comptable. Vous pouvez l'initialiser en un clic avec les comptes standards de la comptabilité scolaire (SYSCOHADA).
+            </p>
+            <button
+              onClick={handleSeedDefaultAccounts}
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-5 py-3 bg-blue-600 text-white rounded-2xl text-sm font-semibold hover:bg-blue-700 transition shadow-sm disabled:opacity-50"
+            >
+              Initialiser le plan comptable scolaire
+            </button>
+          </div>
+        ) : (
+          <DataTable columns={accountColumns} data={accounts as any[]} searchKeys={['account_number', 'name']} searchPlaceholder="Rechercher un compte..." loading={loading} />
+        )
+      )}
       {tab === 'inventory' && <DataTable columns={inventoryColumns} data={inventoryItems as any[]} searchKeys={['name']} searchPlaceholder="Rechercher un article..." loading={loading} />}
 
       <Modal isOpen={expenseModal} onClose={() => setExpenseModal(false)} title="Nouvelle dépense" size="md"
@@ -387,6 +482,29 @@ export default function AccountingPage() {
 
           <FormField label="Référence / N° de pièce">
             <input type="text" value={entryForm.reference} onChange={e => setEntryForm({...entryForm, reference: e.target.value})} placeholder="Ex: CHQ-829, VIR-89320" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </FormField>
+        </div>
+      </Modal>
+
+      <Modal isOpen={accountModal} onClose={() => setAccountModal(false)} title="Créer un nouveau compte comptable" size="md"
+        actions={<>
+          <button onClick={() => setAccountModal(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
+          <button onClick={handleSaveAccount} disabled={saving} className="px-4 py-2 bg-slate-900 text-white rounded-lg text-sm hover:bg-slate-800 disabled:opacity-50">Créer le compte</button>
+        </>}>
+        <div className="space-y-4">
+          <FormField label="Numéro de compte (ex: 521100, 605100)" required>
+            <input type="text" value={accountForm.account_number} onChange={e => setAccountForm({...accountForm, account_number: e.target.value})} placeholder="Code du compte" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </FormField>
+          <FormField label="Intitulé du compte (Nom)" required>
+            <input type="text" value={accountForm.name} onChange={e => setAccountForm({...accountForm, name: e.target.value})} placeholder="Ex: Banque BNI, Achat de manuels..." className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
+          </FormField>
+          <FormField label="Type de compte (Classification)" required>
+            <select value={accountForm.account_type} onChange={e => setAccountForm({...accountForm, account_type: e.target.value as any})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+              <option value="asset">Actif (Trésorerie active, créances...)</option>
+              <option value="liability">Passif (Capital, dettes fournisseurs...)</option>
+              <option value="expense">Dépense / Charge (Achats, salaires payés...)</option>
+              <option value="revenue">Recette / Produit (Frais de scolarité encaissés...)</option>
+            </select>
           </FormField>
         </div>
       </Modal>
