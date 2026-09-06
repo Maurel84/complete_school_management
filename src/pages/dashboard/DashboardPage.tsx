@@ -20,10 +20,23 @@ export default function DashboardPage() {
   const { profile } = useAuth();
   const { school, academicYear } = useApp();
   const [stats, setStats] = useState({
-    totalStudents: 0, totalBoys: 0, totalGirls: 0,
-    totalTeachers: 0, totalParents: 0,
-    totalPayments: 0, totalUnpaid: 0,
-    cashBalance: 0, recentExpenses: 0,
+    totalStudents: 0,
+    totalBoys: 0,
+    totalGirls: 0,
+    totalTeachers: 0,
+    totalParents: 0,
+    totalExpectedFees: 0,
+    totalPayments: 0,
+    totalUnpaid: 0,
+    cashBalance: 0,
+    recentExpenses: 0,
+    paidStudentsCount: 0,
+    partialStudentsCount: 0,
+    unpaidStudentsCount: 0,
+    studentsWithPayment: 0,
+    studentsWithoutPayment: 0,
+    recoveryRate: 0,
+    studentPaymentRate: 0,
   });
   const [paymentByMonth, setPaymentByMonth] = useState<{name: string; montant: number}[]>([]);
   const [studentsByLevel, setStudentsByLevel] = useState<{name: string; value: number}[]>([]);
@@ -148,6 +161,11 @@ export default function DashboardPage() {
     const totalUnpaid = Math.max(0, totalExpectedFees - totalPayments);
     const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
 
+    const recoveryRate = totalExpectedFees > 0 ? Math.round((totalPayments / totalExpectedFees) * 100) : 0;
+    const studentsWithPayment = paidStudentsCount + partialStudentsCount;
+    const studentsWithoutPayment = unpaidStudentsCount;
+    const studentPaymentRate = totalStudents > 0 ? Math.round((studentsWithPayment / totalStudents) * 100) : 0;
+
     // Cash Balance
     const cashIn = cashTx.filter(t => t.type === 'in').reduce((s, t) => s + Number(t.amount), 0);
     const cashOut = cashTx.filter(t => t.type === 'out').reduce((s, t) => s + Number(t.amount), 0);
@@ -167,10 +185,18 @@ export default function DashboardPage() {
       totalGirls,
       totalTeachers,
       totalParents,
+      totalExpectedFees,
       totalPayments,
       totalUnpaid,
       cashBalance,
-      recentExpenses: totalExpenses
+      recentExpenses: totalExpenses,
+      paidStudentsCount,
+      partialStudentsCount,
+      unpaidStudentsCount,
+      studentsWithPayment,
+      studentsWithoutPayment,
+      recoveryRate,
+      studentPaymentRate,
     });
 
     // Payments by month (Tuition + Canteen)
@@ -258,6 +284,69 @@ export default function DashboardPage() {
           ))}
         </div>
       )}
+
+      {/* Premium Financial Summary & Tuition Fee Recovery Ratio */}
+      <div className="surface-card p-6 bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-950 text-white rounded-3xl shadow-xl space-y-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-700/60 pb-5">
+          <div>
+            <span className="px-3 py-1 bg-indigo-500/20 text-indigo-300 text-xs font-semibold rounded-full border border-indigo-500/30 uppercase tracking-wider">
+              Ratio & Suivi Financier
+            </span>
+            <h2 className="text-xl font-bold text-white mt-2">Recouvrement des Frais de Scolarité</h2>
+          </div>
+          <div className="flex items-center gap-6">
+            <div className="text-left md:text-right">
+              <p className="text-xs text-slate-400">Taux de Recouvrement (Montant)</p>
+              <p className="text-3xl font-extrabold text-emerald-400">{stats.recoveryRate}%</p>
+            </div>
+            <div className="text-left md:text-right border-l border-slate-700 pl-6">
+              <p className="text-xs text-slate-400">Élèves Ayant Versé</p>
+              <p className="text-3xl font-extrabold text-teal-300">{stats.studentPaymentRate}%</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Progress Bar */}
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs font-medium text-slate-300">
+            <span>Déjà Encaissé : <strong className="text-emerald-400">{formatCurrency(stats.totalPayments)}</strong></span>
+            <span>Total Attendu : <strong className="text-white">{formatCurrency(stats.totalExpectedFees)}</strong></span>
+          </div>
+          <div className="w-full h-3 bg-slate-700/80 rounded-full overflow-hidden p-0.5 border border-slate-600/50">
+            <div 
+              className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, stats.recoveryRate)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Key Ratios Breakdown Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+          <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50">
+            <p className="text-xs text-slate-400">Total Exigible (Frais)</p>
+            <p className="text-base font-bold text-white mt-1">{formatCurrency(stats.totalExpectedFees)}</p>
+            <p className="text-[11px] text-slate-400 mt-1">Budget scolarité attendu</p>
+          </div>
+
+          <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50">
+            <p className="text-xs text-slate-400">Paiements Encaissés</p>
+            <p className="text-base font-bold text-emerald-400 mt-1">{formatCurrency(stats.totalPayments)}</p>
+            <p className="text-[11px] text-emerald-300/80 mt-1">{stats.recoveryRate}% du budget perçu</p>
+          </div>
+
+          <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50">
+            <p className="text-xs text-slate-400">Reste à Percevoir</p>
+            <p className="text-base font-bold text-rose-400 mt-1">{formatCurrency(stats.totalUnpaid)}</p>
+            <p className="text-[11px] text-rose-300/80 mt-1">Reliquat des créances</p>
+          </div>
+
+          <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50">
+            <p className="text-xs text-slate-400">Répartition Élèves</p>
+            <p className="text-base font-bold text-amber-300 mt-1">{stats.studentsWithPayment} / {stats.totalStudents} élèves</p>
+            <p className="text-[11px] text-slate-300 mt-1">{stats.studentsWithoutPayment} n'ont rien versé</p>
+          </div>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard icon={<GraduationCap size={20} />} value={stats.totalStudents} label="Élèves inscrits" color="blue" trend={{ value: 12, up: true }} />
