@@ -42,50 +42,152 @@ export default function DashboardPage() {
     const schoolId = school!.id;
     const yearId = academicYear?.id;
 
-    const [studentsRes, teachersRes, parentsRes, paymentsRes, feesRes, expensesRes, cashRes] = await Promise.all([
-      supabase.from('students').select('id, sex, class_id').eq('school_id', schoolId).eq('status', 'active'),
+    const [
+      studentsRes,
+      teachersRes,
+      parentsRes,
+      paymentsRes,
+      canteenPaymentsRes,
+      expensesRes,
+      cashRes,
+      plansRes,
+      levelsRes,
+      classesRes
+    ] = await Promise.all([
+      supabase
+        .from('students')
+        .select(`
+          id, sex, class_id,
+          student_fees(discount_amount, canteen_option, plan:payment_plans(total_amount, canteen_quarterly)),
+          payments(amount, status, payment_method),
+          canteen_payments(amount)
+        `)
+        .eq('school_id', schoolId)
+        .eq('status', 'active'),
       supabase.from('teachers').select('id').eq('school_id', schoolId).eq('status', 'active'),
       supabase.from('parents').select('id').eq('school_id', schoolId),
-      supabase.from('payments').select('amount, payment_date, status').eq('school_id', schoolId),
-      supabase.from('fees').select('amount, id').eq('school_id', schoolId),
-      supabase.from('expenses').select('amount, expense_date').eq('school_id', schoolId).eq('status', 'validated'),
+      supabase.from('payments').select('id, amount, payment_date, status, payment_method, student_id').eq('school_id', schoolId),
+      supabase.from('canteen_payments').select('id, amount, payment_date').eq('school_id', schoolId),
+      supabase.from('expenses').select('amount, expense_date, payment_method').eq('school_id', schoolId).eq('status', 'validated'),
       supabase.from('cash_transactions').select('type, amount, validated').eq('school_id', schoolId).eq('validated', true),
+      supabase.from('payment_plans').select('*, levels:payment_plan_levels(level_id)').eq('school_id', schoolId),
+      supabase.from('levels').select('id, name').eq('school_id', schoolId),
+      supabase.from('classes').select('id, level_id, name').eq('school_id', schoolId),
     ]);
 
     const students = studentsRes.data || [];
     const payments = paymentsRes.data || [];
+    const canteenPayments = canteenPaymentsRes.data || [];
     const expenses = expensesRes.data || [];
     const cashTx = cashRes.data || [];
+    const plans = plansRes.data || [];
+    const levels = levelsRes.data || [];
+    const classes = classesRes.data || [];
 
     const totalStudents = students.length;
     const totalBoys = students.filter(s => s.sex === 'M').length;
     const totalGirls = students.filter(s => s.sex === 'F').length;
     const totalTeachers = (teachersRes.data || []).length;
     const totalParents = (parentsRes.data || []).length;
-    const totalPayments = payments.reduce((s, p) => s + Number(p.amount), 0);
+
+    // Financial calculations per student
+    let totalExpectedFees = 0;
+    let totalPaidTuition = 0;
+    let totalPaidCanteen = 0;
+
+    let paidStudentsCount = 0;
+    let partialStudentsCount = 0;
+    let unpaidStudentsCount = 0;
+
+    students.forEach((s: any) => {
+      // 1. Get plan link or fallback to level default plan
+      const planLink = Array.isArray(s.student_fees) ? s.student_fees[0] : s.student_fees;
+      let expected = 0;
+
+      if (planLink && planLink.plan) {
+        const basePlanAmount = Number(planLink.plan.total_amount || 0);
+        const discount = Number(planLink.discount_amount || 0);
+        const canteenOption = planLink.canteen_option || 'none';
+        const canteenRate = canteenOption === 'none' ? 0 : Number(planLink.plan.canteen_quarterly || 0) * 3;
+        expected = Math.max(0, basePlanAmount - discount) + canteenRate;
+      } else {
+        // Fallback to class level plan
+        const studentClass = classes.find(c => c.id === s.class_id);
+        if (studentClass) {
+          const matchedPlan = plans.find(p => p.levels?.some((l: any) => l.level_id === studentClass.level_id));
+          if (matchedPlan) {
+            expected = Number(matchedPlan.total_amount || 0);
+          }
+        }
+      }
+
+      totalExpectedFees += expected;
+
+      // 2. Student payments
+      const paidTuition = (s.payments || [])
+        .filter((p: any) => p.status === 'paid')
+        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+      const paidCanteen = (s.canteen_payments || [])
+        .reduce((sum: number, cp: any) => sum + Number(cp.amount), 0);
+
+      const studentPaid = paidTuition + paidCanteen;
+      totalPaidTuition += paidTuition;
+      totalPaidCanteen += paidCanteen;
+
+      // 3. Student standing
+      if (expected > 0 && studentPaid >= expected) {
+        paidStudentsCount++;
+      } else if (studentPaid > 0) {
+        partialStudentsCount++;
+      } else {
+        unpaidStudentsCount++;
+      }
+    });
+
+    const totalPayments = totalPaidTuition + totalPaidCanteen;
+    const totalUnpaid = Math.max(0, totalExpectedFees - totalPayments);
     const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+
+    // Cash Balance
     const cashIn = cashTx.filter(t => t.type === 'in').reduce((s, t) => s + Number(t.amount), 0);
     const cashOut = cashTx.filter(t => t.type === 'out').reduce((s, t) => s + Number(t.amount), 0);
-    const cashBalance = cashIn - cashOut;
+    let cashBalance = cashIn - cashOut;
 
-    const totalFees = (feesRes.data || []).reduce((s, f) => s + Number(f.amount), 0) * totalStudents;
-    const totalUnpaid = Math.max(0, totalFees - totalPayments);
+    // Fallback if cash_transactions table isn't populated yet by till sessions
+    if (cashTx.length === 0) {
+      const cashPayments = payments
+        .filter(p => p.status === 'paid' && (!p.payment_method || p.payment_method === 'Cash' || p.payment_method === 'Espèces'))
+        .reduce((s, p) => s + Number(p.amount), 0) + totalPaidCanteen;
+      cashBalance = Math.max(0, cashPayments - totalExpenses);
+    }
 
-    setStats({ totalStudents, totalBoys, totalGirls, totalTeachers, totalParents, totalPayments, totalUnpaid, cashBalance, recentExpenses: totalExpenses });
+    setStats({
+      totalStudents,
+      totalBoys,
+      totalGirls,
+      totalTeachers,
+      totalParents,
+      totalPayments,
+      totalUnpaid,
+      cashBalance,
+      recentExpenses: totalExpenses
+    });
 
-    // Payments by month
+    // Payments by month (Tuition + Canteen)
     const monthMap: Record<string, number> = {};
-    payments.forEach(p => {
-      const month = new Date(p.payment_date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+    const allValidatedPayments = [
+      ...payments.filter(p => p.status === 'paid'),
+      ...canteenPayments
+    ];
+    allValidatedPayments.forEach((p: any) => {
+      const dateVal = p.payment_date || p.created_at;
+      if (!dateVal) return;
+      const month = new Date(dateVal).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
       monthMap[month] = (monthMap[month] || 0) + Number(p.amount);
     });
     setPaymentByMonth(Object.entries(monthMap).map(([name, montant]) => ({ name, montant })));
 
     // Students by level
-    const levelRes = await supabase.from('levels').select('id, name').eq('school_id', schoolId);
-    const classRes = await supabase.from('classes').select('id, level_id, name').eq('school_id', schoolId);
-    const levels = levelRes.data || [];
-    const classes = classRes.data || [];
     const levelStudents = levels.map(l => {
       const levelClasses = classes.filter(c => c.level_id === l.id);
       const count = students.filter(s => levelClasses.some(c => c.id === s.class_id)).length;
@@ -93,14 +195,11 @@ export default function DashboardPage() {
     }).filter(l => l.value > 0);
     setStudentsByLevel(levelStudents);
 
-    // Payment status
-    const paidCount = payments.filter(p => p.status === 'paid').length;
-    const partialCount = payments.filter(p => p.status === 'partial').length;
-    const unpaidCount = Math.max(0, totalStudents - paidCount - partialCount);
+    // Payment status distribution
     setPaymentStatus([
-      { name: 'Payé', value: paidCount },
-      { name: 'Partiel', value: partialCount },
-      { name: 'Impayé', value: unpaidCount },
+      { name: 'Payé', value: paidStudentsCount },
+      { name: 'Partiel', value: partialStudentsCount },
+      { name: 'Impayé', value: unpaidStudentsCount },
     ].filter(s => s.value > 0));
 
     // Recent payments
@@ -108,13 +207,14 @@ export default function DashboardPage() {
       .from('payments')
       .select('*, students(first_name, last_name, matricule)')
       .eq('school_id', schoolId)
+      .eq('status', 'paid')
       .order('created_at', { ascending: false })
       .limit(5);
     setRecentPayments(recentData || []);
 
     // Alerts
     const alertList: {type: string; message: string; date: string}[] = [];
-    if (totalUnpaid > 0) alertList.push({ type: 'warning', message: `${totalUnpaid > 100000 ? 'Montant important d\'impayés : ' : 'Impayés : '}${formatCurrency(totalUnpaid)}`, date: new Date().toISOString() });
+    if (totalUnpaid > 0) alertList.push({ type: 'warning', message: `Montant des impayés de scolarité : ${formatCurrency(totalUnpaid)}`, date: new Date().toISOString() });
     if (totalStudents === 0) alertList.push({ type: 'info', message: 'Aucun élève inscrit pour le moment', date: new Date().toISOString() });
     setAlerts(alertList);
 
