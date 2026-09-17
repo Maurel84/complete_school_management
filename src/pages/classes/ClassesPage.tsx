@@ -6,7 +6,13 @@ import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 import EmptyState from '../../components/common/EmptyState';
 import type { Class, Level } from '../../types';
-import { Edit, Plus, School, Trash2 } from 'lucide-react';
+import { Edit, Plus, School, Trash2, Printer, ClipboardList, FileText } from 'lucide-react';
+import {
+  buildClassRosterHtml,
+  buildClassAttendanceSheetHtml,
+  buildClassGradeSheetHtml,
+  openPrintPreview
+} from '../../lib/printableDocuments';
 
 export default function ClassesPage() {
   const { school, academicYear } = useApp();
@@ -46,6 +52,79 @@ export default function ClassesPage() {
     }
 
     setLoading(false);
+  }
+
+  async function handlePrintRoster(currentClass: Class) {
+    if (!school) return;
+    const { data: studentsData } = await supabase
+      .from('students')
+      .select(`
+        id, matricule, first_name, last_name, sex, birth_date,
+        parents:student_parents(parent:parents(first_name, last_name, phone))
+      `)
+      .eq('class_id', currentClass.id)
+      .eq('status', 'active')
+      .order('last_name');
+
+    const formatted = (studentsData || []).map((s: any) => {
+      const mainParent = s.parents?.[0]?.parent;
+      return {
+        matricule: s.matricule,
+        first_name: s.first_name,
+        last_name: s.last_name,
+        sex: s.sex,
+        birth_date: s.birth_date,
+        parent_name: mainParent ? `${mainParent.first_name} ${mainParent.last_name}` : '',
+        parent_phone: mainParent ? mainParent.phone : '',
+      };
+    });
+
+    const html = buildClassRosterHtml({
+      school,
+      className: currentClass.name,
+      academicYearName: academicYear?.name || '2026-2027',
+      students: formatted,
+    });
+    openPrintPreview(html);
+  }
+
+  async function handlePrintAttendance(currentClass: Class) {
+    if (!school) return;
+    const { data: studentsData } = await supabase
+      .from('students')
+      .select('id, matricule, first_name, last_name, sex')
+      .eq('class_id', currentClass.id)
+      .eq('status', 'active')
+      .order('last_name');
+
+    const currentMonth = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+
+    const html = buildClassAttendanceSheetHtml({
+      school,
+      className: currentClass.name,
+      monthName: currentMonth,
+      academicYearName: academicYear?.name || '2026-2027',
+      students: (studentsData || []) as any[],
+    });
+    openPrintPreview(html);
+  }
+
+  async function handlePrintGradeSheet(currentClass: Class) {
+    if (!school) return;
+    const { data: studentsData } = await supabase
+      .from('students')
+      .select('id, matricule, first_name, last_name')
+      .eq('class_id', currentClass.id)
+      .eq('status', 'active')
+      .order('last_name');
+
+    const html = buildClassGradeSheetHtml({
+      school,
+      className: currentClass.name,
+      academicYearName: academicYear?.name || '2026-2027',
+      students: (studentsData || []) as any[],
+    });
+    openPrintPreview(html);
   }
 
   function openCreate() {
@@ -127,9 +206,30 @@ export default function ClassesPage() {
     },
     {
       key: 'actions',
-      label: 'Actions',
+      label: 'Impressions & Actions',
       render: (currentClass: any) => (
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => void handlePrintRoster(currentClass)}
+            title="Imprimer la Liste Officielle de Classe"
+            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
+          >
+            <Printer size={14} /> Liste
+          </button>
+          <button
+            onClick={() => void handlePrintAttendance(currentClass)}
+            title="Imprimer la Fiche d'Appel / Présence Mensuelle"
+            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
+          >
+            <ClipboardList size={14} /> Appel
+          </button>
+          <button
+            onClick={() => void handlePrintGradeSheet(currentClass)}
+            title="Imprimer la Grille de Saisie des Notes"
+            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 transition"
+          >
+            <FileText size={14} /> Notes
+          </button>
           <button onClick={() => openEdit(currentClass)} className="rounded-full p-2 text-amber-600 transition hover:bg-amber-50">
             <Edit size={16} />
           </button>

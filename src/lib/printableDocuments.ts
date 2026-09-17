@@ -1255,3 +1255,266 @@ export function buildReportCardHtml({
     `
   );
 }
+
+function wrapDocumentWithHeader(school: any, title: string, contentHtml: string) {
+  const logoHtml = school?.logo_url
+    ? `<img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name || '')}" style="width: 55px; height: 55px; border-radius: 12px; object-fit: cover; border: 1px solid #e2e8f0;" />`
+    : `<div style="width: 55px; height: 55px; border-radius: 12px; background: #1e3a8a; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px;">${escapeHtml((school?.name || 'GS')[0])}</div>`;
+
+  const body = `
+    <div style="max-width: 900px; margin: 0 auto; background: white; padding: 25px; font-family: system-ui, -apple-system, sans-serif;">
+      <!-- Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 20px;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          ${logoHtml}
+          <div>
+            <h1 style="margin: 0; font-size: 18px; font-weight: 800; color: #1e3a8a; text-transform: uppercase;">${escapeHtml(school?.name || '')}</h1>
+            <p style="margin: 2px 0 0 0; font-size: 11px; color: #64748b;">Maternelle et Primaire - PS au CM2</p>
+            <p style="margin: 2px 0 0 0; font-size: 10px; color: #64748b;">${escapeHtml(school?.address || 'BP 506 BONOUA')} | Tél : ${escapeHtml(school?.phone || '')}</p>
+          </div>
+        </div>
+        <div style="text-align: right;">
+          <p style="margin: 0; font-size: 10px; color: #64748b; font-weight: bold;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+          <p style="margin: 2px 0 0 0; font-size: 9px; color: #94a3b8;">Union - Discipline - Travail</p>
+          <p style="margin: 2px 0 0 0; font-size: 9px; color: #94a3b8;">Ministère de l'Éducation Nationale</p>
+        </div>
+      </div>
+
+      ${contentHtml}
+    </div>
+  `;
+
+  return printableShell(title, body);
+}
+
+export function buildClassRosterHtml({
+  school,
+  className,
+  academicYearName = '2026-2027',
+  students,
+}: {
+  school: any;
+  className: string;
+  academicYearName?: string;
+  students: {
+    matricule?: string;
+    first_name: string;
+    last_name: string;
+    sex: string;
+    birth_date?: string;
+    parent_name?: string;
+    parent_phone?: string;
+  }[];
+}) {
+  const boysCount = students.filter(s => s.sex === 'M').length;
+  const girlsCount = students.filter(s => s.sex === 'F').length;
+
+  return wrapDocumentWithHeader(
+    school,
+    `LISTE OFFICIELLE DE CLASSE - ${className.toUpperCase()}`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin-bottom: 15px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; color: #1e3a8a; text-transform: uppercase;">CLASSE DE : ${escapeHtml(className)}</h2>
+          <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">Année Scolaire : ${escapeHtml(academicYearName)}</p>
+        </div>
+        <div style="text-align: right; font-size: 12px; font-weight: bold; color: #1e3a8a; background: #eff6ff; padding: 6px 12px; border-radius: 8px; border: 1px solid #bfdbfe;">
+          Effectif Total : ${students.length} élèves (${boysCount} Garçons, ${girlsCount} Filles)
+        </div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #1e3a8a; color: white; text-align: left;">
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 30px; text-align: center;">N°</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 90px;">Matricule</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a;">Nom & Prénoms</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 45px; text-align: center;">Sexe</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 90px; text-align: center;">Né(e) le</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a;">Nom du Parent / Tuteur</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 110px;">Téléphone Contact</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${students
+            .map(
+              (s, index) => `
+            <tr style="background: ${index % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">${index + 1}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${escapeHtml(s.matricule || '-')}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a;">${escapeHtml(s.last_name.toUpperCase())} ${escapeHtml(s.first_name)}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: ${s.sex === 'F' ? '#db2777' : '#2563eb'};">${s.sex || '-'}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; text-align: center;">${s.birth_date ? new Date(s.birth_date).toLocaleDateString('fr-FR') : '-'}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1;">${escapeHtml(s.parent_name || '-')}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${escapeHtml(s.parent_phone || '-')}</td>
+            </tr>
+          `,
+            )
+            .join('')}
+        </tbody>
+      </table>
+
+      <div style="margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">L'Enseignant Titulaire</p>
+        </div>
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Le Directeur de l'Établissement</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
+
+export function buildClassAttendanceSheetHtml({
+  school,
+  className,
+  monthName = 'Mois en cours',
+  academicYearName = '2026-2027',
+  students,
+}: {
+  school: any;
+  className: string;
+  monthName?: string;
+  academicYearName?: string;
+  students: {
+    matricule?: string;
+    first_name: string;
+    last_name: string;
+    sex: string;
+  }[];
+}) {
+  return wrapDocumentWithHeader(
+    school,
+    `FICHE D'APPEL ET DE PRÉSENCE - ${className.toUpperCase()}`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #059669; padding-bottom: 8px; margin-bottom: 15px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; color: #065f46; text-transform: uppercase;">REGISTRE DE PRÉSENCE : ${escapeHtml(className)}</h2>
+          <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">Mois : <strong>${escapeHtml(monthName)}</strong> | Année Scolaire : ${escapeHtml(academicYearName)}</p>
+        </div>
+        <div style="text-align: right; font-size: 11px; color: #065f46; background: #ecfdf5; padding: 6px 12px; border-radius: 8px; border: 1px solid #a7f3d0;">
+          Légende : <strong>P</strong> = Présent | <strong>A</strong> = Absent | <strong>R</strong> = Retard
+        </div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #065f46; color: white; text-align: left;">
+            <th style="padding: 6px; border: 1px solid #065f46; width: 25px; text-align: center;">N°</th>
+            <th style="padding: 6px; border: 1px solid #065f46;">Nom & Prénoms</th>
+            <th style="padding: 6px; border: 1px solid #065f46; width: 30px; text-align: center;">Sex</th>
+            ${Array.from({ length: 31 }, (_, i) => `<th style="padding: 4px; border: 1px solid #065f46; width: 18px; text-align: center; font-size: 8px;">${i + 1}</th>`).join('')}
+            <th style="padding: 4px; border: 1px solid #065f46; width: 25px; text-align: center; font-size: 8px;">Tot. Abs</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${students
+            .map(
+              (s, index) => `
+            <tr style="background: ${index % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+              <td style="padding: 5px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">${index + 1}</td>
+              <td style="padding: 5px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a; white-space: nowrap;">${escapeHtml(s.last_name.toUpperCase())} ${escapeHtml(s.first_name)}</td>
+              <td style="padding: 5px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">${s.sex || '-'}</td>
+              ${Array.from({ length: 31 }, () => `<td style="border: 1px solid #cbd5e1;"></td>`).join('')}
+              <td style="border: 1px solid #cbd5e1; background: #f1f5f9;"></td>
+            </tr>
+          `,
+            )
+            .join('')}
+        </tbody>
+      </table>
+
+      <div style="margin-top: 20px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 40px 0; text-decoration: underline;">Signature de l'Enseignant</p>
+        </div>
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 40px 0; text-decoration: underline;">Le Maître / Titulaire</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
+
+export function buildClassGradeSheetHtml({
+  school,
+  className,
+  subjectName = 'Discipline / Matière',
+  academicYearName = '2026-2027',
+  students,
+}: {
+  school: any;
+  className: string;
+  subjectName?: string;
+  academicYearName?: string;
+  students: {
+    matricule?: string;
+    first_name: string;
+    last_name: string;
+  }[];
+}) {
+  return wrapDocumentWithHeader(
+    school,
+    `GRILLE DE SAISIE DES NOTES - ${className.toUpperCase()}`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #7c3aed; padding-bottom: 8px; margin-bottom: 15px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; color: #5b21b6; text-transform: uppercase;">SAISIE DES NOTES : ${escapeHtml(className)}</h2>
+          <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">Matière : <strong>${escapeHtml(subjectName)}</strong> | Année Scolaire : ${escapeHtml(academicYearName)}</p>
+        </div>
+        <div style="text-align: right; font-size: 11px; color: #5b21b6; background: #f5f3ff; padding: 6px 12px; border-radius: 8px; border: 1px solid #ddd6fe;">
+          Semestre / Trimestre : ______________
+        </div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #5b21b6; color: white; text-align: left;">
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 30px; text-align: center;">N°</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 90px;">Matricule</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6;">Nom & Prénoms de l'Élève</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 70px; text-align: center;">Interro 1</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 70px; text-align: center;">Interro 2</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 70px; text-align: center;">Devoir 1</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 70px; text-align: center;">Devoir 2</th>
+            <th style="padding: 8px; border: 1px solid #5b21b6; width: 80px; text-align: center;">Moy. / 20</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${students
+            .map(
+              (s, index) => `
+            <tr style="background: ${index % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+              <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">${index + 1}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; font-family: monospace;">${escapeHtml(s.matricule || '-')}</td>
+              <td style="padding: 8px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a;">${escapeHtml(s.last_name.toUpperCase())} ${escapeHtml(s.first_name)}</td>
+              <td style="border: 1px solid #cbd5e1;"></td>
+              <td style="border: 1px solid #cbd5e1;"></td>
+              <td style="border: 1px solid #cbd5e1;"></td>
+              <td style="border: 1px solid #cbd5e1;"></td>
+              <td style="border: 1px solid #cbd5e1; background: #f8fafc;"></td>
+            </tr>
+          `,
+            )
+            .join('')}
+        </tbody>
+      </table>
+
+      <div style="margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Date et Signature du Professeur</p>
+        </div>
+        <div style="text-align: center; width: 200px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Le Directeur des Études</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
