@@ -64,12 +64,11 @@ export default function ClassesPage() {
   async function fetchClassStudents(classId: string) {
     if (!school) return [];
     try {
-      // Step 1: Always fetch active students for this class directly
+      // Step 1: Always fetch active students for this class directly with select('*')
       const { data: students, error: studErr } = await supabase
         .from('students')
-        .select('id, matricule, first_name, last_name, sex, birth_date, status')
+        .select('*')
         .eq('class_id', classId)
-        .eq('status', 'active')
         .order('last_name');
 
       if (studErr) {
@@ -81,8 +80,12 @@ export default function ClassesPage() {
         return [];
       }
 
+      // Filter to keep active or unarchived students
+      const activeStudents = students.filter(s => !s.status || s.status.toLowerCase() === 'active' || s.status.toLowerCase() === 'inscrit');
+      const targetList = activeStudents.length > 0 ? activeStudents : students;
+
       // Step 2: Safely enrich with parent contact info
-      const studentIds = students.map(s => s.id);
+      const studentIds = targetList.map(s => s.id);
       const parentMap: Record<string, { name: string; phone: string }> = {};
 
       try {
@@ -106,16 +109,20 @@ export default function ClassesPage() {
         console.warn("Could not load parent info, continuing with student list", parentErr);
       }
 
-      return students.map(s => ({
-        id: s.id,
-        matricule: s.matricule || '-',
-        first_name: s.first_name || '',
-        last_name: s.last_name || '',
-        sex: s.sex || 'M',
-        birth_date: s.birth_date,
-        parent_name: parentMap[s.id]?.name || '',
-        parent_phone: parentMap[s.id]?.phone || '',
-      }));
+      return targetList.map(s => {
+        const dob = s.date_of_birth || s.birth_date || '';
+        return {
+          id: s.id,
+          matricule: s.matricule || '-',
+          first_name: s.first_name || '',
+          last_name: s.last_name || '',
+          sex: s.sex || 'M',
+          date_of_birth: dob,
+          birth_date: dob,
+          parent_name: parentMap[s.id]?.name || '',
+          parent_phone: parentMap[s.id]?.phone || '',
+        };
+      });
     } catch (e) {
       console.error("Critical error in fetchClassStudents", e);
       return [];
