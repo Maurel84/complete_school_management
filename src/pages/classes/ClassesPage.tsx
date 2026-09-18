@@ -63,35 +63,63 @@ export default function ClassesPage() {
 
   async function fetchClassStudents(classId: string) {
     if (!school) return [];
-    const { data, error } = await supabase
-      .from('students')
-      .select(`
-        id, matricule, first_name, last_name, sex, birth_date, status,
-        student_parents(parent_id, parent:parents(id, first_name, last_name, phone))
-      `)
-      .eq('class_id', classId)
-      .eq('school_id', school.id)
-      .eq('status', 'active')
-      .order('last_name');
+    try {
+      // Step 1: Always fetch active students for this class directly
+      const { data: students, error: studErr } = await supabase
+        .from('students')
+        .select('id, matricule, first_name, last_name, sex, birth_date, status')
+        .eq('class_id', classId)
+        .eq('status', 'active')
+        .order('last_name');
 
-    if (error) {
-      console.error("Error fetching class students", error);
-      return [];
-    }
+      if (studErr) {
+        console.error("Error fetching students for class", studErr);
+        return [];
+      }
 
-    return (data || []).map((s: any) => {
-      const parentLink = s.student_parents?.[0]?.parent;
-      return {
+      if (!students || students.length === 0) {
+        return [];
+      }
+
+      // Step 2: Safely enrich with parent contact info
+      const studentIds = students.map(s => s.id);
+      const parentMap: Record<string, { name: string; phone: string }> = {};
+
+      try {
+        const { data: spData } = await supabase
+          .from('student_parents')
+          .select('student_id, parent:parents(first_name, last_name, phone)')
+          .in('student_id', studentIds);
+
+        (spData || []).forEach((sp: any) => {
+          if (sp.parent && !parentMap[sp.student_id]) {
+            const p = Array.isArray(sp.parent) ? sp.parent[0] : sp.parent;
+            if (p) {
+              parentMap[sp.student_id] = {
+                name: `${p.first_name || ''} ${p.last_name || ''}`.trim(),
+                phone: p.phone || '',
+              };
+            }
+          }
+        });
+      } catch (parentErr) {
+        console.warn("Could not load parent info, continuing with student list", parentErr);
+      }
+
+      return students.map(s => ({
         id: s.id,
         matricule: s.matricule || '-',
-        first_name: s.first_name,
-        last_name: s.last_name,
+        first_name: s.first_name || '',
+        last_name: s.last_name || '',
         sex: s.sex || 'M',
         birth_date: s.birth_date,
-        parent_name: parentLink ? `${parentLink.first_name} ${parentLink.last_name}` : '',
-        parent_phone: parentLink ? parentLink.phone : '',
-      };
-    });
+        parent_name: parentMap[s.id]?.name || '',
+        parent_phone: parentMap[s.id]?.phone || '',
+      }));
+    } catch (e) {
+      console.error("Critical error in fetchClassStudents", e);
+      return [];
+    }
   }
 
   async function openClassDetails(currentClass: Class) {
