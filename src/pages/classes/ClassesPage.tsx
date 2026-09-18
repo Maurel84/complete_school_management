@@ -6,7 +6,7 @@ import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 import EmptyState from '../../components/common/EmptyState';
 import type { Class, Level } from '../../types';
-import { Edit, Plus, School, Trash2, Printer, ClipboardList, FileText } from 'lucide-react';
+import { Edit, Plus, School, Trash2, Printer, ClipboardList, FileText, Eye, Search, Users } from 'lucide-react';
 import {
   buildClassRosterHtml,
   buildClassAttendanceSheetHtml,
@@ -25,6 +25,13 @@ export default function ClassesPage() {
   const [form, setForm] = useState({ name: '', level_id: '', capacity: 40, room: '' });
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Class Detail & Preview Modal State
+  const [detailModalOpen, setDetailModalOpen] = useState(false);
+  const [viewingClass, setViewingClass] = useState<Class | null>(null);
+  const [classStudents, setClassStudents] = useState<any[]>([]);
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentSearch, setStudentSearch] = useState('');
 
   useEffect(() => {
     if (!school) return;
@@ -54,75 +61,83 @@ export default function ClassesPage() {
     setLoading(false);
   }
 
-  async function handlePrintRoster(currentClass: Class) {
-    if (!school) return;
-    const { data: studentsData } = await supabase
+  async function fetchClassStudents(classId: string) {
+    if (!school) return [];
+    const { data, error } = await supabase
       .from('students')
       .select(`
-        id, matricule, first_name, last_name, sex, birth_date,
-        parents:student_parents(parent:parents(first_name, last_name, phone))
+        id, matricule, first_name, last_name, sex, birth_date, status,
+        student_parents(parent_id, parent:parents(id, first_name, last_name, phone))
       `)
-      .eq('class_id', currentClass.id)
+      .eq('class_id', classId)
+      .eq('school_id', school.id)
       .eq('status', 'active')
       .order('last_name');
 
-    const formatted = (studentsData || []).map((s: any) => {
-      const mainParent = s.parents?.[0]?.parent;
+    if (error) {
+      console.error("Error fetching class students", error);
+      return [];
+    }
+
+    return (data || []).map((s: any) => {
+      const parentLink = s.student_parents?.[0]?.parent;
       return {
-        matricule: s.matricule,
+        id: s.id,
+        matricule: s.matricule || '-',
         first_name: s.first_name,
         last_name: s.last_name,
-        sex: s.sex,
+        sex: s.sex || 'M',
         birth_date: s.birth_date,
-        parent_name: mainParent ? `${mainParent.first_name} ${mainParent.last_name}` : '',
-        parent_phone: mainParent ? mainParent.phone : '',
+        parent_name: parentLink ? `${parentLink.first_name} ${parentLink.last_name}` : '',
+        parent_phone: parentLink ? parentLink.phone : '',
       };
     });
+  }
 
+  async function openClassDetails(currentClass: Class) {
+    setViewingClass(currentClass);
+    setDetailModalOpen(true);
+    setLoadingStudents(true);
+    setStudentSearch('');
+    const students = await fetchClassStudents(currentClass.id);
+    setClassStudents(students);
+    setLoadingStudents(false);
+  }
+
+  async function handlePrintRoster(currentClass: Class, overrideStudents?: any[]) {
+    if (!school) return;
+    const students = overrideStudents || (await fetchClassStudents(currentClass.id));
     const html = buildClassRosterHtml({
       school,
       className: currentClass.name,
       academicYearName: academicYear?.name || '2026-2027',
-      students: formatted,
+      students,
     });
     openPrintPreview(html);
   }
 
-  async function handlePrintAttendance(currentClass: Class) {
+  async function handlePrintAttendance(currentClass: Class, overrideStudents?: any[]) {
     if (!school) return;
-    const { data: studentsData } = await supabase
-      .from('students')
-      .select('id, matricule, first_name, last_name, sex')
-      .eq('class_id', currentClass.id)
-      .eq('status', 'active')
-      .order('last_name');
-
+    const students = overrideStudents || (await fetchClassStudents(currentClass.id));
     const currentMonth = new Date().toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
-
     const html = buildClassAttendanceSheetHtml({
       school,
       className: currentClass.name,
       monthName: currentMonth,
       academicYearName: academicYear?.name || '2026-2027',
-      students: (studentsData || []) as any[],
+      students,
     });
     openPrintPreview(html);
   }
 
-  async function handlePrintGradeSheet(currentClass: Class) {
+  async function handlePrintGradeSheet(currentClass: Class, overrideStudents?: any[]) {
     if (!school) return;
-    const { data: studentsData } = await supabase
-      .from('students')
-      .select('id, matricule, first_name, last_name')
-      .eq('class_id', currentClass.id)
-      .eq('status', 'active')
-      .order('last_name');
-
+    const students = overrideStudents || (await fetchClassStudents(currentClass.id));
     const html = buildClassGradeSheetHtml({
       school,
       className: currentClass.name,
       academicYearName: academicYear?.name || '2026-2027',
-      students: (studentsData || []) as any[],
+      students,
     });
     openPrintPreview(html);
   }
@@ -188,7 +203,19 @@ export default function ClassesPage() {
   }
 
   const columns = [
-    { key: 'name', label: 'Classe' },
+    {
+      key: 'name',
+      label: 'Classe',
+      render: (currentClass: any) => (
+        <button
+          onClick={() => void openClassDetails(currentClass)}
+          className="font-bold text-blue-600 hover:text-blue-800 hover:underline text-left flex items-center gap-1.5"
+        >
+          <School size={16} className="text-blue-500" />
+          {currentClass.name}
+        </button>
+      ),
+    },
     { key: 'level_id', label: 'Niveau', render: (currentClass: any) => levels.find(level => level.id === currentClass.level_id)?.name || '-' },
     { key: 'room', label: 'Salle', render: (currentClass: any) => currentClass.room || '-' },
     { key: 'capacity', label: 'Capacité' },
@@ -197,7 +224,7 @@ export default function ClassesPage() {
       label: 'Effectif',
       render: (currentClass: any) => (
         <div className="flex items-center gap-2">
-          <span>{currentClass.student_count}</span>
+          <span className="font-semibold text-slate-800">{currentClass.student_count}</span>
           <div className="h-1.5 w-16 overflow-hidden rounded-full bg-gray-200">
             <div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.min(100, (currentClass.student_count / currentClass.capacity) * 100)}%` }} />
           </div>
@@ -206,40 +233,47 @@ export default function ClassesPage() {
     },
     {
       key: 'actions',
-      label: 'Impressions & Actions',
+      label: 'Liste & Impressions',
       render: (currentClass: any) => (
         <div className="flex items-center gap-1">
           <button
+            onClick={() => void openClassDetails(currentClass)}
+            title="Consulter la liste des élèves"
+            className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-xs"
+          >
+            <Eye size={14} /> Aperçu Liste
+          </button>
+          <button
             onClick={() => void handlePrintRoster(currentClass)}
-            title="Imprimer la Liste Officielle de Classe"
+            title="Imprimer la Liste Officielle"
             className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 transition"
           >
             <Printer size={14} /> Liste
           </button>
           <button
             onClick={() => void handlePrintAttendance(currentClass)}
-            title="Imprimer la Fiche d'Appel / Présence Mensuelle"
+            title="Imprimer la Fiche d'Appel Mensuelle"
             className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition"
           >
             <ClipboardList size={14} /> Appel
           </button>
-          <button
-            onClick={() => void handlePrintGradeSheet(currentClass)}
-            title="Imprimer la Grille de Saisie des Notes"
-            className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 transition"
-          >
-            <FileText size={14} /> Notes
-          </button>
-          <button onClick={() => openEdit(currentClass)} className="rounded-full p-2 text-amber-600 transition hover:bg-amber-50">
+          <button onClick={() => openEdit(currentClass)} className="rounded-full p-2 text-amber-600 transition hover:bg-amber-50" title="Modifier">
             <Edit size={16} />
           </button>
-          <button onClick={() => void handleDelete(currentClass.id)} className="rounded-full p-2 text-red-600 transition hover:bg-red-50">
+          <button onClick={() => void handleDelete(currentClass.id)} className="rounded-full p-2 text-red-600 transition hover:bg-red-50" title="Supprimer">
             <Trash2 size={16} />
           </button>
         </div>
       ),
     },
   ];
+
+  const filteredClassStudents = classStudents.filter(s =>
+    `${s.first_name} ${s.last_name} ${s.matricule}`.toLowerCase().includes(studentSearch.toLowerCase())
+  );
+
+  const boysCount = classStudents.filter(s => s.sex === 'M').length;
+  const girlsCount = classStudents.filter(s => s.sex === 'F').length;
 
   return (
     <div className="space-y-6">
@@ -259,6 +293,117 @@ export default function ClassesPage() {
         <DataTable columns={columns} data={classes as any[]} searchPlaceholder="Rechercher une classe..." searchKeys={['name', 'room']} loading={loading} />
       )}
 
+      {/* CLASS DETAILS AND LIST PREVIEW MODAL */}
+      <Modal
+        isOpen={detailModalOpen}
+        onClose={() => setDetailModalOpen(false)}
+        title={`Liste des élèves - Classe de ${viewingClass?.name || ''}`}
+        size="lg"
+      >
+        <div className="space-y-5">
+          {/* Header Summary Cards & Print Toolbar */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 uppercase">
+                  {levels.find(l => l.id === viewingClass?.level_id)?.name || 'Niveau'}
+                </span>
+                {viewingClass?.room && (
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-200 text-slate-700">
+                    Salle {viewingClass.room}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 pt-1">
+                Effectif total : <strong className="text-slate-900 font-bold">{classStudents.length} élèves</strong> ({boysCount} Garçons, {girlsCount} Filles)
+              </p>
+            </div>
+
+            {/* Quick Print Actions inside Modal */}
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => viewingClass && void handlePrintRoster(viewingClass, classStudents)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition shadow-xs"
+              >
+                <Printer size={14} /> Imprimer Liste
+              </button>
+              <button
+                onClick={() => viewingClass && void handlePrintAttendance(viewingClass, classStudents)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 transition shadow-xs"
+              >
+                <ClipboardList size={14} /> Fiche d'Appel
+              </button>
+              <button
+                onClick={() => viewingClass && void handlePrintGradeSheet(viewingClass, classStudents)}
+                className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold hover:bg-purple-700 transition shadow-xs"
+              >
+                <FileText size={14} /> Grille de Notes
+              </button>
+            </div>
+          </div>
+
+          {/* Search bar inside modal */}
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <input
+              type="text"
+              value={studentSearch}
+              onChange={e => setStudentSearch(e.target.value)}
+              placeholder="Filtrer un élève par nom, prénom ou matricule..."
+              className="w-full rounded-xl border border-slate-200 bg-white pl-9 pr-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+          </div>
+
+          {/* Student Table Preview */}
+          {loadingStudents ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin h-6 w-6 border-2 border-blue-600 border-t-transparent rounded-full" />
+            </div>
+          ) : filteredClassStudents.length === 0 ? (
+            <div className="text-center py-10 text-slate-500 text-sm">
+              <Users size={32} className="mx-auto mb-2 text-slate-300" />
+              {studentSearch ? 'Aucun élève ne correspond à la recherche' : 'Aucun élève inscrit dans cette classe'}
+            </div>
+          ) : (
+            <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-200">
+              <table className="w-full text-left text-sm text-slate-700 border-collapse">
+                <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600 sticky top-0">
+                  <tr>
+                    <th className="py-2.5 px-3 border-b border-slate-200 text-center w-10">N°</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200">Matricule</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200">Nom & Prénoms</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200 text-center">Sexe</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200 text-center">Né(e) le</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200">Parent / Tuteur</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200">Contact</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredClassStudents.map((s, index) => (
+                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-2 px-3 text-center font-bold text-slate-500 text-xs">{index + 1}</td>
+                      <td className="py-2 px-3 font-mono text-xs font-semibold text-slate-600">{s.matricule}</td>
+                      <td className="py-2 px-3 font-bold text-slate-900">{s.last_name.toUpperCase()} {s.first_name}</td>
+                      <td className="py-2 px-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${s.sex === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {s.sex}
+                        </span>
+                      </td>
+                      <td className="py-2 px-3 text-center text-xs text-slate-600">
+                        {s.birth_date ? new Date(s.birth_date).toLocaleDateString('fr-FR') : '-'}
+                      </td>
+                      <td className="py-2 px-3 text-xs text-slate-700">{s.parent_name || '-'}</td>
+                      <td className="py-2 px-3 font-mono text-xs text-slate-600">{s.parent_phone || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Modal>
+
+      {/* CREATE / EDIT CLASS MODAL */}
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
