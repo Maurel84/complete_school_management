@@ -46,14 +46,14 @@ export default function StatCard({ icon, value, label, trend, color = 'blue' }: 
   const palette = colorMap[color];
 
   return (
-    <div className="relative overflow-hidden rounded-[26px] border border-white/70 bg-white/90 p-5 shadow-[0_28px_70px_-36px_rgba(15,23,42,0.35)] backdrop-blur">
-      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${palette.line}`} />
-      <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full ${palette.glow} blur-3xl`} />
+    <div className="group relative overflow-hidden rounded-[26px] border border-white/80 bg-white/90 p-5 shadow-[0_20px_50px_-25px_rgba(15,23,42,0.18)] backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_30px_70px_-25px_rgba(15,23,42,0.28)]">
+      <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${palette.line} transition-all duration-300 group-hover:h-1.5`} />
+      <div className={`absolute -right-10 -top-10 h-28 w-28 rounded-full ${palette.glow} blur-3xl transition-all duration-500 group-hover:scale-125`} />
 
       <div className="relative flex items-start justify-between">
-        <div className={`rounded-2xl p-3 ${palette.icon}`}>{icon}</div>
+        <div className={`rounded-2xl p-3 shadow-xs transition-transform duration-300 group-hover:scale-105 ${palette.icon}`}>{icon}</div>
         {trend && (
-          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
+          <div className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${
             trend.up ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
           }`}>
             {trend.up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
@@ -63,8 +63,8 @@ export default function StatCard({ icon, value, label, trend, color = 'blue' }: 
       </div>
 
       <div className="relative mt-5">
-        <p className="display-font text-3xl font-semibold tracking-tight text-slate-900">{value}</p>
-        <p className="mt-2 text-sm text-slate-500">{label}</p>
+        <p className="display-font text-3xl font-extrabold tracking-tight text-slate-900 group-hover:text-blue-950 transition-colors">{value}</p>
+        <p className="mt-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">{label}</p>
       </div>
     </div>
   );
