@@ -1518,3 +1518,90 @@ export function buildClassGradeSheetHtml({
     `,
   );
 }
+
+export function buildTrialBalanceHtml({
+  school,
+  academicYearName = '2026-2027',
+  rows,
+}: {
+  school: any;
+  academicYearName?: string;
+  rows: {
+    account_number: string;
+    name: string;
+    total_debit: number;
+    total_credit: number;
+    debit_balance: number;
+    credit_balance: number;
+  }[];
+}) {
+  const totalDebit = rows.reduce((s, r) => s + r.total_debit, 0);
+  const totalCredit = rows.reduce((s, r) => s + r.total_credit, 0);
+  const totalDebitBalance = rows.reduce((s, r) => s + r.debit_balance, 0);
+  const totalCreditBalance = rows.reduce((s, r) => s + r.credit_balance, 0);
+  const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
+
+  return wrapDocumentWithHeader(
+    school,
+    `BALANCE GÉNÉRALE DES COMPTES (SYSCOHADA)`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0284c7; padding-bottom: 8px; margin-bottom: 15px;">
+        <div>
+          <h2 style="margin: 0; font-size: 18px; color: #0369a1; text-transform: uppercase;">BALANCE GÉNÉRALE DU PLAN COMPTABLE</h2>
+          <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">Année Scolaire : <strong>${escapeHtml(academicYearName)}</strong></p>
+        </div>
+        <div style="text-align: right; font-size: 11px; font-weight: bold; background: ${isBalanced ? '#f0fdf4' : '#fef2f2'}; color: ${isBalanced ? '#166534' : '#991b1b'}; padding: 6px 12px; border-radius: 8px; border: 1px solid ${isBalanced ? '#bbf7d0' : '#fecaca'};">
+          ${isBalanced ? '🟢 BALANCE ÉQUILIBRÉE' : '⚠️ DÉSÉQUILIBRE COMPTABLE'}
+        </div>
+      </div>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #0369a1; color: white; text-align: left;">
+            <th style="padding: 8px; border: 1px solid #0369a1; width: 90px;">N° Compte</th>
+            <th style="padding: 8px; border: 1px solid #0369a1;">Intitulé du Compte</th>
+            <th style="padding: 8px; border: 1px solid #0369a1; text-align: right; width: 110px;">Cumul Débit</th>
+            <th style="padding: 8px; border: 1px solid #0369a1; text-align: right; width: 110px;">Cumul Crédit</th>
+            <th style="padding: 8px; border: 1px solid #0369a1; text-align: right; width: 110px;">Solde Débiteur</th>
+            <th style="padding: 8px; border: 1px solid #0369a1; text-align: right; width: 110px;">Solde Créditeur</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (r, idx) => `
+            <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: bold;">${escapeHtml(r.account_number)}</td>
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: 500;">${escapeHtml(r.name)}</td>
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">${r.total_debit > 0 ? formatCurrency(r.total_debit) : '-'}</td>
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">${r.total_credit > 0 ? formatCurrency(r.total_credit) : '-'}</td>
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #2563eb; font-weight: bold;">${r.debit_balance > 0 ? formatCurrency(r.debit_balance) : '-'}</td>
+              <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #059669; font-weight: bold;">${r.credit_balance > 0 ? formatCurrency(r.credit_balance) : '-'}</td>
+            </tr>
+          `,
+            )
+            .join('')}
+          <tr style="background: #e0f2fe; font-weight: bold; border-top: 2px solid #0369a1;">
+            <td colspan="2" style="padding: 8px; border: 1px solid #cbd5e1; text-align: right; font-size: 12px;">TOTAUX GÉNÉRAUX :</td>
+            <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">${formatCurrency(totalDebit)}</td>
+            <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">${formatCurrency(totalCredit)}</td>
+            <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #1d4ed8;">${formatCurrency(totalDebitBalance)}</td>
+            <td style="padding: 8px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #047857;">${formatCurrency(totalCreditBalance)}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Le Chef Comptable</p>
+        </div>
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Le Directeur Général</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
+

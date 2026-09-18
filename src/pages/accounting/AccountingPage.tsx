@@ -7,8 +7,9 @@ import FormField from '../../components/common/FormField';
 import StatCard from '../../components/common/StatCard';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import type { Expense, AccountingAccount, AccountingEntry } from '../../types';
-import { Calculator, Plus, TrendingUp, TrendingDown, FileText } from 'lucide-react';
+import { Calculator, Plus, TrendingUp, TrendingDown, FileText, Printer, BookOpen, Scale, PieChart, CheckCircle2, AlertCircle } from 'lucide-react';
 import { createDoubleEntry, createCashTransaction } from '../../lib/accountingSync';
+import { buildTrialBalanceHtml, openPrintPreview } from '../../lib/printableDocuments';
 
 type InventoryItem = {
   id: string;
@@ -19,13 +20,14 @@ type InventoryItem = {
 };
 
 export default function AccountingPage() {
-  const { school } = useApp();
+  const { school, academicYear } = useApp();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [entries, setEntries] = useState<AccountingEntry[]>([]);
   const [accounts, setAccounts] = useState<AccountingAccount[]>([]);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'expenses' | 'entries' | 'plan' | 'inventory'>('expenses');
+  const [tab, setTab] = useState<'expenses' | 'entries' | 'balance' | 'ledger' | 'profit_loss' | 'plan' | 'inventory'>('expenses');
+  const [selectedLedgerAccountId, setSelectedLedgerAccountId] = useState<string>('');
   const [expenseModal, setExpenseModal] = useState(false);
   const [entryModal, setEntryModal] = useState(false);
   const [accountModal, setAccountModal] = useState(false);
@@ -285,6 +287,61 @@ export default function AccountingPage() {
   const totalDebit = entries.reduce((s, e) => s + Number(e.debit), 0);
   const totalCredit = entries.reduce((s, e) => s + Number(e.credit), 0);
 
+  // Compute Trial Balance (Balance générale)
+  const trialBalanceRows = accounts.map(acc => {
+    const accEntries = entries.filter(e => e.account_id === acc.id);
+    const totalDebit = accEntries.reduce((s, e) => s + Number(e.debit || 0), 0);
+    const totalCredit = accEntries.reduce((s, e) => s + Number(e.credit || 0), 0);
+    const net = totalDebit - totalCredit;
+    return {
+      id: acc.id,
+      account_number: acc.account_number,
+      name: acc.name,
+      account_type: acc.account_type,
+      total_debit: totalDebit,
+      total_credit: totalCredit,
+      debit_balance: net > 0 ? net : 0,
+      credit_balance: net < 0 ? Math.abs(net) : 0,
+    };
+  }).sort((a, b) => a.account_number.localeCompare(b.account_number));
+
+  const grandTotalDebit = trialBalanceRows.reduce((s, r) => s + r.total_debit, 0);
+  const grandTotalCredit = trialBalanceRows.reduce((s, r) => s + r.total_credit, 0);
+  const grandDebitBalance = trialBalanceRows.reduce((s, r) => s + r.debit_balance, 0);
+  const grandCreditBalance = trialBalanceRows.reduce((s, r) => s + r.credit_balance, 0);
+  const isBalanceBalanced = Math.abs(grandTotalDebit - grandTotalCredit) < 0.01;
+
+  // Compute Profit & Loss (Compte de résultat)
+  const revenueRows = trialBalanceRows.filter(r => r.account_type === 'revenue' || r.account_number.startsWith('7'));
+  const expenseRows = trialBalanceRows.filter(r => r.account_type === 'expense' || r.account_number.startsWith('6'));
+
+  const totalRevenues = revenueRows.reduce((s, r) => s + (r.total_credit - r.total_debit), 0);
+  const totalCharges = expenseRows.reduce((s, r) => s + (r.total_debit - r.total_credit), 0);
+  const netResult = totalRevenues - totalCharges;
+
+  // Selected General Ledger Account entries
+  const currentLedgerAccount = accounts.find(a => a.id === selectedLedgerAccountId) || accounts[0];
+  const ledgerEntriesRaw = entries.filter(e => e.account_id === currentLedgerAccount?.id);
+  
+  let runningBal = 0;
+  const ledgerEntriesWithBalance = ledgerEntriesRaw.slice().reverse().map(e => {
+    runningBal += (Number(e.debit || 0) - Number(e.credit || 0));
+    return {
+      ...e,
+      running_balance: runningBal,
+    };
+  }).reverse();
+
+  function handlePrintTrialBalance() {
+    if (!school) return;
+    const html = buildTrialBalanceHtml({
+      school,
+      academicYearName: academicYear?.name || '2026-2027',
+      rows: trialBalanceRows,
+    });
+    openPrintPreview(html);
+  }
+
   const expenseColumns = [
     { key: 'description', label: 'Description' },
     { key: 'category', label: 'Catégorie' },
@@ -336,6 +393,9 @@ export default function AccountingPage() {
   const tabs = [
     { key: 'expenses', label: 'Dépenses' },
     { key: 'entries', label: 'Écritures' },
+    { key: 'balance', label: 'Balance des Comptes' },
+    { key: 'ledger', label: 'Grand Livre' },
+    { key: 'profit_loss', label: 'Compte de Résultat' },
     { key: 'plan', label: 'Plan comptable' },
     { key: 'inventory', label: 'Stock & Inventaire' },
   ];
@@ -345,7 +405,7 @@ export default function AccountingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Comptabilité</h1>
-          <p className="text-gray-500 mt-1">Gestion comptable et financière</p>
+          <p className="text-gray-500 mt-1">Gestion comptable et financière (Conforme SYSCOHADA)</p>
         </div>
         <div className="flex gap-2">
           <button onClick={() => setAccountModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white rounded-lg text-sm font-medium hover:bg-slate-800">
@@ -366,10 +426,10 @@ export default function AccountingPage() {
         <StatCard icon={<FileText size={20} />} value={formatCurrency(totalCredit)} label="Total crédit" color="green" />
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
         {tabs.map(t => (
           <button key={t.key} onClick={() => setTab(t.key as any)}
-            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t.key ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t.key ? 'text-blue-600 border-blue-600 font-semibold' : 'text-gray-500 border-transparent hover:text-gray-700'}`}>
             {t.label}
           </button>
         ))}
@@ -377,6 +437,226 @@ export default function AccountingPage() {
 
       {tab === 'expenses' && <DataTable columns={expenseColumns} data={expenses as any[]} searchKeys={['description', 'category', 'supplier']} searchPlaceholder="Rechercher une dépense..." loading={loading} />}
       {tab === 'entries' && <DataTable columns={entryColumns} data={entries as any[]} searchKeys={['entry_number', 'description']} searchPlaceholder="Rechercher une écriture..." loading={loading} />}
+      
+      {/* BALANCE GÉNÉRALE TAB */}
+      {tab === 'balance' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200">
+            <div className="flex items-center gap-3">
+              <Scale className="text-blue-600 h-6 w-6" />
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Balance Générale à 6 Colonnes</h3>
+                <p className="text-xs text-slate-500">Bilan des mouvements et soldes des comptes du plan comptable</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${isBalanceBalanced ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                {isBalanceBalanced ? '🟢 Balance Équilibrée' : '⚠️ Déséquilibre Detected'}
+              </span>
+              <button
+                onClick={handlePrintTrialBalance}
+                className="flex items-center gap-1.5 px-3 py-2 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 transition"
+              >
+                <Printer size={14} /> Imprimer Balance
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+            <table className="w-full text-left text-sm text-slate-700 border-collapse">
+              <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600">
+                <tr>
+                  <th className="py-3 px-4 border-b border-slate-200">N° Compte</th>
+                  <th className="py-3 px-4 border-b border-slate-200">Intitulé</th>
+                  <th className="py-3 px-4 border-b border-slate-200 text-right">Cumul Débit</th>
+                  <th className="py-3 px-4 border-b border-slate-200 text-right">Cumul Crédit</th>
+                  <th className="py-3 px-4 border-b border-slate-200 text-right">Solde Débiteur</th>
+                  <th className="py-3 px-4 border-b border-slate-200 text-right">Solde Créditeur</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-mono text-xs">
+                {trialBalanceRows.map(row => (
+                  <tr key={row.id} className="hover:bg-slate-50 transition">
+                    <td className="py-2.5 px-4 font-bold text-slate-900">{row.account_number}</td>
+                    <td className="py-2.5 px-4 font-sans font-medium text-slate-800">{row.name}</td>
+                    <td className="py-2.5 px-4 text-right text-slate-600">{row.total_debit > 0 ? formatCurrency(row.total_debit) : '-'}</td>
+                    <td className="py-2.5 px-4 text-right text-slate-600">{row.total_credit > 0 ? formatCurrency(row.total_credit) : '-'}</td>
+                    <td className="py-2.5 px-4 text-right font-bold text-blue-700">{row.debit_balance > 0 ? formatCurrency(row.debit_balance) : '-'}</td>
+                    <td className="py-2.5 px-4 text-right font-bold text-emerald-700">{row.credit_balance > 0 ? formatCurrency(row.credit_balance) : '-'}</td>
+                  </tr>
+                ))}
+                <tr className="bg-blue-50/80 font-bold text-slate-900 border-t-2 border-blue-600 text-sm">
+                  <td colSpan={2} className="py-3 px-4 font-sans text-right font-bold">TOTAUX GÉNÉRAUX :</td>
+                  <td className="py-3 px-4 text-right font-mono">{formatCurrency(grandTotalDebit)}</td>
+                  <td className="py-3 px-4 text-right font-mono">{formatCurrency(grandTotalCredit)}</td>
+                  <td className="py-3 px-4 text-right font-mono text-blue-800">{formatCurrency(grandDebitBalance)}</td>
+                  <td className="py-3 px-4 text-right font-mono text-emerald-800">{formatCurrency(grandCreditBalance)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* GRAND LIVRE TAB */}
+      {tab === 'ledger' && (
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-200">
+            <div className="flex items-center gap-3">
+              <BookOpen className="text-teal-600 h-6 w-6" />
+              <div>
+                <h3 className="font-bold text-slate-900 text-base">Grand Livre des Comptes</h3>
+                <p className="text-xs text-slate-500">Extrait d'historique et suivi du solde de chaque compte</p>
+              </div>
+            </div>
+
+            <div className="w-full sm:w-80">
+              <select
+                value={selectedLedgerAccountId || currentLedgerAccount?.id || ''}
+                onChange={e => setSelectedLedgerAccountId(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold focus:border-teal-500 focus:outline-none"
+              >
+                {accounts.map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.account_number} - {a.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {currentLedgerAccount && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                <div>
+                  <span className="font-mono text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-full uppercase">
+                    Compte N° {currentLedgerAccount.account_number}
+                  </span>
+                  <h4 className="text-lg font-bold text-slate-900 mt-1">{currentLedgerAccount.name}</h4>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-slate-500">Solde Actuel du Compte</p>
+                  <p className={`text-xl font-bold font-mono ${runningBal >= 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
+                    {formatCurrency(Math.abs(runningBal))} {runningBal >= 0 ? '(Débiteur)' : '(Créditeur)'}
+                  </p>
+                </div>
+              </div>
+
+              {ledgerEntriesWithBalance.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-sm">
+                  Aucune écriture enregistrée sur ce compte comptable.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-700 border-collapse">
+                    <thead className="bg-slate-100 text-xs font-bold uppercase text-slate-600">
+                      <tr>
+                        <th className="py-2.5 px-3 border-b border-slate-200">Date</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200">N° Écriture</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200">Libellé</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200">Référence</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200 text-right">Débit</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200 text-right">Crédit</th>
+                        <th className="py-2.5 px-3 border-b border-slate-200 text-right">Solde Cumulé</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-mono text-xs">
+                      {ledgerEntriesWithBalance.map(e => (
+                        <tr key={e.id} className="hover:bg-slate-50 transition">
+                          <td className="py-2 px-3 font-sans text-xs text-slate-600">{formatDate(e.entry_date)}</td>
+                          <td className="py-2 px-3 font-bold text-slate-800">{e.entry_number}</td>
+                          <td className="py-2 px-3 font-sans font-medium text-slate-900">{e.description}</td>
+                          <td className="py-2 px-3 text-slate-500">{e.reference || '-'}</td>
+                          <td className="py-2 px-3 text-right text-blue-600 font-bold">{e.debit > 0 ? formatCurrency(e.debit) : '-'}</td>
+                          <td className="py-2 px-3 text-right text-emerald-600 font-bold">{e.credit > 0 ? formatCurrency(e.credit) : '-'}</td>
+                          <td className="py-2 px-3 text-right text-slate-900 font-bold bg-slate-50/50">{formatCurrency(e.running_balance)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* COMPTE DE RÉSULTAT TAB */}
+      {tab === 'profit_loss' && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between p-4 bg-purple-50/60 rounded-2xl border border-purple-200">
+            <div className="flex items-center gap-3">
+              <PieChart className="text-purple-700 h-6 w-6" />
+              <div>
+                <h3 className="font-bold text-purple-950 text-base">Compte de Résultat Simplifié (P&L)</h3>
+                <p className="text-xs text-purple-700">Synthese des Produits (Recettes) vs Charges (Dépenses)</p>
+              </div>
+            </div>
+
+            <div className="text-right">
+              <span className="text-xs font-bold text-purple-700 uppercase">Résultat Net d'Exercice</span>
+              <p className={`text-2xl font-black font-mono ${netResult >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+                {netResult >= 0 ? `+${formatCurrency(netResult)}` : `-${formatCurrency(Math.abs(netResult))}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* PRODUITS (REVENUES) */}
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/30 p-5 space-y-4">
+              <div className="flex justify-between items-center border-b border-emerald-200 pb-3">
+                <h4 className="font-bold text-emerald-900 text-base flex items-center gap-2">
+                  <TrendingUp className="text-emerald-600 h-5 w-5" /> Produits (Classe 7)
+                </h4>
+                <span className="font-bold font-mono text-emerald-800 text-lg">{formatCurrency(totalRevenues)}</span>
+              </div>
+
+              {revenueRows.length === 0 ? (
+                <p className="text-xs text-emerald-700 italic">Aucune recette enregistrée</p>
+              ) : (
+                <div className="space-y-2">
+                  {revenueRows.map(r => (
+                    <div key={r.id} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-white border border-emerald-100">
+                      <div>
+                        <span className="font-mono font-bold text-emerald-700">{r.account_number}</span>
+                        <p className="font-medium text-slate-800">{r.name}</p>
+                      </div>
+                      <span className="font-mono font-bold text-slate-900">{formatCurrency(r.total_credit - r.total_debit)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* CHARGES (EXPENSES) */}
+            <div className="rounded-2xl border border-red-200 bg-red-50/30 p-5 space-y-4">
+              <div className="flex justify-between items-center border-b border-red-200 pb-3">
+                <h4 className="font-bold text-red-900 text-base flex items-center gap-2">
+                  <TrendingDown className="text-red-600 h-5 w-5" /> Charges (Classe 6)
+                </h4>
+                <span className="font-bold font-mono text-red-800 text-lg">{formatCurrency(totalCharges)}</span>
+              </div>
+
+              {expenseRows.length === 0 ? (
+                <p className="text-xs text-red-700 italic">Aucune charge enregistrée</p>
+              ) : (
+                <div className="space-y-2">
+                  {expenseRows.map(r => (
+                    <div key={r.id} className="flex justify-between items-center text-xs p-2.5 rounded-xl bg-white border border-red-100">
+                      <div>
+                        <span className="font-mono font-bold text-red-700">{r.account_number}</span>
+                        <p className="font-medium text-slate-800">{r.name}</p>
+                      </div>
+                      <span className="font-mono font-bold text-slate-900">{formatCurrency(r.total_debit - r.total_credit)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === 'plan' && (
         accounts.length === 0 && !loading ? (
           <div className="rounded-[24px] border border-blue-200 bg-blue-50/50 p-6 text-center space-y-4">
