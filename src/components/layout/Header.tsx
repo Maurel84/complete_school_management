@@ -222,13 +222,13 @@ export default function Header() {
               <button
                 key={item.key}
                 onClick={() => navigate(item.path)}
-                className={`inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-md px-3 text-sm font-medium transition ${
+                className={`inline-flex h-9 items-center gap-2 whitespace-nowrap rounded-xl px-3.5 text-xs font-bold transition-all duration-200 ${
                   active
-                    ? 'bg-slate-900 text-white'
-                    : 'text-slate-600 hover:bg-white hover:text-slate-950'
+                    ? 'bg-gradient-to-r from-slate-900 to-indigo-950 text-white shadow-md shadow-slate-950/15 scale-[1.02]'
+                    : 'text-slate-600 hover:bg-white hover:text-slate-950 hover:shadow-xs'
                 }`}
               >
-                <Icon size={16} />
+                <Icon size={15} className={active ? 'text-emerald-400' : 'text-slate-500'} />
                 {item.label}
               </button>
             );
