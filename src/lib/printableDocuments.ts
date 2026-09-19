@@ -421,89 +421,137 @@ export function buildPaymentReceiptHtml({
 export function buildStudentCardHtml({
   school,
   student,
-  academicYearName,
+  academicYearName = '2026-2027',
   className,
   primaryGuardian,
 }: StudentCardTemplateInput) {
+  const guardianPhone = (student as any).parent_phone || school.phone || '0707877285';
+  const dobStr = (student as any).date_of_birth || (student as any).birth_date;
+  const dobFormatted = dobStr ? new Date(dobStr).toLocaleDateString('fr-FR') : 'Non renseignée';
+
   return printableShell(
     `Carte scolaire ${student.matricule}`,
     `
-    <div class="page" style="display:flex; align-items:center; justify-content:center;">
-      <section class="sheet" style="max-width: 320mm; padding: 34px;">
-        <div style="display:grid; gap:24px; justify-content:center;">
-          <div style="width: 86mm; height: 54mm; border-radius: 24px; overflow: hidden; position: relative; box-shadow: 0 28px 70px rgba(15,23,42,0.22); background: linear-gradient(135deg, #1d4ed8 0%, #ec4899 65%, #f59e0b 100%); color: white;">
-            <div style="position:absolute; inset:0; background:
-              radial-gradient(circle at top right, rgba(255,255,255,0.22), transparent 30%),
-              radial-gradient(circle at bottom left, rgba(251,191,36,0.3), transparent 28%);
-            "></div>
-            <div style="position:relative; z-index:1; height:100%; padding:14px; display:grid; grid-template-columns: 1fr 74px; gap:12px;">
-              <div style="display:flex; flex-direction:column; justify-content:space-between; min-width:0;">
-                <div>
-                  <div style="display:flex; align-items:center; gap:8px;">
+    <div class="page" style="display:flex; align-items:center; justify-content:center; padding: 20px;">
+      <section class="sheet" style="max-width: 320mm; padding: 20px; background: transparent; box-shadow: none;">
+        
+        <div style="display:flex; flex-wrap:wrap; gap:20mm; justify-content:center; align-items:center;">
+          
+          <!-- RECTO (FACE AVANT) -->
+          <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:10px; font-weight:800; color:#64748b; uppercase; tracking:0.1em;">RECTO (FACE AVANT)</span>
+            
+            <div style="width: 86mm; height: 54mm; border-radius: 14px; overflow: hidden; position: relative; box-shadow: 0 14px 40px rgba(15,23,42,0.22); background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #d97706 100%); color: white; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,0.4);">
+              <!-- Background Radial Pattern -->
+              <div style="position:absolute; inset:0; background: radial-gradient(circle at top right, rgba(255,255,255,0.25), transparent 45%), radial-gradient(circle at bottom left, rgba(245,158,11,0.3), transparent 35%);"></div>
+              
+              <div style="position:relative; z-index:1; height:100%; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
+                
+                <!-- Top Header: Logo & School Name -->
+                <div style="display:flex; align-items:center; justify-content:space-between; border-bottom: 1px solid rgba(255,255,255,0.25); padding-bottom: 5px;">
+                  <div style="display:flex; align-items:center; gap:6px; min-width:0;">
                     ${
                       school.logo_url
-                        ? `<div style="width:30px; height:30px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; padding:2px; box-shadow:0 2px 4px rgba(0,0,0,0.15); flex-shrink:0;">
+                        ? `<div style="width:24px; height:24px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; padding:1px; flex-shrink:0;">
                             <img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />
                           </div>`
-                        : `<div style="width:30px; height:30px; border-radius:50%; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;">★</div>`
+                        : `<div style="width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.25); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:9px;">★</div>`
                     }
                     <div style="min-width:0;">
-                      <div style="display:flex; align-items:center; gap:4px;">
-                        <span style="font-size:6px; letter-spacing:0.14em; text-transform:uppercase; opacity:0.85; font-weight:800;">Carte scolaire</span>
-                        <span style="font-size:6px; color:#fef08a;">★★★★★</span>
-                      </div>
-                      <p style="margin:1px 0 0; font-size:10px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff;">${escapeHtml(school.name)}</p>
+                      <p style="margin:0; font-size:5.5px; letter-spacing:0.12em; text-transform:uppercase; font-weight:800; color:#fef08a;">CARTE ÉLÈVE OFFICIELLE</p>
+                      <p style="margin:1px 0 0; font-size:8px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff;">${escapeHtml(school.name)}</p>
                     </div>
                   </div>
-                  <p style="margin:12px 0 0; font-size:15px; line-height:1.05; font-weight:900; letter-spacing:-0.01em;">${escapeHtml(student.first_name)}<br />${escapeHtml(student.last_name)}</p>
+                  <span style="padding:2px 6px; border-radius:999px; background:rgba(255,255,255,0.25); font-size:6px; font-weight:800; white-space:nowrap; border:1px solid rgba(255,255,255,0.3);">${escapeHtml(academicYearName)}</span>
                 </div>
-                <div>
-                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.22); font-size:7px; font-weight:800; border:1px solid rgba(255,255,255,0.15); text-transform:uppercase; letter-spacing:0.04em;">${escapeHtml(className || 'Classe en cours')}</span>
-                    <span style="padding:4px 8px; border-radius:999px; background:rgba(255,255,255,0.22); font-size:7px; font-weight:800; border:1px solid rgba(255,255,255,0.15);">${escapeHtml(academicYearName || 'Annee scolaire')}</span>
+
+                <!-- Body: Student Name + Photo -->
+                <div style="display:flex; items-center; justify-content:space-between; gap:8px; margin: 3px 0;">
+                  <div style="min-width:0; flex:1;">
+                    <p style="margin:0; font-size:5.5px; text-transform:uppercase; opacity:0.85; letter-spacing:0.08em;">Nom & Prénoms</p>
+                    <p style="margin:2px 0 0; font-size:11px; line-height:1.15; font-weight:900; color:#ffffff; font-family: system-ui, sans-serif;">
+                      ${escapeHtml(student.last_name.toUpperCase())}<br />
+                      <span style="font-weight:700; color:#f8fafc;">${escapeHtml(student.first_name)}</span>
+                    </p>
+                    
+                    <div style="display:flex; align-items:center; gap:5px; margin-top:5px;">
+                      <span style="padding:2px 6px; border-radius:4px; background:#ffffff; color:#1e3a8a; font-size:7px; font-weight:900; text-transform:uppercase;">${escapeHtml(className || 'CLASSE')}</span>
+                      <span style="font-size:7px; font-weight:800; font-family:monospace; color:#fef08a;">${escapeHtml(student.matricule)}</span>
+                    </div>
                   </div>
-                  <p style="margin:8px 0 0; font-size:9px; opacity:0.9; letter-spacing:0.02em;">Matricule: <strong style="color:#fef08a;">${escapeHtml(student.matricule)}</strong></p>
+
+                  <!-- Photo Box -->
+                  <div style="flex-shrink:0;">
+                    ${
+                      student.photo_url
+                        ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:50px; height:56px; border-radius:10px; object-fit:cover; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.25);" />`
+                        : `<div style="width:50px; height:56px; border-radius:10px; background:rgba(255,255,255,0.2); border:1.5px dashed rgba(255,255,255,0.5); font-size:7px; font-weight:800; display:flex; align-items:center; justify-content:center; color:white;">PHOTO</div>`
+                    }
+                  </div>
                 </div>
-              </div>
-              <div style="display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end;">
-                ${
-                  student.photo_url
-                    ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:66px; height:72px; border-radius:18px; object-fit:cover; border:2px solid #ffffff; box-shadow:0 4px 10px rgba(0,0,0,0.2);" />`
-                    : `<div class="placeholder-photo" style="width:66px; height:72px; border-radius:18px; background:rgba(255,255,255,0.2); border:2px solid rgba(255,255,255,0.15); font-size:8px; display:flex; align-items:center; justify-content:center;">PHOTO</div>`
-                }
-                <div style="text-align:right;">
-                  <p style="margin:0; font-size:6px; opacity:0.8; text-transform:uppercase; letter-spacing:0.05em;">Responsable</p>
-                  <p style="margin:2px 0 0; font-size:8px; line-height:1.2; font-weight:800; max-width:72px; color:#ffffff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(primaryGuardian || school.phone || 'Administration')}</p>
+
+                <!-- Bottom Footer: Validity Date -->
+                <div style="display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(255,255,255,0.2); padding-top:3px; font-size:6px;">
+                  <span style="opacity:0.9;">Matricule: <strong style="color:#ffffff;">${escapeHtml(student.matricule)}</strong></span>
+                  <span style="color:#fef08a; font-weight:800;">Valable jusqu'au 30 Juin 2027</span>
                 </div>
+
               </div>
             </div>
           </div>
 
-          <div style="width: 170mm; max-width:100%; border-radius: 26px; border: 1px solid #d8e3ef; background: linear-gradient(135deg, #fbfdff 0%, #f5faf7 100%); padding: 24px;">
-            <div style="display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:14px;">
-              <div style="padding:14px; border-radius:18px; background:white; border:1px solid #e2e8f0;">
-                <p class="muted" style="margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:0.12em;">Nom complet</p>
-                <p style="margin:0; font-size:16px; font-weight:800;">${escapeHtml(`${student.first_name} ${student.last_name}`)}</p>
+          <!-- VERSO (FACE ARRIÈRE) -->
+          <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
+            <span style="font-size:10px; font-weight:800; color:#64748b; uppercase; tracking:0.1em;">VERSO (FACE ARRIÈRE)</span>
+
+            <div style="width: 86mm; height: 54mm; border-radius: 14px; overflow: hidden; position: relative; box-shadow: 0 14px 40px rgba(15,23,42,0.18); background: #ffffff; color: #1e293b; box-sizing: border-box; border: 1.5px solid #cbd5e1; display:flex; flex-direction:column; justify-content:space-between; padding:10px 12px;">
+
+              <!-- Header Banner -->
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom: 2px solid #2563eb; padding-bottom: 4px;">
+                <div>
+                  <p style="margin:0; font-size:6px; font-weight:800; color:#2563eb; text-transform:uppercase; letter-spacing:0.1em;">Renseignements Complémentaires</p>
+                  <p style="margin:1px 0 0; font-size:8px; font-weight:800; color:#0f172a;">${escapeHtml(school.name)}</p>
+                </div>
+                <span style="font-size:6px; font-weight:800; background:#eff6ff; color:#1d4ed8; padding:2px 6px; border-radius:4px; border:1px solid #bfdbfe;">VERSO</span>
               </div>
-              <div style="padding:14px; border-radius:18px; background:white; border:1px solid #e2e8f0;">
-                <p class="muted" style="margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:0.12em;">Classe</p>
-                <p style="margin:0; font-size:16px; font-weight:800;">${escapeHtml(className || '-')}</p>
+
+              <!-- Content Grid -->
+              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin:3px 0; font-size:7px;">
+                <div style="background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
+                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Né(e) le</span>
+                  <strong style="color:#0f172a; font-size:7px;">${escapeHtml(dobFormatted)}</strong>
+                </div>
+                <div style="background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
+                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Sexe / Nationalité</span>
+                  <strong style="color:#0f172a; font-size:7px;">${(student as any).sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
+                </div>
+                <div style="grid-column: span 2; background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
+                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Responsable Légal & Contact</span>
+                  <strong style="color:#0f172a; font-size:7.5px;">${escapeHtml(primaryGuardian || 'Administration')} ${guardianPhone ? `(${escapeHtml(guardianPhone)})` : ''}</strong>
+                </div>
               </div>
-              <div style="padding:14px; border-radius:18px; background:white; border:1px solid #e2e8f0;">
-                <p class="muted" style="margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:0.12em;">Matricule</p>
-                <p style="margin:0; font-size:16px; font-weight:800;">${escapeHtml(student.matricule)}</p>
+
+              <!-- Notice & Validity -->
+              <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; padding:4px 6px; text-align:center;">
+                <p style="margin:0; font-size:5.5px; color:#1e40af; line-height:1.2;">
+                  Carte strictement personnelle. En cas de perte, merci de la rapporter à la direction de l'établissement.
+                </p>
+                <p style="margin:2px 0 0; font-size:6.5px; font-weight:900; color:#1e3a8a;">
+                  Année Scolaire 2026-2027 — Valable jusqu'au 30 Juin 2027
+                </p>
               </div>
-              <div style="padding:14px; border-radius:18px; background:white; border:1px solid #e2e8f0;">
-                <p class="muted" style="margin:0 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:0.12em;">Responsable</p>
-                <p style="margin:0; font-size:16px; font-weight:800;">${escapeHtml(primaryGuardian || 'Administration')}</p>
+
+              <!-- Footer Signatures -->
+              <div style="display:flex; justify-content:space-between; align-items:flex-end; font-size:5.5px; color:#64748b; border-top:1px solid #e2e8f0; padding-top:3px;">
+                <span>Matricule : <strong>${escapeHtml(student.matricule)}</strong></span>
+                <span style="font-weight:800; color:#0f172a; text-decoration:underline;">Le Directeur de l'Établissement</span>
               </div>
+
             </div>
-            <p style="margin:18px 0 0; font-size:13px; color:#516071; line-height:1.7;">
-              Cette carte scolaire est un support officiel de ${escapeHtml(school.name)}. Elle peut etre imprimee, archivee
-              dans le dossier eleve et reproduite en serie pour l'ensemble des classes.
-            </p>
           </div>
+
         </div>
+
       </section>
     </div>
     `,

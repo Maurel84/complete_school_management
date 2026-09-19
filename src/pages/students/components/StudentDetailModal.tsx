@@ -181,65 +181,108 @@ export default function StudentDetailModal({
               )}
             </div>
 
-            <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-800 p-5 text-white shadow-[0_28px_70px_-36px_rgba(15,23,42,0.45)] animate-in">
+            <div className="rounded-[24px] border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 p-5 text-white shadow-[0_28px_70px_-36px_rgba(15,23,42,0.45)] animate-in space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-white/70">Carte scolaire</p>
-                  <h3 className="display-font mt-2 text-xl font-semibold">Édition premium</h3>
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/70 font-semibold">Carte scolaire officielle</p>
+                  <h3 className="display-font mt-1 text-lg font-bold">Aperçu Recto / Verso (Alignés)</h3>
                 </div>
-                <div className="rounded-2xl bg-white/10 px-3 py-2 text-right">
-                  <p className="text-[11px] uppercase tracking-[0.2em] text-white/60">Année</p>
-                  <p className="text-sm font-semibold">{academicYear?.name || 'En cours'}</p>
+                <div className="rounded-xl bg-white/10 px-3 py-1.5 text-right border border-white/15">
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-amber-300 font-bold">Validité</p>
+                  <p className="text-xs font-bold text-white">30 Juin 2027</p>
                 </div>
               </div>
 
-              <div className="mt-5 rounded-[24px] bg-white p-4 text-slate-900">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Identité</p>
-                    <h4 className="display-font mt-2 line-clamp-1 text-lg font-semibold">
-                      {student.first_name} {student.last_name}
-                    </h4>
-                    <p className="mt-1 text-xs text-slate-500">{student.matricule}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                        {(student as any).class?.name || 'Classe'}
-                      </span>
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                        {academicYear?.name || 'Année active'}
-                      </span>
+              {/* RECTO & VERSO CARDS PREVIEW ALIGNED */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* RECTO PREVIEW */}
+                <div className="space-y-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300 text-center">Recto (Face avant)</p>
+                  <div className="rounded-2xl border border-white/30 bg-gradient-to-br from-blue-900 via-blue-700 to-amber-600 p-3 text-white shadow-md aspect-[85.6/54] flex flex-col justify-between relative overflow-hidden">
+                    <div className="absolute inset-0 bg-radial-gradient from-white/20 to-transparent opacity-40 pointer-events-none" />
+                    
+                    <div className="flex items-center justify-between border-b border-white/20 pb-1.5 relative z-10">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        {school?.logo_url ? (
+                          <img src={school.logo_url} alt={school.name} className="h-5 w-5 rounded-full object-cover bg-white p-0.5" />
+                        ) : (
+                          <span className="text-[9px]">★</span>
+                        )}
+                        <p className="text-[9px] font-extrabold truncate text-white">{school?.name || 'École'}</p>
+                      </div>
+                      <span className="text-[8px] font-extrabold bg-white/25 px-1.5 py-0.5 rounded text-amber-200">2026-2027</span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 relative z-10">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[8px] font-extrabold uppercase tracking-tight opacity-75">Élève</p>
+                        <p className="text-xs font-black line-clamp-1 text-white">{student.last_name.toUpperCase()}</p>
+                        <p className="text-xs font-bold line-clamp-1 text-slate-100">{student.first_name}</p>
+                        <div className="mt-1 flex items-center gap-1">
+                          <span className="bg-white text-blue-900 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">{(student as any).class?.name || 'Classe'}</span>
+                          <span className="text-[8px] font-mono font-bold text-amber-200">{student.matricule}</span>
+                        </div>
+                      </div>
+
+                      {student.photo_url ? (
+                        <img src={student.photo_url} alt={student.first_name} className="h-12 w-11 rounded-lg object-cover border-2 border-white shadow-xs" />
+                      ) : (
+                        <div className="h-12 w-11 rounded-lg bg-white/20 border border-white/40 flex items-center justify-center text-[8px] font-bold text-white">PHOTO</div>
+                      )}
+                    </div>
+
+                    <div className="flex justify-between items-center text-[7.5px] border-t border-white/20 pt-1 relative z-10 font-medium">
+                      <span className="opacity-90">{student.matricule}</span>
+                      <span className="text-amber-200 font-extrabold">Valable jusqu'au 30/06/2027</span>
                     </div>
                   </div>
-                  {student.photo_url ? (
-                    <img
-                      src={student.photo_url}
-                      alt={student.first_name}
-                      className="h-20 w-20 rounded-[22px] border border-slate-200 object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-20 w-20 items-center justify-center rounded-[22px] bg-slate-100 text-xs font-bold text-slate-400">
-                      PHOTO
-                    </div>
-                  )}
                 </div>
-                <div className="mt-4 rounded-2xl bg-slate-50 px-4 py-3">
-                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Responsable principal</p>
-                  <p className="mt-2 text-sm font-semibold">{guardianName}</p>
+
+                {/* VERSO PREVIEW */}
+                <div className="space-y-1">
+                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300 text-center">Verso (Face arrière)</p>
+                  <div className="rounded-2xl border border-slate-300 bg-white p-3 text-slate-900 shadow-md aspect-[85.6/54] flex flex-col justify-between">
+                    <div className="flex items-center justify-between border-b border-blue-600 pb-1">
+                      <p className="text-[8px] font-black text-blue-700 uppercase tracking-tight">Renseignements</p>
+                      <span className="text-[7.5px] font-extrabold bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">VERSO</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 text-[8px] my-1">
+                      <div className="bg-slate-50 p-1 rounded border border-slate-100">
+                        <span className="text-[7px] text-slate-400 block font-semibold">Né(e) le</span>
+                        <strong className="text-slate-800">{student.date_of_birth ? formatDate(student.date_of_birth) : '-'}</strong>
+                      </div>
+                      <div className="bg-slate-50 p-1 rounded border border-slate-100">
+                        <span className="text-[7px] text-slate-400 block font-semibold">Sexe</span>
+                        <strong className="text-slate-800">{student.sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
+                      </div>
+                      <div className="col-span-2 bg-slate-50 p-1 rounded border border-slate-100">
+                        <span className="text-[7px] text-slate-400 block font-semibold">Tuteur / Responsable</span>
+                        <strong className="text-slate-900 truncate block">{guardianName}</strong>
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 rounded p-1 text-center">
+                      <p className="text-[7.5px] font-black text-blue-900">
+                        Année Scolaire 2026-2027 — Valable jusqu'au 30 Juin 2027
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-5 grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 pt-2">
                 <button
                   onClick={() => onStudentCardAction('print')}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-sm font-medium text-slate-900 transition hover:bg-slate-100"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-xs font-bold text-slate-900 transition hover:bg-slate-100 shadow-sm"
                 >
-                  <Printer size={16} /> Imprimer
+                  <Printer size={15} /> Imprimer les Cartes
                 </button>
                 <button
                   onClick={() => onStudentCardAction('download')}
-                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15"
+                  className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-4 py-3 text-xs font-bold text-white transition hover:bg-white/15"
                 >
-                  <Download size={16} /> Télécharger
+                  <Download size={15} /> Télécharger HTML
                 </button>
               </div>
             </div>
