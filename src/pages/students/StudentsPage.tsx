@@ -23,6 +23,8 @@ import {
   Plus,
   Printer,
   Trash2,
+  AlertTriangle,
+  CopyCheck,
 } from 'lucide-react';
 import { useStudents, useStudentFamilyLinks } from '../../hooks/useStudents';
 import { useClasses } from '../../hooks/useClasses';
@@ -30,6 +32,7 @@ import { useParents } from '../../hooks/useParents';
 import StudentFormModal from './components/StudentFormModal';
 import StudentDetailModal from './components/StudentDetailModal';
 import FamilyModal from './components/FamilyModal';
+import AuditDuplicatesModal from './components/AuditDuplicatesModal';
 
 type StudentListItem = Student & { class?: Pick<Class, 'id' | 'name'>; family_count: number };
 
@@ -41,6 +44,7 @@ export default function StudentsPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
+  const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
   const canManageStudents = isSuperAdmin || isAdmin || isDirector || isSupervisor;
@@ -66,6 +70,47 @@ export default function StudentsPage() {
   const students = (studentsQuery.data || []) as StudentListItem[];
   const familyLinks = familyLinksQuery.data || [];
   const loading = studentsQuery.isLoading;
+
+  const duplicatesAnalysis = useMemo(() => {
+    if (!students || students.length === 0) return { byMatricule: [], byName: [], totalCount: 0 };
+
+    const matMap: Record<string, StudentListItem[]> = {};
+    const nameMap: Record<string, StudentListItem[]> = {};
+
+    students.forEach(s => {
+      const mat = (s.matricule || '').trim();
+      const fn = (s.first_name || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const ln = (s.last_name || '').trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const nameKey = `${ln}_${fn}`;
+
+      if (mat && mat !== '-') {
+        if (!matMap[mat]) matMap[mat] = [];
+        matMap[mat].push(s);
+      }
+
+      if (nameKey) {
+        if (!nameMap[nameKey]) nameMap[nameKey] = [];
+        nameMap[nameKey].push(s);
+      }
+    });
+
+    const byMatricule = Object.entries(matMap)
+      .filter(([_, list]) => list.length > 1)
+      .map(([mat, list]) => ({ key: mat, list }));
+
+    const byName = Object.entries(nameMap)
+      .filter(([_, list]) => list.length > 1)
+      .map(([key, list]) => ({
+        key: `${list[0].last_name.toUpperCase()} ${list[0].first_name}`,
+        list,
+      }));
+
+    return {
+      byMatricule,
+      byName,
+      totalCount: byMatricule.length + byName.length,
+    };
+  }, [students]);
 
   function openCreate() {
     setEditMode(false);
@@ -326,19 +371,37 @@ export default function StudentsPage() {
         </div>
       </section>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="display-font text-2xl font-semibold text-slate-900">Population scolaire</h2>
           <p className="mt-1 text-sm text-slate-500">{students.length} élève(s) inscrit(s)</p>
         </div>
-        {canManageStudents && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={openCreate}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+            onClick={() => setAuditModalOpen(true)}
+            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition border shadow-2xs ${
+              duplicatesAnalysis.totalCount > 0
+                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+            }`}
           >
-            <Plus size={16} /> Nouvel élève
+            <CopyCheck size={16} className={duplicatesAnalysis.totalCount > 0 ? 'text-amber-600' : 'text-slate-500'} />
+            Audit Doublons
+            {duplicatesAnalysis.totalCount > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-600 text-white animate-pulse">
+                {duplicatesAnalysis.totalCount}
+              </span>
+            )}
           </button>
-        )}
+          {canManageStudents && (
+            <button
+              onClick={openCreate}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 shadow-2xs"
+            >
+              <Plus size={16} /> Nouvel élève
+            </button>
+          )}
+        </div>
       </div>
 
       {students.length === 0 && !loading ? (
@@ -419,6 +482,20 @@ export default function StudentsPage() {
           saving={isSavingLinks}
         />
       )}
+
+      <AuditDuplicatesModal
+        isOpen={auditModalOpen}
+        onClose={() => setAuditModalOpen(false)}
+        byMatricule={duplicatesAnalysis.byMatricule}
+        byName={duplicatesAnalysis.byName}
+        onDeleteStudent={async (id) => {
+          await archiveStudent({ id, profile });
+        }}
+        onSelectStudent={(s) => {
+          setAuditModalOpen(false);
+          openDetail(s);
+        }}
+      />
     </div>
   );
 }
