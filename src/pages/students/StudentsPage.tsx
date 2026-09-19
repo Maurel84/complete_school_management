@@ -194,6 +194,7 @@ export default function StudentsPage() {
       primaryGuardian: primaryGuardian
         ? `${primaryGuardian.first_name} ${primaryGuardian.last_name}`
         : undefined,
+      primaryGuardianPhone: primaryGuardian?.phone || (selectedStudent as any).parent_phone || undefined,
     });
 
     try {

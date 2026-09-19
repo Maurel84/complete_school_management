@@ -52,7 +52,9 @@ export default function StudentDetailModal({
 
   const guardianName = billingOrPrimaryGuardian
     ? `${billingOrPrimaryGuardian.first_name} ${billingOrPrimaryGuardian.last_name}`
-    : 'Non défini';
+    : (student as any).parent_name || 'Non renseigné';
+
+  const guardianPhone = billingOrPrimaryGuardian?.phone || (student as any).parent_phone || 'Non renseigné';
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Fiche élève" size="xl">
@@ -256,9 +258,10 @@ export default function StudentDetailModal({
                         <span className="text-[7px] text-slate-400 block font-semibold">Sexe</span>
                         <strong className="text-slate-800">{student.sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
                       </div>
-                      <div className="col-span-2 bg-slate-50 p-1 rounded border border-slate-100">
-                        <span className="text-[7px] text-slate-400 block font-semibold">Tuteur / Responsable</span>
-                        <strong className="text-slate-900 truncate block">{guardianName}</strong>
+                      <div className="col-span-2 bg-blue-50/80 p-1 rounded border border-blue-200">
+                        <span className="text-[6.5px] text-blue-700 block font-bold uppercase tracking-tight">Parent / Tuteur Légal & Contact</span>
+                        <strong className="text-slate-900 truncate block text-[8px]">{guardianName}</strong>
+                        <span className="text-blue-700 font-extrabold text-[7.5px] block font-mono">📞 Contact: {guardianPhone}</span>
                       </div>
                     </div>
 

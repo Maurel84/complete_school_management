@@ -37,13 +37,6 @@ interface PaymentReceiptTemplateInput {
   paymentHistory?: { receipt_number: string; payment_date: string; payment_method: string; amount: number; is_canteen: boolean }[];
 }
 
-interface StudentCardTemplateInput {
-  school: School;
-  student: PrintableStudent;
-  academicYearName?: string;
-  className?: string;
-  primaryGuardian?: string;
-}
 
 function escapeHtml(value: string | number | null | undefined) {
   return String(value ?? '')
@@ -418,14 +411,25 @@ export function buildPaymentReceiptHtml({
   );
 }
 
+export interface StudentCardTemplateInput {
+  school: School;
+  student: PrintableStudent;
+  academicYearName?: string;
+  className?: string;
+  primaryGuardian?: string;
+  primaryGuardianPhone?: string;
+}
+
 export function buildStudentCardHtml({
   school,
   student,
   academicYearName = '2026-2027',
   className,
   primaryGuardian,
+  primaryGuardianPhone,
 }: StudentCardTemplateInput) {
-  const guardianPhone = (student as any).parent_phone || school.phone || '0707877285';
+  const guardianNameStr = primaryGuardian || (student as any).parent_name || 'Non renseigné';
+  const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || 'Non renseigné';
   const dobStr = (student as any).date_of_birth || (student as any).birth_date;
   const dobFormatted = dobStr ? new Date(dobStr).toLocaleDateString('fr-FR') : 'Non renseignée';
 
@@ -525,24 +529,31 @@ export function buildStudentCardHtml({
                   <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Sexe / Nationalité</span>
                   <strong style="color:#0f172a; font-size:7px;">${(student as any).sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
                 </div>
-                <div style="grid-column: span 2; background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
-                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Responsable Légal & Contact</span>
-                  <strong style="color:#0f172a; font-size:7.5px;">${escapeHtml(primaryGuardian || 'Administration')} ${guardianPhone ? `(${escapeHtml(guardianPhone)})` : ''}</strong>
+                
+                <!-- PARENT / TUTEUR LÉGAL & CONTACT -->
+                <div style="grid-column: span 2; background:#eff6ff; padding:5px 8px; border-radius:6px; border:1px solid #bfdbfe;">
+                  <span style="color:#1d4ed8; font-size:6px; font-weight:800; text-transform:uppercase; display:block; letter-spacing:0.05em;">Parent / Tuteur Légal & Contact</span>
+                  <strong style="color:#0f172a; font-size:8px; display:block; margin-top:1px;">
+                    ${escapeHtml(guardianNameStr)}
+                  </strong>
+                  <span style="color:#2563eb; font-size:7.5px; font-weight:800; font-family:monospace; display:block; margin-top:1px;">
+                    📞 Contact: ${escapeHtml(guardianPhoneStr)}
+                  </span>
                 </div>
               </div>
 
               <!-- Notice & Validity -->
-              <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; padding:4px 6px; text-align:center;">
-                <p style="margin:0; font-size:5.5px; color:#1e40af; line-height:1.2;">
-                  Carte strictement personnelle. En cas de perte, merci de la rapporter à la direction de l'établissement.
+              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 5px; text-align:center;">
+                <p style="margin:0; font-size:5.5px; color:#64748b; line-height:1.2;">
+                  Carte strictement personnelle. En cas de perte, merci de la rapporter à la direction.
                 </p>
-                <p style="margin:2px 0 0; font-size:6.5px; font-weight:900; color:#1e3a8a;">
+                <p style="margin:1px 0 0; font-size:6.5px; font-weight:900; color:#1e3a8a;">
                   Année Scolaire 2026-2027 — Valable jusqu'au 30 Juin 2027
                 </p>
               </div>
 
               <!-- Footer Signatures -->
-              <div style="display:flex; justify-content:space-between; align-items:flex-end; font-size:5.5px; color:#64748b; border-top:1px solid #e2e8f0; padding-top:3px;">
+              <div style="display:flex; justify-content:space-between; align-items:flex-end; font-size:5.5px; color:#64748b; border-top:1px solid #e2e8f0; padding-top:2px;">
                 <span>Matricule : <strong>${escapeHtml(student.matricule)}</strong></span>
                 <span style="font-weight:800; color:#0f172a; text-decoration:underline;">Le Directeur de l'Établissement</span>
               </div>
