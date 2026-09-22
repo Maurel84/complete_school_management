@@ -19,6 +19,14 @@ export interface StudentFormInput {
   status: string;
   medical_info: string;
   previous_school: string;
+  parent_mode?: 'existing' | 'new' | 'none';
+  selected_parent_id?: string;
+  relationship?: string;
+  new_parent_first_name?: string;
+  new_parent_last_name?: string;
+  new_parent_phone?: string;
+  new_parent_email?: string;
+  new_parent_profession?: string;
 }
 
 export interface FamilyLinkInput {
@@ -102,13 +110,27 @@ export function useStudents(schoolId?: string) {
     }) => {
       if (!schoolId) throw new Error('School ID is required');
 
+      const {
+        parent_mode,
+        selected_parent_id,
+        relationship,
+        new_parent_first_name,
+        new_parent_last_name,
+        new_parent_phone,
+        new_parent_email,
+        new_parent_profession,
+        ...studentFields
+      } = form;
+
       const cleanedForm = {
-        ...form,
-        class_id: form.class_id || null,
-        date_of_birth: form.date_of_birth || null,
-        email: form.email || null,
-        phone: form.phone || null,
+        ...studentFields,
+        class_id: studentFields.class_id || null,
+        date_of_birth: studentFields.date_of_birth || null,
+        email: studentFields.email || null,
+        phone: studentFields.phone || null,
       };
+
+      let savedStudent: any;
 
       if (studentId) {
         // Update
@@ -120,6 +142,7 @@ export function useStudents(schoolId?: string) {
           .single();
 
         if (error) throw error;
+        savedStudent = data;
 
         await recordAuditLog({
           schoolId,
@@ -129,8 +152,6 @@ export function useStudents(schoolId?: string) {
           entityId: studentId,
           details: { matricule: (data as Student).matricule },
         });
-
-        return data;
       } else {
         // Insert
         const count = studentCount + 1;
@@ -142,6 +163,7 @@ export function useStudents(schoolId?: string) {
           .single();
 
         if (error) throw error;
+        savedStudent = data;
 
         await recordAuditLog({
           schoolId,
@@ -151,12 +173,57 @@ export function useStudents(schoolId?: string) {
           entityId: (data as Student).id,
           details: { matricule },
         });
-
-        return data;
       }
+
+      // Handle Parent Linking
+      if (savedStudent && parent_mode && parent_mode !== 'none') {
+        let parentIdToLink = selected_parent_id;
+
+        if (parent_mode === 'new' && new_parent_first_name?.trim() && new_parent_last_name?.trim()) {
+          const { data: newParent, error: pErr } = await supabase
+            .from('parents')
+            .insert({
+              school_id: schoolId,
+              first_name: new_parent_first_name.trim(),
+              last_name: new_parent_last_name.trim(),
+              phone: new_parent_phone?.trim() || '',
+              email: new_parent_email?.trim() || '',
+              profession: new_parent_profession?.trim() || '',
+            })
+            .select()
+            .single();
+
+          if (!pErr && newParent) {
+            parentIdToLink = newParent.id;
+          }
+        }
+
+        if (parentIdToLink) {
+          const { data: existingLinks } = await supabase
+            .from('student_parents')
+            .select('id')
+            .eq('student_id', savedStudent.id)
+            .eq('parent_id', parentIdToLink);
+
+          if (!existingLinks || existingLinks.length === 0) {
+            await supabase.from('student_parents').insert({
+              student_id: savedStudent.id,
+              parent_id: parentIdToLink,
+              relationship: relationship || 'Père/Mère',
+              is_primary: true,
+              is_billing_contact: true,
+              emergency_priority: 1,
+            });
+          }
+        }
+      }
+
+      return savedStudent;
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['parents', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['student_family_links'] });
     },
   });
 

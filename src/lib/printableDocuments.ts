@@ -1361,6 +1361,7 @@ export function buildClassRosterHtml({
     last_name: string;
     sex: string;
     birth_date?: string;
+    birth_place?: string;
     parent_name?: string;
     parent_phone?: string;
   }[];
@@ -1387,10 +1388,11 @@ export function buildClassRosterHtml({
         <thead>
           <tr style="background: #1e3a8a; color: white; text-align: left;">
             <th style="padding: 8px; border: 1px solid #1e3a8a; width: 30px; text-align: center;">N°</th>
-            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 90px;">Matricule</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 85px;">Matricule</th>
             <th style="padding: 8px; border: 1px solid #1e3a8a;">Nom & Prénoms</th>
-            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 45px; text-align: center;">Sexe</th>
-            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 90px; text-align: center;">Né(e) le</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 40px; text-align: center;">Sexe</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 85px; text-align: center;">Né(e) le</th>
+            <th style="padding: 8px; border: 1px solid #1e3a8a; width: 95px;">Lieu de naissance</th>
             <th style="padding: 8px; border: 1px solid #1e3a8a;">Nom du Parent / Tuteur</th>
             <th style="padding: 8px; border: 1px solid #1e3a8a; width: 110px;">Téléphone Contact</th>
           </tr>
@@ -1405,6 +1407,7 @@ export function buildClassRosterHtml({
               <td style="padding: 7px 8px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a;">${escapeHtml(s.last_name.toUpperCase())} ${escapeHtml(s.first_name)}</td>
               <td style="padding: 7px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: ${s.sex === 'F' ? '#db2777' : '#2563eb'};">${s.sex || '-'}</td>
               <td style="padding: 7px 8px; border: 1px solid #cbd5e1; text-align: center;">${s.birth_date ? new Date(s.birth_date).toLocaleDateString('fr-FR') : '-'}</td>
+              <td style="padding: 7px 8px; border: 1px solid #cbd5e1;">${escapeHtml(s.birth_place || '-')}</td>
               <td style="padding: 7px 8px; border: 1px solid #cbd5e1;">${escapeHtml(s.parent_name || '-')}</td>
               <td style="padding: 7px 8px; border: 1px solid #cbd5e1; font-family: monospace;">${escapeHtml(s.parent_phone || '-')}</td>
             </tr>

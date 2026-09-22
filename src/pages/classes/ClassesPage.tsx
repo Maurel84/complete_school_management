@@ -119,6 +119,7 @@ export default function ClassesPage() {
           sex: s.sex || 'M',
           date_of_birth: dob,
           birth_date: dob,
+          birth_place: (s as any).birth_place || '',
           parent_name: parentMap[s.id]?.name || '',
           parent_phone: parentMap[s.id]?.phone || '',
         };
@@ -409,6 +410,7 @@ export default function ClassesPage() {
                     <th className="py-2.5 px-3 border-b border-slate-200">Nom & Prénoms</th>
                     <th className="py-2.5 px-3 border-b border-slate-200 text-center">Sexe</th>
                     <th className="py-2.5 px-3 border-b border-slate-200 text-center">Né(e) le</th>
+                    <th className="py-2.5 px-3 border-b border-slate-200">Lieu de Naissance</th>
                     <th className="py-2.5 px-3 border-b border-slate-200">Parent / Tuteur</th>
                     <th className="py-2.5 px-3 border-b border-slate-200">Contact</th>
                   </tr>
@@ -427,6 +429,7 @@ export default function ClassesPage() {
                       <td className="py-2 px-3 text-center text-xs text-slate-600">
                         {s.birth_date ? new Date(s.birth_date).toLocaleDateString('fr-FR') : '-'}
                       </td>
+                      <td className="py-2 px-3 text-xs text-slate-600">{(s as any).birth_place || '-'}</td>
                       <td className="py-2 px-3 text-xs text-slate-700">{s.parent_name || '-'}</td>
                       <td className="py-2 px-3 font-mono text-xs text-slate-600">{s.parent_phone || '-'}</td>
                     </tr>

@@ -4,7 +4,7 @@ import FormField from '../../../components/common/FormField';
 import { supabase } from '../../../lib/supabase';
 import { SEX_OPTIONS, STATUS_OPTIONS } from '../../../lib/utils';
 import { sanitizeDocumentName } from '../../../lib/printableDocuments';
-import { Camera, ImageOff, Upload } from 'lucide-react';
+import { Camera, ImageOff, Upload, UserCheck } from 'lucide-react';
 import type { Class, Student } from '../../../types';
 import type { StudentFormInput } from '../../../hooks/useStudents';
 
@@ -23,7 +23,30 @@ const EMPTY_STUDENT_FORM: StudentFormInput = {
   status: 'active',
   medical_info: '',
   previous_school: '',
+  parent_mode: 'existing',
+  selected_parent_id: '',
+  relationship: 'Père/Mère',
+  new_parent_first_name: '',
+  new_parent_last_name: '',
+  new_parent_phone: '',
+  new_parent_email: '',
+  new_parent_profession: '',
 };
+
+interface ParentWithChildren {
+  id: string;
+  first_name: string;
+  last_name: string;
+  phone: string;
+  email?: string;
+  profession?: string;
+  student_parents?: {
+    student?: {
+      first_name: string;
+      last_name: string;
+    };
+  }[];
+}
 
 interface StudentFormModalProps {
   isOpen: boolean;
@@ -47,6 +70,38 @@ export default function StudentFormModal({
   const [form, setForm] = useState<StudentFormInput>(EMPTY_STUDENT_FORM);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [parentsList, setParentsList] = useState<ParentWithChildren[]>([]);
+  const [loadingParents, setLoadingParents] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !schoolId) return;
+
+    let mounted = true;
+    async function fetchParentsWithChildren() {
+      setLoadingParents(true);
+      try {
+        const { data, error } = await supabase
+          .from('parents')
+          .select('*, student_parents(student:students(first_name, last_name))')
+          .eq('school_id', schoolId)
+          .order('last_name');
+
+        if (!error && data && mounted) {
+          setParentsList(data as any);
+        }
+      } catch (err) {
+        console.error('Error fetching parents:', err);
+      } finally {
+        if (mounted) setLoadingParents(false);
+      }
+    }
+
+    void fetchParentsWithChildren();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isOpen, schoolId]);
 
   useEffect(() => {
     if (student) {
@@ -65,7 +120,33 @@ export default function StudentFormModal({
         status: student.status || 'active',
         medical_info: student.medical_info || '',
         previous_school: student.previous_school || '',
+        parent_mode: 'existing',
+        selected_parent_id: '',
+        relationship: 'Père/Mère',
+        new_parent_first_name: '',
+        new_parent_last_name: '',
+        new_parent_phone: '',
+        new_parent_email: '',
+        new_parent_profession: '',
       });
+
+      // Try fetching linked primary parent for existing student
+      supabase
+        .from('student_parents')
+        .select('parent_id, relationship')
+        .eq('student_id', student.id)
+        .order('is_primary', { ascending: false })
+        .limit(1)
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setForm(current => ({
+              ...current,
+              parent_mode: 'existing',
+              selected_parent_id: data[0].parent_id,
+              relationship: data[0].relationship || 'Père/Mère',
+            }));
+          }
+        });
     } else {
       setForm(EMPTY_STUDENT_FORM);
     }
@@ -262,6 +343,167 @@ export default function StudentFormModal({
               />
             </FormField>
           </div>
+          <div className="md:col-span-2 border-t border-slate-200 pt-4 mt-2">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-200/60 pb-3">
+                <div>
+                  <h4 className="text-sm font-bold text-blue-950 flex items-center gap-2">
+                    <UserCheck size={18} className="text-blue-600" />
+                    Rattachement du Parent / Tuteur Légal
+                  </h4>
+                  <p className="text-xs text-blue-700/80">
+                    Rattachez directement cet élève à un parent existant ou créez un nouveau parent.
+                  </p>
+                </div>
+
+                {/* Toggle Mode Buttons */}
+                <div className="inline-flex rounded-xl bg-white p-1 border border-blue-200 text-xs font-medium">
+                  <button
+                    type="button"
+                    onClick={() => handleFormChange('parent_mode', 'existing')}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      form.parent_mode === 'existing' || !form.parent_mode
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Parent Existant
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFormChange('parent_mode', 'new')}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      form.parent_mode === 'new'
+                        ? 'bg-blue-600 text-white font-bold shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    + Nouveau Parent
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFormChange('parent_mode', 'none')}
+                    className={`px-3 py-1.5 rounded-lg transition ${
+                      form.parent_mode === 'none'
+                        ? 'bg-slate-700 text-white font-bold shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Plus tard
+                  </button>
+                </div>
+              </div>
+
+              {/* Mode 1: Parent Existant */}
+              {(form.parent_mode === 'existing' || !form.parent_mode) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField label="Sélectionner le Parent dans l'établissement">
+                    <select
+                      value={form.selected_parent_id || ''}
+                      onChange={e => handleFormChange('selected_parent_id', e.target.value)}
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 font-medium"
+                    >
+                      <option value="">
+                        {loadingParents
+                          ? 'Chargement des parents...'
+                          : `-- Choisir un parent (${parentsList.length} enregistrés) --`}
+                      </option>
+                      {parentsList.map(p => {
+                        const childrenNames = (p.student_parents || [])
+                          .map(sp => (sp.student ? `${sp.student.first_name} ${sp.student.last_name}` : ''))
+                          .filter(Boolean)
+                          .join(', ');
+
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.last_name.toUpperCase()} {p.first_name} {p.phone ? `(📞 ${p.phone})` : ''}{' '}
+                            {childrenNames ? `— Enfants: [${childrenNames}]` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </FormField>
+
+                  <FormField label="Lien de Parenté">
+                    <select
+                      value={form.relationship || 'Père/Mère'}
+                      onChange={e => handleFormChange('relationship', e.target.value)}
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 font-medium"
+                    >
+                      <option value="Père">Père</option>
+                      <option value="Mère">Mère</option>
+                      <option value="Tuteur Légal">Tuteur Légal</option>
+                      <option value="Autre">Autre Parent</option>
+                    </select>
+                  </FormField>
+                </div>
+              )}
+
+              {/* Mode 2: Nouveau Parent */}
+              {form.parent_mode === 'new' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField label="Prénom du parent" required>
+                    <input
+                      type="text"
+                      value={form.new_parent_first_name || ''}
+                      onChange={e => handleFormChange('new_parent_first_name', e.target.value)}
+                      placeholder="Ex: Jean"
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </FormField>
+                  <FormField label="Nom du parent" required>
+                    <input
+                      type="text"
+                      value={form.new_parent_last_name || ''}
+                      onChange={e => handleFormChange('new_parent_last_name', e.target.value)}
+                      placeholder="Ex: KOUASSI"
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </FormField>
+                  <FormField label="Téléphone Contact" required>
+                    <input
+                      type="tel"
+                      value={form.new_parent_phone || ''}
+                      onChange={e => handleFormChange('new_parent_phone', e.target.value)}
+                      placeholder="Ex: 0708091011"
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                    />
+                  </FormField>
+                  <FormField label="Lien de Parenté">
+                    <select
+                      value={form.relationship || 'Père/Mère'}
+                      onChange={e => handleFormChange('relationship', e.target.value)}
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                    >
+                      <option value="Père">Père</option>
+                      <option value="Mère">Mère</option>
+                      <option value="Tuteur Légal">Tuteur Légal</option>
+                      <option value="Autre">Autre Parent</option>
+                    </select>
+                  </FormField>
+                  <FormField label="Email parent (Optionnel)">
+                    <input
+                      type="email"
+                      value={form.new_parent_email || ''}
+                      onChange={e => handleFormChange('new_parent_email', e.target.value)}
+                      placeholder="Ex: parent@email.com"
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </FormField>
+                  <FormField label="Profession (Optionnel)">
+                    <input
+                      type="text"
+                      value={form.new_parent_profession || ''}
+                      onChange={e => handleFormChange('new_parent_profession', e.target.value)}
+                      placeholder="Ex: Commerçant, Enseignant..."
+                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </FormField>
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="md:col-span-2">
             <FormField label="Infos médicales">
               <textarea
