@@ -302,7 +302,7 @@ export default function FinancePage() {
       const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
       const studentName = student ? `${student.last_name} ${student.first_name}` : 'Élève';
 
-      await saveCanteenPayment({
+      const createdCanteenPayment = await saveCanteenPayment({
         canteenData: payload,
         profile,
         qrHash,
@@ -325,6 +325,10 @@ export default function FinancePage() {
       });
 
       setPaymentModalOpen(false);
+
+      if (confirm(`Paiement de Cantine (REC-${payload.receipt_number || ''}) enregistré avec succès !\nVoulez-vous imprimer le reçu immédiatement ?`)) {
+        void handlePrintReceipt({ ...createdCanteenPayment, student, parent: student?.parents?.[0]?.parent }, true);
+      }
     } catch (e: any) {
       alert(`Erreur : ${e.message}`);
     } finally {
