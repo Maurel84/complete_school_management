@@ -214,19 +214,26 @@ export default function StudentDetailModal({
                   </div>
                 </div>
 
-                {/* Historique des paiements de l'élève */}
-                {(((student as any).payments && (student as any).payments.length > 0) ||
-                  ((student as any).canteen_payments && (student as any).canteen_payments.length > 0)) && (
-                  <div className="pt-2">
-                    <p className="text-xs font-semibold text-slate-700 mb-2">Historique des versements :</p>
-                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                {/* Historique des versements de l'élève */}
+                <div className="pt-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-slate-700">Historique des versements :</p>
+                    {(((student as any).payments?.length || 0) + ((student as any).canteen_payments?.length || 0) > 0) && (
+                      <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {((student as any).payments?.length || 0) + ((student as any).canteen_payments?.length || 0)} versement(s)
+                      </span>
+                    )}
+                  </div>
+                  {(((student as any).payments && (student as any).payments.length > 0) ||
+                    ((student as any).canteen_payments && (student as any).canteen_payments.length > 0)) ? (
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
                       {((student as any).payments || []).map((pay: any) => (
                         <div
                           key={pay.id || pay.receipt_number}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 text-xs"
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 text-xs shadow-2xs"
                         >
                           <div>
-                            <span className="font-semibold text-slate-800">Scolarité - Reçu {pay.receipt_number}</span>
+                            <span className="font-semibold text-slate-800">Scolarité - Reçu N° {pay.receipt_number}</span>
                             <span className="text-slate-400 ml-2">{pay.payment_date ? formatDate(pay.payment_date) : '-'}</span>
                             <span className="text-slate-500 ml-2 italic">({pay.payment_method})</span>
                           </div>
@@ -236,10 +243,10 @@ export default function StudentDetailModal({
                               <button
                                 type="button"
                                 onClick={() => onPrintReceipt(pay, false)}
-                                className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition"
-                                title="Imprimer le reçu"
+                                className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition border border-transparent hover:border-emerald-200"
+                                title="Imprimer le reçu officiel"
                               >
-                                <Printer size={13} />
+                                <Printer size={14} />
                               </button>
                             )}
                           </div>
@@ -248,10 +255,10 @@ export default function StudentDetailModal({
                       {((student as any).canteen_payments || []).map((cp: any) => (
                         <div
                           key={cp.id || cp.receipt_number}
-                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-teal-100 text-xs"
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-teal-100 text-xs shadow-2xs"
                         >
                           <div>
-                            <span className="font-semibold text-teal-800">Cantine T{cp.trimester} - Reçu {cp.receipt_number}</span>
+                            <span className="font-semibold text-teal-800">Cantine T{cp.trimester} - Reçu N° {cp.receipt_number}</span>
                             <span className="text-slate-400 ml-2">{cp.payment_date ? formatDate(cp.payment_date) : '-'}</span>
                             <span className="text-slate-500 ml-2 italic">({cp.payment_method})</span>
                           </div>
@@ -261,18 +268,22 @@ export default function StudentDetailModal({
                               <button
                                 type="button"
                                 onClick={() => onPrintReceipt(cp, true)}
-                                className="p-1 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition"
-                                title="Imprimer le reçu"
+                                className="p-1 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition border border-transparent hover:border-teal-200"
+                                title="Imprimer le reçu cantine"
                               >
-                                <Printer size={13} />
+                                <Printer size={14} />
                               </button>
                             )}
                           </div>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400 italic">
+                      Aucun versement n'a encore été enregistré pour cet élève. Utilisez les boutons ci-dessus pour encaisser.
+                    </div>
+                  )}
+                </div>
               </div>
 
               {student.medical_info && (

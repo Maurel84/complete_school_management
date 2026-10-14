@@ -48,16 +48,14 @@ export function useStudents(schoolId?: string) {
     queryFn: async () => {
       if (!schoolId) return [];
 
-      const [studentsRes, plansRes] = await Promise.all([
+      const [studentsRes, plansRes, paymentsRes, canteenPaymentsRes, classesRes] = await Promise.all([
         supabase
           .from('students')
           .select(`
             *,
             class:classes(id, name, level_id),
             student_parents(parent_id, relationship, is_primary, is_billing_contact, parent:parents(*)),
-            student_fees(discount_amount, canteen_option, plan:payment_plans(*)),
-            payments(id, receipt_number, payment_date, payment_method, amount, status, notes),
-            canteen_payments(id, receipt_number, payment_date, payment_method, amount, trimester, notes)
+            student_fees(discount_amount, canteen_option, plan:payment_plans(*))
           `)
           .eq('school_id', schoolId)
           .order('last_name'),
@@ -70,29 +68,63 @@ export function useStudents(schoolId?: string) {
             composition:payment_plan_compositions(*)
           `)
           .eq('school_id', schoolId),
+        supabase
+          .from('payments')
+          .select('id, student_id, receipt_number, payment_date, payment_method, amount, status, notes')
+          .eq('school_id', schoolId)
+          .order('payment_date', { ascending: false }),
+        supabase
+          .from('canteen_payments')
+          .select('id, student_id, receipt_number, payment_date, payment_method, amount, trimester, notes')
+          .eq('school_id', schoolId)
+          .order('payment_date', { ascending: false }),
+        supabase
+          .from('classes')
+          .select('id, name, level_id')
+          .eq('school_id', schoolId),
       ]);
 
       if (studentsRes.error) throw studentsRes.error;
 
       const plans = plansRes.data || [];
+      const classes = classesRes.data || [];
+
+      // Group payments by student
+      const paymentsByStudent: Record<string, any[]> = {};
+      (paymentsRes.data || []).forEach(p => {
+        if (!paymentsByStudent[p.student_id]) paymentsByStudent[p.student_id] = [];
+        paymentsByStudent[p.student_id].push(p);
+      });
+
+      const canteenByStudent: Record<string, any[]> = {};
+      (canteenPaymentsRes.data || []).forEach(cp => {
+        if (!canteenByStudent[cp.student_id]) canteenByStudent[cp.student_id] = [];
+        canteenByStudent[cp.student_id].push(cp);
+      });
 
       return (studentsRes.data || []).map(student => {
         const studentFees = student.student_fees
           ? (Array.isArray(student.student_fees) ? student.student_fees : [student.student_fees])
           : [];
 
+        const tuitionPayments = paymentsByStudent[student.id] || [];
+        const canteenPayments = canteenByStudent[student.id] || [];
+
         const finance = resolveStudentFinance({
           student,
           plans,
           studentFees,
-          tuitionPayments: student.payments || [],
-          canteenPayments: student.canteen_payments || [],
+          tuitionPayments,
+          canteenPayments,
+          classes,
         });
 
         return {
           ...student,
           family_count: student.student_parents?.length || 0,
           parents: student.student_parents || [],
+          payments: tuitionPayments,
+          canteen_payments: canteenPayments,
           financial_plan_name: finance.planName,
           financial_expected: finance.totalExpected,
           financial_paid: finance.totalPaid,

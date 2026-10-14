@@ -565,40 +565,67 @@ export default function StudentsPage() {
     {
       key: 'class',
       label: 'Classe',
-      render: (student: StudentListItem) => student.class?.name || '-',
-    },
-    {
-      key: 'sex',
-      label: 'Sexe',
-      render: (student: StudentListItem) => (student.sex === 'M' ? 'Masculin' : 'Féminin'),
-    },
-    {
-      key: 'family_count',
-      label: 'Famille',
       render: (student: StudentListItem) => (
-        <span className="font-medium">{student.family_count} lien(s)</span>
+        <span className="font-medium text-slate-800">{student.class?.name || '-'}</span>
       ),
     },
     {
-      key: 'financial_status',
-      label: 'Scolarité / Solde',
+      key: 'expected',
+      label: 'Scolarité Annuelle',
+      render: (student: any) => (
+        <div>
+          <span className="font-semibold text-slate-900 text-sm">
+            {formatCurrency(student.financial_expected || 0)}
+          </span>
+          <span className="text-[10px] text-slate-400 block">
+            {student.financial_plan_name || 'Tarif annuel'}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'paid',
+      label: 'Total Payé',
       render: (student: any) => {
-        const remaining = Number(student.financial_remaining || 0);
-        const expected = Number(student.financial_expected || 0);
         const paid = Number(student.financial_paid || 0);
-        const isSettled = remaining <= 0;
+        const canteenPaid = Number(student.financial_canteen_paid || 0);
 
         return (
-          <div className="text-xs">
+          <div>
+            <span className={`text-sm font-bold ${paid > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+              {paid > 0 ? `+${formatCurrency(paid)}` : '0 FCFA'}
+            </span>
+            {canteenPaid > 0 && (
+              <span className="text-[10px] text-teal-600 block">
+                Dont cantine : {formatCurrency(canteenPaid)}
+              </span>
+            )}
+            {paid > 0 && canteenPaid === 0 && (
+              <span className="text-[10px] text-emerald-600 block">
+                {(student.payments?.length || 0)} versement(s)
+              </span>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: 'remaining',
+      label: 'Reste à Payer',
+      render: (student: any) => {
+        const remaining = Number(student.financial_remaining || 0);
+        const isSettled = remaining <= 0;
+        return (
+          <div>
             <div className="flex items-center gap-1.5 font-semibold">
               <span className={`inline-block w-2 h-2 rounded-full ${isSettled ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              <span className={isSettled ? 'text-emerald-700' : 'text-red-700 font-bold'}>
-                {isSettled ? 'Soldé' : `Reste : ${formatCurrency(remaining)}`}
+              <span className={isSettled ? 'text-emerald-700 text-xs font-bold' : 'text-red-700 text-sm font-bold'}>
+                {isSettled ? 'Soldé (0 FCFA)' : formatCurrency(remaining)}
               </span>
             </div>
-            <p className="text-slate-400 mt-0.5 text-[11px]">
-              Payé : {formatCurrency(paid)} / {formatCurrency(expected)}
-            </p>
+            {!isSettled && (
+              <span className="text-[10px] text-red-500 block">Solde dû</span>
+            )}
           </div>
         );
       },
