@@ -1,7 +1,7 @@
 import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
 import { formatDate, formatCurrency } from '../../../lib/utils';
-import { Download, Link2, Printer } from 'lucide-react';
+import { Download, Link2, Printer, CreditCard, Utensils, FileText } from 'lucide-react';
 import type { AcademicYear, Class, School, Student } from '../../../types';
 
 interface StudentDetailModalProps {
@@ -13,6 +13,9 @@ interface StudentDetailModalProps {
   canManageStudents: boolean;
   onManageFamilyClick: () => void;
   onStudentCardAction: (mode: 'print' | 'download') => void;
+  onMakePayment?: (student: any, type: 'tuition' | 'canteen') => void;
+  onPrintStatement?: (student: any) => void;
+  onPrintReceipt?: (payment: any, isCanteen: boolean) => void;
   academicYear: AcademicYear | null;
   school: School | null;
 }
@@ -40,6 +43,9 @@ export default function StudentDetailModal({
   canManageStudents,
   onManageFamilyClick,
   onStudentCardAction,
+  onMakePayment,
+  onPrintStatement,
+  onPrintReceipt,
   academicYear,
   school,
 }: StudentDetailModalProps) {
@@ -57,7 +63,7 @@ export default function StudentDetailModal({
   const guardianPhone = billingOrPrimaryGuardian?.phone || (student as any).parent_phone || 'Non renseigné';
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Fiche élève" size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Fiche élève & Guichet d'actions" size="xl">
       {loading ? (
         <div className="py-14 text-center text-sm text-slate-500">Chargement du dossier élève...</div>
       ) : (
@@ -144,36 +150,130 @@ export default function StudentDetailModal({
                 </div>
               </div>
 
-              {/* Point Financier / Facture */}
-              {(student as any).financial_has_plan ? (
-                <div className="mt-6 rounded-[22px] border border-slate-200 bg-slate-50/50 p-4">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Facturation &amp; Scolarité</p>
-                  <div className="grid grid-cols-3 gap-3 text-center">
-                    <div className="bg-white border border-slate-200 rounded-xl p-3">
-                      <p className="text-[10px] text-slate-500 uppercase">Attendu</p>
-                      <p className="text-sm font-bold text-slate-800 mt-1">
-                        {formatCurrency((student as any).financial_expected)}
-                      </p>
-                    </div>
-                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3">
-                      <p className="text-[10px] text-emerald-600 uppercase">Payé</p>
-                      <p className="text-sm font-bold text-emerald-700 mt-1">
-                        {formatCurrency((student as any).financial_paid)}
-                      </p>
-                    </div>
-                    <div className="bg-red-50/50 border border-red-100 rounded-xl p-3">
-                      <p className="text-[10px] text-red-600 uppercase">Reste</p>
-                      <p className="text-sm font-bold text-red-700 mt-1">
-                        {formatCurrency((student as any).financial_remaining)}
-                      </p>
-                    </div>
+              {/* Point Financier / Guichet Unique */}
+              <div className="mt-6 rounded-[24px] border border-slate-200 bg-slate-50/70 p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-200/60 pb-3">
+                  <div>
+                    <span className="text-xs uppercase font-bold tracking-wider text-slate-500">Guichet Financier &amp; Facturation</span>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Cycle / Plan : <strong className="text-slate-800">{(student as any).financial_plan_name || (student as any).class?.name || 'Standard'}</strong>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {onMakePayment && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onMakePayment(student, 'tuition')}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition"
+                        >
+                          <CreditCard size={14} /> Payer Scolarité
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onMakePayment(student, 'canteen')}
+                          className="inline-flex items-center gap-1.5 rounded-xl bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-teal-700 transition"
+                        >
+                          <Utensils size={14} /> Payer Cantine
+                        </button>
+                      </>
+                    )}
+                    {onPrintStatement && (
+                      <button
+                        type="button"
+                        onClick={() => onPrintStatement(student)}
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-slate-800 transition"
+                        title="Imprimer le relevé de compte officiel de l'élève"
+                      >
+                        <FileText size={14} /> Relevé Financier
+                      </button>
+                    )}
                   </div>
                 </div>
-              ) : (
-                <div className="mt-6 rounded-[22px] border border-dashed border-slate-200 p-4 text-center text-xs text-slate-400">
-                  Aucun plan de scolarité n'est encore configuré pour cet élève.
+
+                {/* KPI stats */}
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div className="bg-white border border-slate-200 rounded-2xl p-3 shadow-xs">
+                    <p className="text-[10px] text-slate-500 uppercase font-semibold">Total Attendu</p>
+                    <p className="text-base font-bold text-slate-900 mt-1">
+                      {formatCurrency((student as any).financial_expected || 0)}
+                    </p>
+                  </div>
+                  <div className="bg-emerald-50/60 border border-emerald-100 rounded-2xl p-3 shadow-xs">
+                    <p className="text-[10px] text-emerald-700 uppercase font-semibold">Total Encaissé</p>
+                    <p className="text-base font-bold text-emerald-700 mt-1">
+                      {formatCurrency((student as any).financial_paid || 0)}
+                    </p>
+                  </div>
+                  <div className="bg-red-50/60 border border-red-100 rounded-2xl p-3 shadow-xs">
+                    <p className="text-[10px] text-red-700 uppercase font-semibold">Solde Restant</p>
+                    <p className={`text-base font-bold mt-1 ${(student as any).financial_remaining > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                      {formatCurrency((student as any).financial_remaining || 0)}
+                    </p>
+                  </div>
                 </div>
-              )}
+
+                {/* Historique des paiements de l'élève */}
+                {(((student as any).payments && (student as any).payments.length > 0) ||
+                  ((student as any).canteen_payments && (student as any).canteen_payments.length > 0)) && (
+                  <div className="pt-2">
+                    <p className="text-xs font-semibold text-slate-700 mb-2">Historique des versements :</p>
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                      {((student as any).payments || []).map((pay: any) => (
+                        <div
+                          key={pay.id || pay.receipt_number}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 text-xs"
+                        >
+                          <div>
+                            <span className="font-semibold text-slate-800">Scolarité - Reçu {pay.receipt_number}</span>
+                            <span className="text-slate-400 ml-2">{pay.payment_date ? formatDate(pay.payment_date) : '-'}</span>
+                            <span className="text-slate-500 ml-2 italic">({pay.payment_method})</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-emerald-700">+{formatCurrency(pay.amount)}</span>
+                            {onPrintReceipt && (
+                              <button
+                                type="button"
+                                onClick={() => onPrintReceipt(pay, false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 transition"
+                                title="Imprimer le reçu"
+                              >
+                                <Printer size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {((student as any).canteen_payments || []).map((cp: any) => (
+                        <div
+                          key={cp.id || cp.receipt_number}
+                          className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-teal-100 text-xs"
+                        >
+                          <div>
+                            <span className="font-semibold text-teal-800">Cantine T{cp.trimester} - Reçu {cp.receipt_number}</span>
+                            <span className="text-slate-400 ml-2">{cp.payment_date ? formatDate(cp.payment_date) : '-'}</span>
+                            <span className="text-slate-500 ml-2 italic">({cp.payment_method})</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-teal-700">+{formatCurrency(cp.amount)}</span>
+                            {onPrintReceipt && (
+                              <button
+                                type="button"
+                                onClick={() => onPrintReceipt(cp, true)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition"
+                                title="Imprimer le reçu"
+                              >
+                                <Printer size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {student.medical_info && (
                 <div className="mt-6 rounded-[22px] border border-amber-200 bg-amber-50 p-4">

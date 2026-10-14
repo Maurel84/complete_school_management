@@ -1,12 +1,16 @@
 import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatCurrency } from '../../lib/utils';
+import { PAYMENT_METHODS, formatCurrency } from '../../lib/utils';
 import DataTable from '../../components/common/DataTable';
 import type { Column } from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
 import EmptyState from '../../components/common/EmptyState';
 import {
+  buildPaymentReceiptHtml,
+  buildStudentAccountStatementHtml,
   buildStudentCardHtml,
   downloadTextDocument,
   openPrintPreview,
@@ -14,25 +18,32 @@ import {
 } from '../../lib/printableDocuments';
 import { saveGeneratedDocument } from '../../lib/generatedDocuments';
 import { recordAuditLog } from '../../lib/audit';
+import { createDoubleEntry } from '../../lib/accountingSync';
+import { resolveStudentFinance } from '../../lib/financePlanResolver';
 import type { Class, Student } from '../../types';
 import {
+  CreditCard,
   Download,
   Edit,
   Eye,
+  FileText,
   GraduationCap,
   Plus,
   Printer,
   Trash2,
   AlertTriangle,
   CopyCheck,
+  Utensils,
 } from 'lucide-react';
 import { useStudents, useStudentFamilyLinks } from '../../hooks/useStudents';
 import { useClasses } from '../../hooks/useClasses';
 import { useParents } from '../../hooks/useParents';
+import { useFinance } from '../../hooks/useFinance';
 import StudentFormModal from './components/StudentFormModal';
 import StudentDetailModal from './components/StudentDetailModal';
 import FamilyModal from './components/FamilyModal';
 import AuditDuplicatesModal from './components/AuditDuplicatesModal';
+import PaymentFormModal from '../finance/components/PaymentFormModal';
 
 type StudentListItem = Student & { class?: Pick<Class, 'id' | 'name'>; family_count: number };
 
@@ -47,6 +58,12 @@ export default function StudentsPage() {
   const [auditModalOpen, setAuditModalOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
+  // Quick Action Modal states (Guichet Unique)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [paymentTargetStudent, setPaymentTargetStudent] = useState<Student | null>(null);
+  const [paymentType, setPaymentType] = useState<'tuition' | 'canteen'>('tuition');
+  const [savingPayment, setSavingPayment] = useState(false);
+
   const canManageStudents = isSuperAdmin || isAdmin || isDirector || isSupervisor;
 
   // Custom Hooks with TanStack Query
@@ -59,6 +76,54 @@ export default function StudentsPage() {
 
   const { data: classes = [] } = useClasses(school?.id);
   const { data: parents = [] } = useParents(school?.id);
+
+  // Financial system integration
+  const {
+    plansQuery,
+    studentFeesQuery,
+    saveDetailedPayment,
+    saveCanteenPayment,
+  } = useFinance(school?.id, academicYear?.id);
+
+  // Active Cash Register
+  const activeRegisterQuery = useQuery({
+    queryKey: ['cash_register_active', school?.id],
+    queryFn: async () => {
+      if (!school?.id) return null;
+      const { data, error } = await supabase
+        .from('cash_registers')
+        .select('*')
+        .eq('school_id', school.id)
+        .eq('status', 'open')
+        .order('opened_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!school?.id,
+  });
+
+  async function syncCashRegisterTransaction(paymentId: string, studentName: string, amount: number, isCanteen = false) {
+    const register = activeRegisterQuery.data;
+    if (!register?.id || !school?.id) return;
+
+    const payload = {
+      school_id: school.id,
+      cash_register_id: register.id,
+      transaction_number: `TRX-${Date.now()}`,
+      type: 'in',
+      amount,
+      description: `${isCanteen ? 'Cantine' : 'Frais Scolaires'} - ${studentName}`,
+      category: 'payment',
+      payment_id: isCanteen ? null : paymentId,
+      processed_by: profile?.id,
+      validated: true,
+    };
+
+    await supabase.from('cash_transactions').insert(payload);
+  }
 
   const {
     familyLinksQuery,
@@ -234,6 +299,242 @@ export default function StudentsPage() {
     [parents, familyLinks]
   );
 
+  // Keep selectedStudent synced with latest data from studentsQuery
+  const currentSelectedStudent = useMemo(() => {
+    if (!selectedStudent) return null;
+    return (students.find(s => s.id === selectedStudent.id) || selectedStudent) as StudentListItem;
+  }, [students, selectedStudent]);
+
+  // Payment Handlers (Guichet Unique)
+  async function handleSaveTuitionPayment(payload: any, details: any[], qrHash: string, digitalSig: string) {
+    if (!school?.id) return;
+    setSavingPayment(true);
+    try {
+      const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
+      const studentName = student ? `${student.last_name} ${student.first_name}` : 'Élève';
+
+      const payment = await saveDetailedPayment({
+        paymentData: payload,
+        details,
+        profile,
+        qrHash,
+        digitalSig,
+      });
+
+      if (payload.payment_method === 'cash') {
+        await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+      }
+
+      // Sync double-entry general accounting
+      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+      await createDoubleEntry({
+        schoolId: school.id,
+        amount: payload.amount,
+        description: `Paiement Scolarité - ${studentName}`,
+        debitAccountNo: debitAcc,
+        creditAccountNo: '706100',
+        reference: payment.receipt_number || '',
+      });
+
+      setPaymentModalOpen(false);
+      void studentsQuery.refetch();
+
+      if (confirm(`Paiement de scolarité (Reçu N° ${payment.receipt_number || ''}) enregistré avec succès !\nVoulez-vous imprimer le reçu officiel ?`)) {
+        void handlePrintReceipt({ ...payment, student_id: payload.student_id, student }, false);
+      }
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  async function handleSaveCanteenPayment(payload: any, qrHash: string, digitalSig: string) {
+    if (!school?.id) return;
+    setSavingPayment(true);
+    try {
+      const student = (studentsQuery.data || []).find((s: any) => s.id === payload.student_id);
+      const studentName = student ? `${student.last_name} ${student.first_name}` : 'Élève';
+
+      const cp = await saveCanteenPayment({
+        canteenData: payload,
+        profile,
+        qrHash,
+        digitalSig,
+      });
+
+      if (payload.payment_method === 'cash') {
+        await syncCashRegisterTransaction('', studentName, payload.amount, true);
+      }
+
+      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+      await createDoubleEntry({
+        schoolId: school.id,
+        amount: payload.amount,
+        description: `Paiement Cantine - ${studentName}`,
+        debitAccountNo: debitAcc,
+        creditAccountNo: '708200',
+        reference: payload.receipt_number || '',
+      });
+
+      setPaymentModalOpen(false);
+      void studentsQuery.refetch();
+
+      if (confirm(`Paiement Cantine (Reçu N° ${payload.receipt_number || ''}) enregistré avec succès !\nVoulez-vous imprimer le reçu officiel ?`)) {
+        void handlePrintReceipt({ ...cp, student_id: payload.student_id, student }, true);
+      }
+    } catch (e: any) {
+      alert(`Erreur : ${e.message}`);
+    } finally {
+      setSavingPayment(false);
+    }
+  }
+
+  function handlePrintStatement(student: any) {
+    if (!school) {
+      alert("Informations de l'établissement introuvables.");
+      return;
+    }
+
+    const fin = student.finance || resolveStudentFinance({
+      student,
+      plans: plansQuery.data || [],
+      studentFees: studentFeesQuery.data || [],
+      tuitionPayments: student.payments || [],
+      canteenPayments: student.canteen_payments || [],
+      classes,
+    });
+
+    const tuitionHistory = (student.payments || []).map((p: any) => ({
+      receipt_number: p.receipt_number,
+      payment_date: p.payment_date,
+      payment_method: p.payment_method,
+      amount: Number(p.amount),
+      is_canteen: false,
+      description: 'Scolarité annuelle',
+    }));
+    const canteenHistory = (student.canteen_payments || []).map((p: any) => ({
+      receipt_number: p.receipt_number,
+      payment_date: p.payment_date,
+      payment_method: p.payment_method,
+      amount: Number(p.amount),
+      is_canteen: true,
+      description: `Cantine scolaire - Trimestre ${p.trimester || 1}`,
+    }));
+
+    const allPayments = [...tuitionHistory, ...canteenHistory].sort(
+      (a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime()
+    );
+
+    const html = buildStudentAccountStatementHtml({
+      school,
+      student: {
+        first_name: student.first_name,
+        last_name: student.last_name,
+        matricule: student.matricule,
+      },
+      className: student.class?.name,
+      academicYearName: academicYear?.name,
+      planName: fin.planName,
+      totalExpected: fin.totalExpected,
+      totalPaid: fin.totalPaid,
+      remaining: fin.remaining,
+      installments: fin.schedule,
+      paymentHistory: allPayments,
+    });
+
+    openPrintPreview(html);
+  }
+
+  async function handlePrintReceipt(p: any, isCanteen: boolean) {
+    if (!school) return;
+
+    const studentId = p.student_id || selectedStudent?.id;
+    const student =
+      p.student ||
+      (studentsQuery.data || []).find((s: any) => s.id === studentId) ||
+      selectedStudent || {
+        first_name: '',
+        last_name: '',
+        matricule: '',
+      };
+
+    const [receiptRes, detailsRes] = await Promise.all([
+      supabase
+        .from('receipts')
+        .select('qr_code_hash, digital_signature')
+        .or(`payment_id.eq.${p.id},canteen_payment_id.eq.${p.id}`)
+        .maybeSingle(),
+      isCanteen
+        ? Promise.resolve({ data: [] })
+        : supabase
+            .from('payment_details')
+            .select('amount, payment_plan_compositions(item_name)')
+            .eq('payment_id', p.id),
+    ]);
+
+    const receiptMeta = receiptRes.data;
+    const compositions = detailsRes.data || [];
+
+    const fin = (student as any).finance || resolveStudentFinance({
+      student,
+      plans: plansQuery.data || [],
+      studentFees: studentFeesQuery.data || [],
+      tuitionPayments: (student as any).payments || [],
+      canteenPayments: (student as any).canteen_payments || [],
+      classes,
+    });
+
+    const tuitionHistory = ((student as any).payments || []).map((tp: any) => ({
+      receipt_number: tp.receipt_number,
+      payment_date: tp.payment_date,
+      payment_method: tp.payment_method,
+      amount: Number(tp.amount),
+      is_canteen: false,
+    }));
+    const canteenHistory = ((student as any).canteen_payments || []).map((cp: any) => ({
+      receipt_number: cp.receipt_number,
+      payment_date: cp.payment_date,
+      payment_method: cp.payment_method,
+      amount: Number(cp.amount),
+      is_canteen: true,
+    }));
+
+    const paymentMethodLabel =
+      PAYMENT_METHODS.find(m => m.value === p.payment_method)?.label || p.payment_method;
+
+    const parentRaw = (student as any).parents?.[0]?.parent || (student as any).parents?.[0];
+    const parentName = parentRaw ? `${parentRaw.first_name || ''} ${parentRaw.last_name || ''}`.trim() : 'Parent';
+
+    const html = buildPaymentReceiptHtml({
+      school,
+      payment: { ...p, payment_method: paymentMethodLabel },
+      student: {
+        first_name: (student as any).first_name || '',
+        last_name: (student as any).last_name || '',
+        matricule: (student as any).matricule || '',
+      },
+      academicYearName: academicYear?.name,
+      className: (student as any).class?.name || '-',
+      parentName,
+      feeLabel: isCanteen ? `Cantine scolaire - Trimestre ${p.trimester || 1}` : 'Scolarité annuelle',
+      processedByName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
+      compositions: compositions.length > 0 ? compositions.map((c: any) => ({
+        item_name: c.payment_plan_compositions?.item_name || 'Frais scolarité',
+        amount: Number(c.amount),
+      })) : undefined,
+      qrCodeHash: receiptMeta?.qr_code_hash,
+      digitalSignature: receiptMeta?.digital_signature,
+      totalExpected: fin.totalExpected,
+      totalPaid: fin.totalPaid,
+      remaining: fin.remaining,
+      installments: fin.schedule,
+      paymentHistory: [...tuitionHistory, ...canteenHistory],
+    });
+
+    openPrintPreview(html);
+  }
+
   const columns: Column<StudentListItem>[] = [
     {
       key: 'identity',
@@ -282,16 +583,21 @@ export default function StudentsPage() {
       key: 'financial_status',
       label: 'Scolarité / Solde',
       render: (student: any) => {
-        if (!student.financial_has_plan) {
-          return <span className="text-slate-400 text-xs italic">Non configuré</span>;
-        }
+        const remaining = Number(student.financial_remaining || 0);
+        const expected = Number(student.financial_expected || 0);
+        const paid = Number(student.financial_paid || 0);
+        const isSettled = remaining <= 0;
+
         return (
           <div className="text-xs">
-            <p className="font-semibold text-slate-800">
-              Reste : {formatCurrency(student.financial_remaining)}
-            </p>
-            <p className="text-slate-400 mt-0.5">
-              Payé : {formatCurrency(student.financial_paid)} / {formatCurrency(student.financial_expected)}
+            <div className="flex items-center gap-1.5 font-semibold">
+              <span className={`inline-block w-2 h-2 rounded-full ${isSettled ? 'bg-emerald-500' : 'bg-red-500'}`} />
+              <span className={isSettled ? 'text-emerald-700' : 'text-red-700 font-bold'}>
+                {isSettled ? 'Soldé' : `Reste : ${formatCurrency(remaining)}`}
+              </span>
+            </div>
+            <p className="text-slate-400 mt-0.5 text-[11px]">
+              Payé : {formatCurrency(paid)} / {formatCurrency(expected)}
             </p>
           </div>
         );
@@ -306,17 +612,38 @@ export default function StudentsPage() {
       key: 'actions',
       label: 'Actions',
       render: (student: StudentListItem) => (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex items-center flex-wrap gap-1">
+          <button
+            onClick={() => {
+              setPaymentTargetStudent(student);
+              setPaymentType('tuition');
+              setPaymentModalOpen(true);
+            }}
+            title="Encaisser un versement pour cet élève"
+            className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition border border-emerald-200 flex items-center gap-1"
+          >
+            <CreditCard size={13} />
+            <span>Encaisser</span>
+          </button>
+          <button
+            onClick={() => handlePrintStatement(student)}
+            title="Imprimer le relevé officiel de l'élève"
+            className="rounded-xl p-1.5 text-slate-700 hover:bg-slate-100 transition border border-slate-200"
+          >
+            <FileText size={15} />
+          </button>
           <button
             onClick={() => openDetail(student)}
-            className="rounded-xl p-2 text-blue-600 transition hover:bg-blue-50"
+            title="Voir le dossier 360°"
+            className="rounded-xl p-1.5 text-blue-600 transition hover:bg-blue-50"
           >
             <Eye size={16} />
           </button>
           {canManageStudents && (
             <button
               onClick={() => openEdit(student)}
-              className="rounded-xl p-2 text-amber-600 transition hover:bg-amber-50"
+              title="Modifier"
+              className="rounded-xl p-1.5 text-amber-600 transition hover:bg-amber-50"
             >
               <Edit size={16} />
             </button>
@@ -324,7 +651,8 @@ export default function StudentsPage() {
           {canManageStudents && (
             <button
               onClick={() => void handleDeleteStudent(student.id)}
-              className="rounded-xl p-2 text-red-600 transition hover:bg-red-50"
+              title="Archiver"
+              className="rounded-xl p-1.5 text-red-600 transition hover:bg-red-50"
             >
               <Trash2 size={16} />
             </button>
@@ -447,14 +775,14 @@ export default function StudentsPage() {
         />
       )}
 
-      {selectedStudent && (
+      {currentSelectedStudent && (
         <StudentDetailModal
           isOpen={detailOpen}
           onClose={() => {
             setDetailOpen(false);
             setSelectedStudent(null);
           }}
-          student={selectedStudent}
+          student={currentSelectedStudent}
           familyLinks={familyLinks}
           loading={familyLinksQuery.isLoading}
           canManageStudents={canManageStudents}
@@ -463,8 +791,37 @@ export default function StudentsPage() {
             setFamilyModalOpen(true);
           }}
           onStudentCardAction={handleStudentCardAction}
+          onMakePayment={(studentToPay, type) => {
+            setPaymentTargetStudent(studentToPay);
+            setPaymentType(type);
+            setPaymentModalOpen(true);
+          }}
+          onPrintStatement={handlePrintStatement}
+          onPrintReceipt={handlePrintReceipt}
           academicYear={academicYear}
           school={school}
+        />
+      )}
+
+      {/* Guichet Unique Payment Modal */}
+      {school && (
+        <PaymentFormModal
+          isOpen={paymentModalOpen}
+          onClose={() => {
+            setPaymentModalOpen(false);
+            setPaymentTargetStudent(null);
+          }}
+          students={students}
+          studentFees={studentFeesQuery.data || []}
+          plans={plansQuery.data || []}
+          payments={[]}
+          canteenPayments={[]}
+          classes={classes}
+          initialStudentId={paymentTargetStudent?.id}
+          initialPaymentType={paymentType}
+          onSavePayment={handleSaveTuitionPayment}
+          onSaveCanteen={handleSaveCanteenPayment}
+          saving={savingPayment}
         />
       )}
 

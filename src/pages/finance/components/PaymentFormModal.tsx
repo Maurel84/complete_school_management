@@ -14,6 +14,8 @@ interface PaymentFormModalProps {
   payments?: any[];
   canteenPayments?: any[];
   classes?: any[];
+  initialStudentId?: string;
+  initialPaymentType?: 'tuition' | 'canteen';
   onSavePayment: (payload: any, details: any[], qrHash: string, digitalSig: string) => Promise<void>;
   onSaveCanteen: (payload: any, qrHash: string, digitalSig: string) => Promise<void>;
   saving: boolean;
@@ -40,6 +42,8 @@ export default function PaymentFormModal({
   payments = [],
   canteenPayments = [],
   classes = [],
+  initialStudentId,
+  initialPaymentType = 'tuition',
   onSavePayment,
   onSaveCanteen,
   saving,
@@ -48,9 +52,19 @@ export default function PaymentFormModal({
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
-    setForm(EMPTY_PAYMENT_FORM);
-    setNotice(null);
-  }, [isOpen]);
+    if (isOpen) {
+      const selectedStudent = students.find(s => s.id === initialStudentId);
+      const parentId = (selectedStudent as any)?.parents?.[0]?.parent_id || '';
+
+      setForm({
+        ...EMPTY_PAYMENT_FORM,
+        student_id: initialStudentId || '',
+        parent_id: parentId,
+        payment_type: initialPaymentType || 'tuition',
+      });
+      setNotice(null);
+    }
+  }, [isOpen, initialStudentId, initialPaymentType, students]);
 
   const selectedStudentObj = useMemo(() => {
     return students.find(s => s.id === form.student_id);

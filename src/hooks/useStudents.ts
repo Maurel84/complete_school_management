@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { recordAuditLog } from '../lib/audit';
 import { generateMatricule } from '../lib/utils';
 import type { Student, StudentParent, Profile } from '../types';
+import { resolveStudentFinance } from '../lib/financePlanResolver';
 
 export interface StudentFormInput {
   first_name: string;
@@ -46,50 +47,63 @@ export function useStudents(schoolId?: string) {
     queryKey: ['students', schoolId],
     queryFn: async () => {
       if (!schoolId) return [];
-      const { data, error } = await supabase
-        .from('students')
-        .select(`
-          *,
-          class:classes(id, name),
-          student_parents(parent_id),
-          student_fees(discount_amount, canteen_option, plan:payment_plans(total_amount, canteen_quarterly)),
-          payments(amount, status),
-          canteen_payments(amount)
-        `)
-        .eq('school_id', schoolId)
-        .order('last_name');
 
-      if (error) throw error;
+      const [studentsRes, plansRes] = await Promise.all([
+        supabase
+          .from('students')
+          .select(`
+            *,
+            class:classes(id, name, level_id),
+            student_parents(parent_id, relationship, is_primary, is_billing_contact, parent:parents(*)),
+            student_fees(discount_amount, canteen_option, plan:payment_plans(*)),
+            payments(id, receipt_number, payment_date, payment_method, amount, status, notes),
+            canteen_payments(id, receipt_number, payment_date, payment_method, amount, trimester, notes)
+          `)
+          .eq('school_id', schoolId)
+          .order('last_name'),
+        supabase
+          .from('payment_plans')
+          .select(`
+            *,
+            levels:payment_plan_levels(level_id),
+            schedule:payment_schedule_templates(*),
+            composition:payment_plan_compositions(*)
+          `)
+          .eq('school_id', schoolId),
+      ]);
 
-      return (data || []).map(student => {
-        const planLink = Array.isArray(student.student_fees)
-          ? student.student_fees[0]
-          : (student.student_fees as any);
+      if (studentsRes.error) throw studentsRes.error;
 
-        const basePlanAmount = Number(planLink?.plan?.total_amount || 0);
-        const discount = Number(planLink?.discount_amount || 0);
-        const canteenOption = planLink?.canteen_option || 'none';
-        const canteenRate = canteenOption === 'none' ? 0 : Number(planLink?.plan?.canteen_quarterly || 0) * 3;
-        
-        const expected = Math.max(0, basePlanAmount - discount) + canteenRate;
-        
-        const paidTuition = (student.payments || [])
-          .filter((p: any) => p.status === 'paid')
-          .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-          
-        const paidCanteen = (student.canteen_payments || [])
-          .reduce((sum: number, cp: any) => sum + Number(cp.amount), 0);
-          
-        const paid = paidTuition + paidCanteen;
-        const remaining = Math.max(0, expected - paid);
+      const plans = plansRes.data || [];
+
+      return (studentsRes.data || []).map(student => {
+        const studentFees = student.student_fees
+          ? (Array.isArray(student.student_fees) ? student.student_fees : [student.student_fees])
+          : [];
+
+        const finance = resolveStudentFinance({
+          student,
+          plans,
+          studentFees,
+          tuitionPayments: student.payments || [],
+          canteenPayments: student.canteen_payments || [],
+        });
 
         return {
           ...student,
           family_count: student.student_parents?.length || 0,
-          financial_expected: expected,
-          financial_paid: paid,
-          financial_remaining: remaining,
-          financial_has_plan: !!planLink,
+          parents: student.student_parents || [],
+          financial_plan_name: finance.planName,
+          financial_expected: finance.totalExpected,
+          financial_paid: finance.totalPaid,
+          financial_remaining: finance.remaining,
+          financial_tuition_expected: finance.totalExpectedTuition,
+          financial_tuition_paid: finance.paidTuition,
+          financial_canteen_paid: finance.paidCanteen,
+          financial_schedule: finance.schedule,
+          financial_status: finance.status,
+          financial_has_plan: true,
+          finance,
         };
       });
     },
