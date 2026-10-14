@@ -3,6 +3,7 @@ import Modal from '../../../components/common/Modal';
 import FormField from '../../../components/common/FormField';
 import { PAYMENT_METHODS, formatCurrency } from '../../../lib/utils';
 import { Check, Info, ShieldAlert, Utensils } from 'lucide-react';
+import { resolveStudentFinance } from '../../../lib/financePlanResolver';
 
 interface PaymentFormModalProps {
   isOpen: boolean;
@@ -10,6 +11,9 @@ interface PaymentFormModalProps {
   students: any[];
   studentFees: any[];
   plans: any[];
+  payments?: any[];
+  canteenPayments?: any[];
+  classes?: any[];
   onSavePayment: (payload: any, details: any[], qrHash: string, digitalSig: string) => Promise<void>;
   onSaveCanteen: (payload: any, qrHash: string, digitalSig: string) => Promise<void>;
   saving: boolean;
@@ -33,6 +37,9 @@ export default function PaymentFormModal({
   students = [],
   studentFees = [],
   plans = [],
+  payments = [],
+  canteenPayments = [],
+  classes = [],
   onSavePayment,
   onSaveCanteen,
   saving,
@@ -45,21 +52,22 @@ export default function PaymentFormModal({
     setNotice(null);
   }, [isOpen]);
 
-  // Find the selected student's plan and canteen option
-  const studentFeeInfo = useMemo(() => {
-    if (!form.student_id) return null;
-    return studentFees.find(sf => sf.student_id === form.student_id);
-  }, [form.student_id, studentFees]);
-
-  const studentPlan = useMemo(() => {
-    if (!studentFeeInfo) return null;
-    // Find plan in plans array to get compositions and schedules
-    return plans.find(p => p.id === studentFeeInfo.plan_id);
-  }, [studentFeeInfo, plans]);
-
   const selectedStudentObj = useMemo(() => {
     return students.find(s => s.id === form.student_id);
   }, [form.student_id, students]);
+
+  // Resolve student finance automatically
+  const resolvedFinance = useMemo(() => {
+    if (!selectedStudentObj) return null;
+    return resolveStudentFinance({
+      student: selectedStudentObj,
+      plans,
+      studentFees,
+      tuitionPayments: payments,
+      canteenPayments,
+      classes,
+    });
+  }, [selectedStudentObj, plans, studentFees, payments, canteenPayments, classes]);
 
   // Retrieve parent phone / billing contacts
   const parentOptions = useMemo(() => {
@@ -69,9 +77,9 @@ export default function PaymentFormModal({
 
   // Compute first versement items
   const firstVersementComposition = useMemo(() => {
-    if (!studentPlan) return [];
-    return studentPlan.composition || [];
-  }, [studentPlan]);
+    if (!resolvedFinance) return [];
+    return resolvedFinance.composition || [];
+  }, [resolvedFinance]);
 
   const totalFirstVersementValue = useMemo(() => {
     return firstVersementComposition.reduce((sum: number, c: any) => sum + Number(c.amount), 0);
@@ -79,13 +87,13 @@ export default function PaymentFormModal({
 
   // Handle canteen calculations
   const canteenRates = useMemo(() => {
-    if (!studentPlan) return { monthly: 0, quarterly: 0, annual: 0 };
+    if (!resolvedFinance) return { monthly: 0, quarterly: 0, annual: 0 };
     return {
-      monthly: Number(studentPlan.canteen_monthly || 0),
-      quarterly: Number(studentPlan.canteen_quarterly || 0),
-      annual: Number(studentPlan.canteen_annual || 0),
+      monthly: resolvedFinance.canteenMonthly,
+      quarterly: resolvedFinance.canteenQuarterly,
+      annual: resolvedFinance.canteenAnnual,
     };
-  }, [studentPlan]);
+  }, [resolvedFinance]);
 
   // Set default values when student or payment type changes
   useEffect(() => {
@@ -228,22 +236,35 @@ export default function PaymentFormModal({
         </div>
 
         {/* Dynamic Panel based on selection */}
-        {form.student_id && (
+        {form.student_id && resolvedFinance && (
           <div className="rounded-3xl border border-slate-200 bg-slate-50/50 p-5 space-y-4">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-200/60">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-3 border-b border-slate-200/60 text-xs">
               <div>
-                <span className="text-xs uppercase tracking-wider text-slate-400">Plan de scolarité</span>
-                <p className="font-bold text-slate-800 text-sm">{studentPlan?.name || 'Non configuré'}</p>
+                <span className="uppercase tracking-wider text-slate-400 font-semibold">Plan & Classe</span>
+                <p className="font-bold text-slate-800 text-sm mt-0.5">{resolvedFinance.planName}</p>
+                <p className="text-[11px] text-slate-500">{resolvedFinance.className}</p>
               </div>
-              <div className="text-right">
-                <span className="text-xs uppercase tracking-wider text-slate-400">Montant Annuel</span>
-                <p className="font-bold text-emerald-700 text-sm">
-                  {studentPlan ? formatCurrency(studentPlan.total_amount) : '-'}
+              <div>
+                <span className="uppercase tracking-wider text-slate-400 font-semibold">Scolarité Annuelle</span>
+                <p className="font-bold text-slate-800 text-sm mt-0.5">
+                  {formatCurrency(resolvedFinance.totalExpectedTuition)}
+                </p>
+              </div>
+              <div>
+                <span className="uppercase tracking-wider text-slate-400 font-semibold">Déjà Encaissé</span>
+                <p className="font-bold text-emerald-700 text-sm mt-0.5">
+                  {formatCurrency(resolvedFinance.paidTuition)}
+                </p>
+              </div>
+              <div>
+                <span className="uppercase tracking-wider text-slate-400 font-semibold">Reste à payer</span>
+                <p className={`text-sm mt-0.5 font-bold ${resolvedFinance.remaining > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                  {formatCurrency(resolvedFinance.remaining)}
                 </p>
               </div>
             </div>
 
-            {form.payment_type === 'tuition' && studentPlan && (
+            {form.payment_type === 'tuition' && (
               <div className="space-y-3">
                 <label className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl p-4 cursor-pointer">
                   <input
@@ -290,7 +311,7 @@ export default function PaymentFormModal({
               </div>
             )}
 
-            {form.payment_type === 'canteen' && studentPlan && (
+            {form.payment_type === 'canteen' && resolvedFinance && (
               <div className="space-y-4 animate-in">
                 {/* Trimester Canteen Selection */}
                 <FormField label="Trimestre exigible" required>

@@ -7,6 +7,7 @@ import FormField from '../../../components/common/FormField';
 import { formatCurrency, formatDate } from '../../../lib/utils';
 import { AlertTriangle, Bell, Mail, MessageSquare, Phone, Printer, Send } from 'lucide-react';
 import { buildStudentAccountStatementHtml, openPrintPreview } from '../../../lib/printableDocuments';
+import { resolveStudentFinance } from '../../../lib/financePlanResolver';
 
 interface StudentDebtsProps {
   school?: any;
@@ -17,6 +18,7 @@ interface StudentDebtsProps {
   studentFees: any[];
   studentInstallments: any[];
   classes: any[];
+  plans?: any[];
 }
 
 export default function StudentDebts({
@@ -28,6 +30,7 @@ export default function StudentDebts({
   studentFees = [],
   studentInstallments = [],
   classes = [],
+  plans = [],
 }: StudentDebtsProps) {
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -86,101 +89,49 @@ export default function StudentDebts({
 
   // Process debt statistics per student
   const studentDebtsList = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-
     // Group payments
-    const tuitionPayMap: Record<string, number> = {};
     const tuitionHistoryMap: Record<string, any[]> = {};
     payments.forEach(p => {
-      tuitionPayMap[p.student_id] = (tuitionPayMap[p.student_id] || 0) + Number(p.amount);
       if (!tuitionHistoryMap[p.student_id]) tuitionHistoryMap[p.student_id] = [];
       tuitionHistoryMap[p.student_id].push(p);
     });
 
-    const canteenPayMap: Record<string, number> = {};
     const canteenHistoryMap: Record<string, any[]> = {};
     canteenPayments.forEach(p => {
-      canteenPayMap[p.student_id] = (canteenPayMap[p.student_id] || 0) + Number(p.amount);
       if (!canteenHistoryMap[p.student_id]) canteenHistoryMap[p.student_id] = [];
       canteenHistoryMap[p.student_id].push(p);
     });
 
-    // Group installments
-    const installmentsMap: Record<string, any[]> = {};
-    studentInstallments.forEach(inst => {
-      if (!installmentsMap[inst.student_id]) installmentsMap[inst.student_id] = [];
-      installmentsMap[inst.student_id].push(inst);
-    });
-
-    // Group plan details
-    const feesMap: Record<string, any> = {};
-    studentFees.forEach(sf => {
-      feesMap[sf.student_id] = sf;
-    });
-
     return students.map(student => {
-      const planLink = feesMap[student.id];
-      const basePlanName = planLink?.plan?.name || 'Aucun plan';
-      const basePlanAmount = Number(planLink?.plan?.total_amount || 0);
-
-      const canteenOption = planLink?.canteen_option || 'none';
-      const canteenRate =
-        canteenOption === 'none' ? 0 : Number(planLink?.plan?.canteen_quarterly || 0) * 3;
-
-      const discount = Number(planLink?.discount_amount || 0);
-
-      const totalExpectedTuition = Math.max(0, basePlanAmount - discount);
-      const totalExpectedCanteen = canteenRate;
-      const totalExpected = totalExpectedTuition + totalExpectedCanteen;
-
-      const paidTuition = tuitionPayMap[student.id] || 0;
-      const paidCanteen = canteenPayMap[student.id] || 0;
-      const totalPaid = paidTuition + paidCanteen;
-
-      const remaining = Math.max(0, totalExpected - totalPaid);
-
-      // Determine payment status
-      let status: 'paid' | 'partial' | 'unpaid' | 'not_configured' = 'unpaid';
-      if (totalExpected === 0) status = 'not_configured';
-      else if (remaining === 0) status = 'paid';
-      else if (totalPaid > 0) status = 'partial';
-
-      // Check installments for delay today
-      const studentInsts = (installmentsMap[student.id] || []).sort(
-        (a, b) => a.installment_number - b.installment_number
-      );
-
-      let totalDueToday = 0;
-      studentInsts.forEach(inst => {
-        if (inst.due_date <= today) {
-          totalDueToday += Number(inst.amount);
-        }
+      const resolved = resolveStudentFinance({
+        student,
+        plans,
+        studentFees,
+        studentInstallments,
+        tuitionPayments: payments,
+        canteenPayments,
+        classes,
       });
-
-      // Discount deduction logic for tranches (deducted from last installment or prorated)
-      const adjustedDueToday = Math.max(0, totalDueToday - discount);
-      const isLate = paidTuition < adjustedDueToday;
-      const delayAmount = isLate ? adjustedDueToday - paidTuition : 0;
 
       return {
         ...student,
-        planName: basePlanName,
-        expected: totalExpected,
-        paid: totalPaid,
-        remaining,
-        status,
-        delayAmount,
-        installments: studentInsts,
+        planName: resolved.planName,
+        expected: resolved.totalExpected,
+        paid: resolved.totalPaid,
+        remaining: resolved.remaining,
+        status: resolved.status,
+        delayAmount: resolved.delayAmount,
+        installments: resolved.schedule,
         tuitionHistory: tuitionHistoryMap[student.id] || [],
         canteenHistory: canteenHistoryMap[student.id] || [],
-        canteenOption,
+        canteenOption: resolved.canteenOption,
         parentPhone: student.parents?.[0]?.parent?.phone || student.phone || '',
         parentName: student.parents?.[0]?.parent
           ? `${student.parents[0].parent.first_name} ${student.parents[0].parent.last_name}`
           : 'Non défini',
       };
     });
-  }, [students, payments, canteenPayments, studentFees, studentInstallments]);
+  }, [students, payments, canteenPayments, studentFees, studentInstallments, classes, plans]);
 
   // Filter students based on selection and status
   const filteredStudents = useMemo(() => {

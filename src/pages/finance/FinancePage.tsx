@@ -18,6 +18,7 @@ import FinanceAdminConfig from './components/FinanceAdminConfig';
 import FinanceReports from './components/FinanceReports';
 import PaymentFormModal from './components/PaymentFormModal';
 import Modal from '../../components/common/Modal';
+import { resolveStudentFinance } from '../../lib/financePlanResolver';
 
 import {
   CreditCard,
@@ -388,20 +389,20 @@ export default function FinancePage() {
     const receiptMeta = receiptRes.data;
     const compositions = detailsRes.data || [];
     
-    // Calculate balance
-    const feeLink = feeLinkRes.data as any;
-    const installments = (installmentsRes.data || []) as any[];
-    
-    const basePlanAmount = Number(feeLink?.plan?.total_amount || 0);
-    const discount = Number(feeLink?.discount_amount || 0);
-    const canteenOption = feeLink?.canteen_option || 'none';
-    const canteenRate = canteenOption === 'none' ? 0 : Number(feeLink?.plan?.canteen_quarterly || 0) * 3;
-    const totalExpected = Math.max(0, basePlanAmount - discount) + canteenRate;
-    
-    const paidTuition = (tuitionPaymentsRes.data || []).reduce((sum, pay) => sum + Number(pay.amount), 0);
-    const paidCanteen = (canteenPaymentsRes.data || []).reduce((sum, cp) => sum + Number(cp.amount), 0);
-    const totalPaid = paidTuition + paidCanteen;
-    const remaining = Math.max(0, totalExpected - totalPaid);
+    // Resolve full finance accurately (supports class/level fallback even without student_fees row)
+    const studentObj =
+      p.student ||
+      (studentsQuery.data || []).find((s: any) => s.id === p.student_id) || { id: p.student_id };
+
+    const resolvedFinance = resolveStudentFinance({
+      student: studentObj,
+      plans: plansQuery.data || [],
+      studentFees: feeLinkRes.data ? [feeLinkRes.data] : (studentFeesQuery.data || []),
+      studentInstallments: installmentsRes.data || [],
+      tuitionPayments: tuitionPaymentsRes.data || [],
+      canteenPayments: canteenPaymentsRes.data || [],
+      classes: classesQuery.data || [],
+    });
 
     // Compile historical payments list
     const tuitionHistory = (tuitionPaymentsRes.data || []).map(tp => ({
@@ -435,11 +436,11 @@ export default function FinancePage() {
       compositions: compositions.length > 0 ? compositions : undefined,
       qrCodeHash: receiptMeta?.qr_code_hash,
       digitalSignature: receiptMeta?.digital_signature,
-      totalExpected: feeLink ? totalExpected : undefined,
-      totalPaid: feeLink ? totalPaid : undefined,
-      remaining: feeLink ? remaining : undefined,
-      installments: feeLink ? installments : undefined,
-      paymentHistory: feeLink ? paymentHistory : undefined,
+      totalExpected: resolvedFinance.totalExpected,
+      totalPaid: resolvedFinance.totalPaid,
+      remaining: resolvedFinance.remaining,
+      installments: resolvedFinance.schedule,
+      paymentHistory: paymentHistory.length > 0 ? paymentHistory : undefined,
     });
 
     openPrintPreview(html);
@@ -566,18 +567,73 @@ export default function FinancePage() {
       render: row => (row.student ? `${row.student.first_name} ${row.student.last_name}` : '-'),
     },
     {
-      key: 'parent',
-      label: 'Responsable',
-      render: row => (row.parent ? `${row.parent.first_name} ${row.parent.last_name}` : '-'),
+      key: 'class',
+      label: 'Classe',
+      render: row => row.student?.class?.name || '-',
     },
-    { key: 'amount', label: 'Montant', render: row => formatCurrency(Number(row.amount)) },
+    {
+      key: 'total_expected',
+      label: 'Scolarité Annuelle',
+      render: row => {
+        const fin = resolveStudentFinance({
+          student: row.student,
+          plans: plansQuery.data || [],
+          studentFees: studentFeesQuery.data || [],
+          tuitionPayments: paymentsQuery.data || [],
+          canteenPayments: canteenPaymentsQuery.data || [],
+          classes: classesQuery.data || [],
+        });
+        return <span className="font-semibold text-slate-800">{formatCurrency(fin.totalExpectedTuition)}</span>;
+      },
+    },
+    {
+      key: 'amount',
+      label: 'Ce Versement',
+      render: row => <span className="font-bold text-emerald-700">{formatCurrency(Number(row.amount))}</span>,
+    },
+    {
+      key: 'paid',
+      label: 'Total Déjà Versé',
+      render: row => {
+        const fin = resolveStudentFinance({
+          student: row.student,
+          plans: plansQuery.data || [],
+          studentFees: studentFeesQuery.data || [],
+          tuitionPayments: paymentsQuery.data || [],
+          canteenPayments: canteenPaymentsQuery.data || [],
+          classes: classesQuery.data || [],
+        });
+        return <span className="font-medium text-slate-700">{formatCurrency(fin.paidTuition)}</span>;
+      },
+    },
+    {
+      key: 'remaining',
+      label: 'Reste à payer',
+      render: row => {
+        const fin = resolveStudentFinance({
+          student: row.student,
+          plans: plansQuery.data || [],
+          studentFees: studentFeesQuery.data || [],
+          tuitionPayments: paymentsQuery.data || [],
+          canteenPayments: canteenPaymentsQuery.data || [],
+          classes: classesQuery.data || [],
+        });
+        if (fin.remaining === 0) {
+          return (
+            <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+              Soldé (0 FCFA)
+            </span>
+          );
+        }
+        return <span className="font-bold text-rose-600">{formatCurrency(fin.remaining)}</span>;
+      },
+    },
     {
       key: 'payment_method',
       label: 'Mode',
       render: row => PAYMENT_METHODS.find(m => m.value === row.payment_method)?.label || row.payment_method,
     },
     { key: 'payment_date', label: 'Date', render: row => formatDate(row.payment_date) },
-    { key: 'status', label: 'Statut', render: row => <Badge status={row.status} /> },
     {
       key: 'actions',
       label: 'Actions',
@@ -698,6 +754,7 @@ export default function FinancePage() {
           studentInstallments={studentInstallmentsQuery.data || []}
           levels={levelsQuery.data || []}
           classes={classesQuery.data || []}
+          plans={plansQuery.data || []}
         />
       )}
 
@@ -724,6 +781,7 @@ export default function FinancePage() {
           studentFees={studentFeesQuery.data || []}
           studentInstallments={studentInstallmentsQuery.data || []}
           classes={classesQuery.data || []}
+          plans={plansQuery.data || []}
         />
       )}
 
@@ -745,6 +803,7 @@ export default function FinancePage() {
           studentInstallments={studentInstallmentsQuery.data || []}
           levels={levelsQuery.data || []}
           classes={classesQuery.data || []}
+          plans={plansQuery.data || []}
         />
       )}
 
@@ -766,6 +825,9 @@ export default function FinancePage() {
         students={studentsQuery.data || []}
         studentFees={studentFeesQuery.data || []}
         plans={plansQuery.data || []}
+        payments={paymentsQuery.data || []}
+        canteenPayments={canteenPaymentsQuery.data || []}
+        classes={classesQuery.data || []}
         onSavePayment={handleSaveTuitionPayment}
         onSaveCanteen={handleSaveCanteenPayment}
         saving={savingPayment}

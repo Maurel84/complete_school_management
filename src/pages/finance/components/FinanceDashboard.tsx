@@ -27,6 +27,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { resolveStudentFinance } from '../../../lib/financePlanResolver';
 
 interface FinanceDashboardProps {
   students: any[];
@@ -36,6 +37,7 @@ interface FinanceDashboardProps {
   studentInstallments: any[];
   levels: any[];
   classes: any[];
+  plans?: any[];
 }
 
 const COLORS = ['#2563eb', '#0d9488', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'];
@@ -48,11 +50,27 @@ export default function FinanceDashboard({
   studentInstallments = [],
   levels = [],
   classes = [],
+  plans = [],
 }: FinanceDashboardProps) {
+  // Compute finances per student according to their class/level configuration
+  const studentFinances = useMemo(() => {
+    return students.map(s =>
+      resolveStudentFinance({
+        student: s,
+        plans,
+        studentFees,
+        studentInstallments,
+        tuitionPayments: payments,
+        canteenPayments,
+        classes,
+      })
+    );
+  }, [students, plans, studentFees, studentInstallments, payments, canteenPayments, classes]);
+
   // Compute tuition calculations
   const expectedTuition = useMemo(() => {
-    return studentInstallments.reduce((sum, inst) => sum + Number(inst.amount), 0);
-  }, [studentInstallments]);
+    return studentFinances.reduce((sum, sf) => sum + sf.totalExpectedTuition, 0);
+  }, [studentFinances]);
 
   const collectedTuition = useMemo(() => {
     return payments.reduce((sum, pay) => sum + Number(pay.amount), 0);
@@ -60,16 +78,8 @@ export default function FinanceDashboard({
 
   // Compute canteen calculations
   const canteenExpected = useMemo(() => {
-    return studentFees.reduce((sum, sf) => {
-      if (sf.canteen_option === 'none') return sum;
-      // Get the plan of this student fee
-      const plan = sf.plan;
-      if (!plan) return sum;
-      // Canteen is quarterly, so for a full year of 3 trimesters:
-      const rate = Number(plan.canteen_quarterly || 0) * 3;
-      return sum + rate;
-    }, 0);
-  }, [studentFees]);
+    return studentFinances.reduce((sum, sf) => sum + sf.totalExpectedCanteen, 0);
+  }, [studentFinances]);
 
   const collectedCanteen = useMemo(() => {
     return canteenPayments.reduce((sum, pay) => sum + Number(pay.amount), 0);

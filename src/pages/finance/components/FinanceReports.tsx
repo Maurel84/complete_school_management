@@ -4,6 +4,7 @@ import type { Column } from '../../../components/common/DataTable';
 import { formatCurrency, formatDate } from '../../../lib/utils';
 import { Download, FileText, Printer, ShieldAlert } from 'lucide-react';
 import { openPrintPreview } from '../../../lib/printableDocuments';
+import { resolveStudentFinance } from '../../../lib/financePlanResolver';
 
 interface FinanceReportsProps {
   students: any[];
@@ -13,6 +14,7 @@ interface FinanceReportsProps {
   studentInstallments: any[];
   levels: any[];
   classes: any[];
+  plans?: any[];
 }
 
 export default function FinanceReports({
@@ -23,6 +25,7 @@ export default function FinanceReports({
   studentInstallments = [],
   levels = [],
   classes = [],
+  plans = [],
 }: FinanceReportsProps) {
   const [activeReportTab, setActiveReportTab] = useState<'journal' | 'class' | 'student' | 'balance'>('journal');
 
@@ -57,64 +60,40 @@ export default function FinanceReports({
 
   // Helper maps for aggregations
   const studentFinancialsMap = useMemo(() => {
-    // Group payments
-    const tuitionMap: Record<string, number> = {};
-    payments.forEach(p => {
-      tuitionMap[p.student_id] = (tuitionMap[p.student_id] || 0) + Number(p.amount);
-    });
-
-    const canteenMap: Record<string, number> = {};
-    canteenPayments.forEach(p => {
-      canteenMap[p.student_id] = (canteenMap[p.student_id] || 0) + Number(p.amount);
-    });
-
-    // Group installments
-    const installmentsMap: Record<string, number> = {};
-    studentInstallments.forEach(inst => {
-      installmentsMap[inst.student_id] = (installmentsMap[inst.student_id] || 0) + Number(inst.amount);
-    });
-
-    // Group plan details
-    const feesMap: Record<string, any> = {};
-    studentFees.forEach(sf => {
-      feesMap[sf.student_id] = sf;
-    });
-
     const map: Record<string, any> = {};
-    students.forEach(s => {
-      const planLink = feesMap[s.id];
-      const basePlanAmount = Number(planLink?.plan?.total_amount || 0);
-      const discount = Number(planLink?.discount_amount || 0);
-      const canteenOption = planLink?.canteen_option || 'none';
-      const canteenRate =
-        canteenOption === 'none' ? 0 : Number(planLink?.plan?.canteen_quarterly || 0) * 3;
 
-      const tExpected = Math.max(0, basePlanAmount - discount);
-      const cExpected = canteenRate;
-      const tPaid = tuitionMap[s.id] || 0;
-      const cPaid = canteenMap[s.id] || 0;
+    students.forEach(s => {
+      const fin = resolveStudentFinance({
+        student: s,
+        plans,
+        studentFees,
+        studentInstallments,
+        tuitionPayments: payments,
+        canteenPayments,
+        classes,
+      });
 
       map[s.id] = {
         studentId: s.id,
         name: `${s.last_name} ${s.first_name}`,
         matricule: s.matricule,
         classId: s.class_id,
-        className: s.class?.name || '-',
+        className: fin.className || s.class?.name || '-',
         levelId: s.class?.level_id || '-',
-        tExpected,
-        tPaid,
-        tRemaining: Math.max(0, tExpected - tPaid),
-        cExpected,
-        cPaid,
-        cRemaining: Math.max(0, cExpected - cPaid),
-        totalExpected: tExpected + cExpected,
-        totalPaid: tPaid + cPaid,
-        totalRemaining: Math.max(0, tExpected + cExpected - (tPaid + cPaid)),
+        tExpected: fin.totalExpectedTuition,
+        tPaid: fin.paidTuition,
+        tRemaining: Math.max(0, fin.totalExpectedTuition - fin.paidTuition),
+        cExpected: fin.totalExpectedCanteen,
+        cPaid: fin.paidCanteen,
+        cRemaining: Math.max(0, fin.totalExpectedCanteen - fin.paidCanteen),
+        totalExpected: fin.totalExpected,
+        totalPaid: fin.totalPaid,
+        totalRemaining: fin.remaining,
       };
     });
 
     return map;
-  }, [students, payments, canteenPayments, studentFees, studentInstallments]);
+  }, [students, payments, canteenPayments, studentFees, studentInstallments, classes, plans]);
 
   // 2. Situation par classe
   const classFinancials = useMemo(() => {
