@@ -2,13 +2,10 @@ import { useState, useEffect, useMemo, ChangeEvent } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
-import DataTable from '../../components/common/DataTable';
 import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
-import FormField from '../../components/common/FormField';
-import Badge from '../../components/common/Badge';
 import { formatDate, formatCurrency } from '../../lib/utils';
-import type { Document, Student, Class, Teacher, Parent, StudentParent } from '../../types';
+import type { Document, Student, Class, Teacher, Parent, StudentParent, Subject, Grade, Payment, SchoolSupplyItem } from '../../types';
 import {
   FileText,
   Upload,
@@ -26,17 +23,16 @@ import {
   Users,
   ShoppingBag,
   Search,
-  Filter,
   CheckCircle2,
   FolderLock,
-  Plus,
   X,
   Shield,
   FileCheck,
   ImageIcon,
   Sparkles,
   ArrowRight,
-  RefreshCw,
+  TrendingUp,
+  AlertCircle,
 } from 'lucide-react';
 import {
   buildSchoolCertificateHtml,
@@ -46,13 +42,13 @@ import {
   buildPayslipHtml,
   buildStudentAccountStatementHtml,
   buildStudentCardHtml,
-  buildClassRosterHtml,
   buildClassAttendanceSheetHtml,
   buildClassSupplyListHtml,
   openPrintPreview,
   downloadTextDocument,
 } from '../../lib/printableDocuments';
 import { saveGeneratedDocument } from '../../lib/generatedDocuments';
+import { resolveStudentFinance } from '../../lib/financePlanResolver';
 
 export const VAULT_DOC_TYPES: { id: string; label: string; icon: string; forEntity: ('student' | 'teacher' | 'school')[] }[] = [
   { id: 'birth_certificate', label: 'Extrait d’acte de naissance', icon: 'FileText', forEntity: ['student'] },
@@ -71,7 +67,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'school_certificate',
     title: 'Attestation de Scolarité',
     category: 'Scolarité',
-    description: 'Atteste de l’inscription régulière et de la présence de l’élève pour les démarches administratives.',
+    description: 'Atteste de l’inscription régulière et assidue de l’élève avec en-tête et cachet officiel.',
     icon: GraduationCap,
     badgeColor: 'blue',
   },
@@ -79,7 +75,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'attendance_certificate',
     title: 'Certificat de Fréquentation',
     category: 'Scolarité',
-    description: 'Certifie l’assiduité de l’élève pour les organismes sociaux et de santé.',
+    description: 'Certifie la fréquentation et présence aux cours pour la CNPS, mutuelles et allocations.',
     icon: CalendarCheck,
     badgeColor: 'teal',
   },
@@ -95,7 +91,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'honor_diploma',
     title: 'Diplôme de Réussite & Tableau d’Honneur',
     category: 'Mérite & Récompenses',
-    description: 'Diplôme prestige avec cadre doré, notes, rangs et félicitations du conseil.',
+    description: 'Diplôme prestige avec cadre d’honneur, moyenne réelle, rang et félicitations du conseil.',
     icon: Award,
     badgeColor: 'purple',
   },
@@ -103,7 +99,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'report_card',
     title: 'Bulletin Scolaire Trimestriel',
     category: 'Évaluations',
-    description: 'Relevé de notes officiel avec appréciations, rangs et moyennes par matière.',
+    description: 'Relevé de notes officiel avec notes réelles, coefficients, moyennes et appréciations.',
     icon: FileText,
     badgeColor: 'indigo',
   },
@@ -111,7 +107,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'payslip',
     title: 'Bulletin de Salaire (Fiche de Paie)',
     category: 'Ressources Humaines',
-    description: 'Fiche de paie officielle pour enseignants et personnel avec cotisations.',
+    description: 'Fiche de paie officielle pour enseignants et personnel avec détail des cotisations.',
     icon: Receipt,
     badgeColor: 'emerald',
   },
@@ -119,7 +115,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'account_statement',
     title: 'Relevé Financier Élève',
     category: 'Finances',
-    description: 'État complet des versements, reste à payer et échéances de la scolarité.',
+    description: 'Situation financière réelle : versements réels, solde restant et échéancier.',
     icon: CreditCard,
     badgeColor: 'cyan',
   },
@@ -127,7 +123,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'student_card',
     title: 'Carte d’Identité Scolaire',
     category: 'Administration',
-    description: 'Badge plastifiable avec photo, matricule, QR code et contacts du tuteur.',
+    description: 'Badge plastifiable avec photo, matricule, QR code et contacts d’urgence.',
     icon: Contact,
     badgeColor: 'slate',
   },
@@ -135,7 +131,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'class_roster',
     title: 'Registre & Fiche d’Appel Vierge',
     category: 'Pédagogie',
-    description: 'Feuille d’émargement officielle de classe pour l’appel quotidien.',
+    description: 'Feuille d’émargement officielle avec liste réelle des élèves de la classe.',
     icon: Users,
     badgeColor: 'blue',
   },
@@ -143,7 +139,7 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     id: 'supply_list',
     title: 'Liste des Fournitures Scolaires',
     category: 'Rentrée',
-    description: 'Catalogue des manuels et fournitures de classe avec budget estimatif.',
+    description: 'Catalogue des manuels et fournitures réels de la classe avec budget estimatif.',
     icon: ShoppingBag,
     badgeColor: 'teal',
   },
@@ -163,6 +159,15 @@ export default function DocumentsPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
   const [studentParents, setStudentParents] = useState<StudentParent[]>([]);
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [canteenPayments, setCanteenPayments] = useState<any[]>([]);
+  const [paymentPlans, setPaymentPlans] = useState<any[]>([]);
+  const [studentFees, setStudentFees] = useState<any[]>([]);
+  const [studentInstallments, setStudentInstallments] = useState<any[]>([]);
+  const [payrolls, setPayrolls] = useState<any[]>([]);
+  const [schoolSupplies, setSchoolSupplies] = useState<SchoolSupplyItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Vault upload modal
@@ -191,8 +196,14 @@ export default function DocumentsPage() {
   const [generatorStudentId, setGeneratorStudentId] = useState<string>('');
   const [generatorTeacherId, setGeneratorTeacherId] = useState<string>('');
   
-  // Specific Generator parameters
+  // Specific Generator parameters (Synchronized with selected student/teacher)
+  const [paramBirthDate, setParamBirthDate] = useState('');
+  const [paramBirthPlace, setParamBirthPlace] = useState('');
   const [paramPurpose, setParamPurpose] = useState('');
+
+  // Parent Convocation
+  const [paramParentName, setParamParentName] = useState('');
+  const [paramParentPhone, setParamParentPhone] = useState('');
   const [paramSummonsDate, setParamSummonsDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -202,14 +213,28 @@ export default function DocumentsPage() {
   const [paramSummonsLocation, setParamSummonsLocation] = useState('Bureau de la Direction');
   const [paramSummonsReason, setParamSummonsReason] = useState('Entretien concernant le comportement et les résultats scolaires');
   const [paramSummonsNotes, setParamSummonsNotes] = useState('');
+
+  // Diploma
   const [paramDiplomaType, setParamDiplomaType] = useState<'reussite' | 'tableau_honneur' | 'excellence' | 'encouragement'>('tableau_honneur');
   const [paramDiplomaDistinction, setParamDiplomaDistinction] = useState('Félicitations du Conseil de Classe');
   const [paramDiplomaPeriod, setParamDiplomaPeriod] = useState('Année Scolaire 2026-2027');
-  const [paramDiplomaAverage, setParamDiplomaAverage] = useState<number>(15.5);
+  const [paramDiplomaAverage, setParamDiplomaAverage] = useState<number>(14.0);
   const [paramDiplomaRank, setParamDiplomaRank] = useState<number | string>(1);
+
+  // Term
   const [paramTerm, setParamTerm] = useState('Trimestre 1');
   const [paramCity, setParamCity] = useState(school?.city || 'Abidjan');
   const [paramDirectorName, setParamDirectorName] = useState('Le Chef d’Établissement');
+
+  // Teacher Payroll parameters
+  const [payrollMonth, setPayrollMonth] = useState<number>(new Date().getMonth() + 1);
+  const [payrollYear, setPayrollYear] = useState<number>(new Date().getFullYear());
+  const [salaryBase, setSalaryBase] = useState<number>(250000);
+  const [salarySursalaire, setSalarySursalaire] = useState<number>(25000);
+  const [salaryTransport, setSalaryTransport] = useState<number>(20000);
+  const [salaryAnciennete, setSalaryAnciennete] = useState<number>(15000);
+  const [salaryAutresPrimes, setSalaryAutresPrimes] = useState<number>(10000);
+  const [salaryDeductions, setSalaryDeductions] = useState<number>(15000);
   
   // Feedback
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
@@ -231,6 +256,15 @@ export default function DocumentsPage() {
         { data: teachersData },
         { data: parentsData },
         { data: spData },
+        { data: gradesData },
+        { data: subsData },
+        { data: paymentsData },
+        { data: canteenData },
+        { data: plansData },
+        { data: feesData },
+        { data: instData },
+        { data: payrollsData },
+        { data: suppliesData },
       ] = await Promise.all([
         supabase.from('documents').select('*').eq('school_id', school.id).order('created_at', { ascending: false }),
         supabase.from('students').select('*').eq('school_id', school.id).order('last_name'),
@@ -238,29 +272,112 @@ export default function DocumentsPage() {
         supabase.from('teachers').select('*').eq('school_id', school.id).order('last_name'),
         supabase.from('parents').select('*').eq('school_id', school.id),
         supabase.from('student_parents').select('*'),
+        supabase.from('grades').select('*').eq('school_id', school.id),
+        supabase.from('subjects').select('*').eq('school_id', school.id).order('name'),
+        supabase.from('payments').select('*').eq('school_id', school.id).order('payment_date', { ascending: false }),
+        supabase.from('canteen_payments').select('*').eq('school_id', school.id).order('payment_date', { ascending: false }),
+        supabase.from('payment_plans').select('*, levels:payment_plan_levels(level_id), schedule:payment_schedule_templates(*), composition:payment_plan_compositions(*)').eq('school_id', school.id),
+        supabase.from('student_fees').select('*, plan:payment_plans(*)').eq('school_id', school.id),
+        supabase.from('student_installments').select('*').eq('school_id', school.id),
+        supabase.from('payrolls').select('*').eq('school_id', school.id).order('created_at', { ascending: false }),
+        supabase.from('school_supplies').select('*').eq('school_id', school.id),
       ]);
 
+      const loadedStudents = (studsData as Student[]) || [];
+      const loadedClasses = (classesData as Class[]) || [];
+      const loadedTeachers = (teachersData as Teacher[]) || [];
+
       setDocuments((docsData as Document[]) || []);
-      setStudents((studsData as Student[]) || []);
-      setClasses((classesData as Class[]) || []);
-      setTeachers((teachersData as Teacher[]) || []);
+      setStudents(loadedStudents);
+      setClasses(loadedClasses);
+      setTeachers(loadedTeachers);
       setParents((parentsData as Parent[]) || []);
       setStudentParents((spData as StudentParent[]) || []);
+      setGrades((gradesData as Grade[]) || []);
+      setSubjects((subsData as Subject[]) || []);
+      setPayments((paymentsData as Payment[]) || []);
+      setCanteenPayments((canteenData as any[]) || []);
+      setPaymentPlans((plansData as any[]) || []);
+      setStudentFees((feesData as any[]) || []);
+      setStudentInstallments((instData as any[]) || []);
+      setPayrolls((payrollsData as any[]) || []);
+      setSchoolSupplies((suppliesData as SchoolSupplyItem[]) || []);
 
-      if (classesData && classesData.length > 0) {
-        setGeneratorClassId(classesData[0].id);
-        const classStudents = (studsData || []).filter(s => s.class_id === classesData[0].id);
+      if (loadedClasses.length > 0) {
+        setGeneratorClassId(loadedClasses[0].id);
+        const classStudents = loadedStudents.filter(s => s.class_id === loadedClasses[0].id);
         if (classStudents.length > 0) {
-          setGeneratorStudentId(classStudents[0].id);
+          syncStudentState(classStudents[0], loadedClasses[0].id, (spData as StudentParent[]) || [], (parentsData as Parent[]) || [], (gradesData as Grade[]) || [], (subsData as Subject[]) || []);
         }
       }
-      if (teachersData && teachersData.length > 0) {
-        setGeneratorTeacherId(teachersData[0].id);
+      if (loadedTeachers.length > 0) {
+        syncTeacherState(loadedTeachers[0], (payrollsData as any[]) || []);
       }
     } catch (err) {
       console.error('Erreur chargement documents:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Synchronize student data to generator form fields
+  function syncStudentState(
+    student: Student,
+    classId: string,
+    spList = studentParents,
+    pList = parents,
+    gList = grades,
+    subList = subjects
+  ) {
+    setGeneratorStudentId(student.id);
+    setParamBirthDate(student.date_of_birth || '');
+    setParamBirthPlace(student.birth_place || '');
+
+    // Parent details
+    const sp = spList.find(p => p.student_id === student.id);
+    const parentObj = sp ? pList.find(p => p.id === sp.parent_id) : null;
+    const resolvedParentName = parentObj ? `${parentObj.first_name} ${parentObj.last_name}` : '';
+    const resolvedParentPhone = parentObj?.phone || student.phone || '';
+    setParamParentName(resolvedParentName);
+    setParamParentPhone(resolvedParentPhone);
+
+    // Calculate real grades and rank for honor diploma
+    const rc = computeStudentReportCardData(student.id, classId, paramTerm, gList, subList);
+    if (rc.hasRealGrades) {
+      setParamDiplomaAverage(rc.overallAverage);
+      setParamDiplomaRank(rc.rank);
+      if (rc.overallAverage >= 16) {
+        setParamDiplomaDistinction('Félicitations du Conseil de Classe - Mention Très Bien');
+      } else if (rc.overallAverage >= 14) {
+        setParamDiplomaDistinction('Tableau d’Honneur - Mention Bien');
+      } else if (rc.overallAverage >= 12) {
+        setParamDiplomaDistinction('Tableau d’Honneur - Mention Assez Bien');
+      } else if (rc.overallAverage >= 10) {
+        setParamDiplomaDistinction('Diplôme de Réussite & Félicitations');
+      } else {
+        setParamDiplomaDistinction('Diplôme d’Encouragement');
+      }
+    }
+  }
+
+  // Synchronize teacher salary data
+  function syncTeacherState(teacher: Teacher, pList = payrolls) {
+    setGeneratorTeacherId(teacher.id);
+    const existing = pList.find(p => p.person_id === teacher.id);
+    if (existing) {
+      setSalaryBase(Number(existing.base_salary) || 250000);
+      setSalarySursalaire(Number(existing.details?.sursalaire) || 0);
+      setSalaryTransport(Number(existing.details?.transport) || 15000);
+      setSalaryAnciennete(Number(existing.details?.anciennete) || 0);
+      setSalaryAutresPrimes(Number(existing.details?.autres_primes) || 0);
+      setSalaryDeductions(Number(existing.deductions) || 15000);
+    } else {
+      setSalaryBase(250000);
+      setSalarySursalaire(25000);
+      setSalaryTransport(20000);
+      setSalaryAnciennete(10000);
+      setSalaryAutresPrimes(0);
+      setSalaryDeductions(12500);
     }
   }
 
@@ -274,14 +391,6 @@ export default function DocumentsPage() {
   const currentSelectedStudent = useMemo(() => {
     return students.find(s => s.id === generatorStudentId);
   }, [students, generatorStudentId]);
-
-  // Selected student's primary parent
-  const currentStudentParent = useMemo(() => {
-    if (!currentSelectedStudent) return null;
-    const sp = studentParents.find(p => p.student_id === currentSelectedStudent.id);
-    if (!sp) return null;
-    return parents.find(p => p.id === sp.parent_id);
-  }, [currentSelectedStudent, studentParents, parents]);
 
   // Selected teacher
   const currentSelectedTeacher = useMemo(() => {
@@ -298,11 +407,169 @@ export default function DocumentsPage() {
     setGeneratorClassId(newClassId);
     const inClass = students.filter(s => s.class_id === newClassId);
     if (inClass.length > 0) {
-      setGeneratorStudentId(inClass[0].id);
+      syncStudentState(inClass[0], newClassId);
     } else {
       setGeneratorStudentId('');
     }
   }
+
+  // Handle student change
+  function handleGeneratorStudentChange(studentId: string) {
+    const student = students.find(s => s.id === studentId);
+    if (student) {
+      syncStudentState(student, generatorClassId);
+    }
+  }
+
+  // Handle teacher change
+  function handleGeneratorTeacherChange(teacherId: string) {
+    const teacher = teachers.find(t => t.id === teacherId);
+    if (teacher) {
+      syncTeacherState(teacher);
+    }
+  }
+
+  // Calculate real student report card data
+  function computeStudentReportCardData(
+    studentId: string,
+    classId: string,
+    term: string,
+    gList = grades,
+    subList = subjects
+  ) {
+    const classStudents = students.filter(s => s.class_id === classId);
+
+    // Compute averages for all students in class for ranking
+    const studentAverages = classStudents.map(st => {
+      const stGrades = gList.filter(g => g.student_id === st.id && g.term === term);
+      const subjectScores = subList.map(sub => {
+        const subGrades = stGrades.filter(g => g.subject_id === sub.id);
+        if (subGrades.length === 0) return null;
+
+        const devoirs = subGrades.filter(g => g.grade_type !== 'composition');
+        const comp = subGrades.find(g => g.grade_type === 'composition');
+
+        const devoirsAvg = devoirs.length > 0
+          ? devoirs.reduce((sum, g) => sum + (Number(g.score) / (Number(g.max_score) || 20)) * 20, 0) / devoirs.length
+          : 10;
+        const compScore = comp ? (Number(comp.score) / (Number(comp.max_score) || 20)) * 20 : null;
+
+        let subjectAvg = devoirsAvg;
+        if (compScore !== null) {
+          subjectAvg = devoirs.length > 0 ? (devoirsAvg * 2 + compScore) / 3 : compScore;
+        }
+
+        const coeff = Number(subGrades[0]?.coefficient) || 1;
+        return { subjectAvg, coeff, weighted: subjectAvg * coeff };
+      }).filter(Boolean) as { subjectAvg: number; coeff: number; weighted: number }[];
+
+      const totalCoeff = subjectScores.reduce((sum, s) => sum + s.coeff, 0);
+      const totalWeighted = subjectScores.reduce((sum, s) => sum + s.weighted, 0);
+      const avg = totalCoeff > 0 ? totalWeighted / totalCoeff : 0;
+      return { studentId: st.id, average: parseFloat(avg.toFixed(2)) };
+    });
+
+    const sortedAverages = [...studentAverages].sort((a, b) => b.average - a.average);
+    const myRankIndex = sortedAverages.findIndex(item => item.studentId === studentId);
+    const myRank = myRankIndex >= 0 ? myRankIndex + 1 : 1;
+
+    const validAverages = studentAverages.map(a => a.average).filter(a => a > 0);
+    const classAvg = validAverages.length > 0
+      ? parseFloat((validAverages.reduce((sum, a) => sum + a, 0) / validAverages.length).toFixed(2))
+      : 0;
+    const maxAvg = validAverages.length > 0 ? Math.max(...validAverages) : 0;
+    const minAvg = validAverages.length > 0 ? Math.min(...validAverages) : 0;
+
+    // Subjects details for this student
+    const myGrades = gList.filter(g => g.student_id === studentId && g.term === term);
+    let mySubjectsDetails = subList.map(sub => {
+      const subGrades = myGrades.filter(g => g.subject_id === sub.id);
+      if (subGrades.length === 0) return null;
+
+      const devoirs = subGrades.filter(g => g.grade_type !== 'composition');
+      const comp = subGrades.find(g => g.grade_type === 'composition');
+
+      const devoirsAvg = devoirs.length > 0
+        ? devoirs.reduce((sum, g) => sum + (Number(g.score) / (Number(g.max_score) || 20)) * 20, 0) / devoirs.length
+        : 10;
+      const compScore = comp ? (Number(comp.score) / (Number(comp.max_score) || 20)) * 20 : null;
+
+      let subjectAvg = devoirsAvg;
+      if (compScore !== null) {
+        subjectAvg = devoirs.length > 0 ? (devoirsAvg * 2 + compScore) / 3 : compScore;
+      }
+
+      const coeff = Number(subGrades[0]?.coefficient) || 1;
+      return {
+        name: sub.name,
+        devoirsAvg: parseFloat(devoirsAvg.toFixed(2)),
+        compScore: compScore !== null ? parseFloat(compScore.toFixed(2)) : null,
+        subjectAvg: parseFloat(subjectAvg.toFixed(2)),
+        coefficient: coeff,
+        weightedScore: parseFloat((subjectAvg * coeff).toFixed(2)),
+      };
+    }).filter(Boolean) as {
+      name: string;
+      devoirsAvg: number;
+      compScore: number | null;
+      subjectAvg: number;
+      coefficient: number;
+      weightedScore: number;
+    }[];
+
+    const hasRealGrades = mySubjectsDetails.length > 0;
+    if (!hasRealGrades) {
+      mySubjectsDetails = subList.slice(0, 6).map(sub => ({
+        name: sub.name,
+        devoirsAvg: 0,
+        compScore: null,
+        subjectAvg: 0,
+        coefficient: 1,
+        weightedScore: 0,
+      }));
+    }
+
+    const myAvgObj = studentAverages.find(a => a.studentId === studentId);
+    const overallAvg = myAvgObj ? myAvgObj.average : 0;
+
+    return {
+      hasRealGrades,
+      subjects: mySubjectsDetails,
+      overallAverage: overallAvg,
+      rank: myRank,
+      totalStudents: classStudents.length || 1,
+      classAverage: classAvg,
+      maxAverage: maxAvg,
+      minAverage: minAvg,
+    };
+  }
+
+  // Real financial resolution for selected student
+  const studentResolvedFinance = useMemo(() => {
+    if (!currentSelectedStudent) return null;
+    return resolveStudentFinance({
+      student: currentSelectedStudent,
+      plans: paymentPlans,
+      studentFees,
+      studentInstallments,
+      tuitionPayments: payments,
+      canteenPayments,
+      classes,
+    });
+  }, [currentSelectedStudent, paymentPlans, studentFees, studentInstallments, payments, canteenPayments, classes]);
+
+  // Real report card data for selected student
+  const studentReportCardData = useMemo(() => {
+    if (!currentSelectedStudent || !generatorClassId) return null;
+    return computeStudentReportCardData(currentSelectedStudent.id, generatorClassId, paramTerm);
+  }, [currentSelectedStudent, generatorClassId, paramTerm, grades, subjects]);
+
+  // Real supplies list for selected class
+  const classRealSupplies = useMemo(() => {
+    return schoolSupplies.filter(
+      s => s.class_id === generatorClassId || (!s.class_id && s.level_id === currentSelectedClass?.level_id)
+    );
+  }, [schoolSupplies, generatorClassId, currentSelectedClass]);
 
   // Handle file select in upload modal
   function handleFileSelect(e: ChangeEvent<HTMLInputElement>) {
@@ -317,14 +584,12 @@ export default function DocumentsPage() {
     setUploadFile(file);
     setUploadError(null);
 
-    // Read file as Base64 Data URL for guaranteed reliability
     const reader = new FileReader();
     reader.onload = () => {
       setUploadFileBase64(reader.result as string);
     };
     reader.readAsDataURL(file);
 
-    // Auto title if empty
     if (!uploadTitle) {
       const typeLabel = VAULT_DOC_TYPES.find(t => t.id === uploadDocType)?.label || 'Document';
       let personName = '';
@@ -362,7 +627,6 @@ export default function DocumentsPage() {
 
       let finalFileUrl = uploadFileBase64;
 
-      // Try uploading to Supabase Storage if possible
       try {
         const { error: storageError } = await supabase.storage
           .from('school-documents')
@@ -381,7 +645,6 @@ export default function DocumentsPage() {
         console.warn('Supabase storage bucket unconfigured, using Data URL fallback:', err);
       }
 
-      // Insert record in documents table
       const { data: newDoc, error: dbError } = await supabase
         .from('documents')
         .insert({
@@ -432,17 +695,20 @@ export default function DocumentsPage() {
     }
   }
 
-  // Build HTML for currently selected template
+  // Build HTML for currently selected template with REAL DATA
   function generateCurrentHtml(): { html: string; title: string; baseFileName: string; entityType: string; entityId: string } | null {
     if (!school) return null;
 
     const academicYearName = academicYear?.name || '2026-2027';
     const className = currentSelectedClass?.name || 'Classe non assignée';
 
+    // 1. Attestation de scolarité & Certificat de fréquentation
     if (selectedTemplateId === 'school_certificate' || selectedTemplateId === 'attendance_certificate') {
       if (!currentSelectedStudent) return null;
       const isAttestation = selectedTemplateId === 'school_certificate';
-      const title = isAttestation ? `Attestation de Scolarité - ${currentSelectedStudent.last_name}` : `Certificat de Fréquentation - ${currentSelectedStudent.last_name}`;
+      const title = isAttestation
+        ? `Attestation de Scolarité - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`
+        : `Certificat de Fréquentation - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
       const baseFileName = `${isAttestation ? 'attestation' : 'frequentation'}_${currentSelectedStudent.matricule}`;
 
       const html = buildSchoolCertificateHtml({
@@ -452,9 +718,10 @@ export default function DocumentsPage() {
           first_name: currentSelectedStudent.first_name,
           last_name: currentSelectedStudent.last_name,
           matricule: currentSelectedStudent.matricule,
-          date_of_birth: (currentSelectedStudent as any).date_of_birth,
-          place_of_birth: (currentSelectedStudent as any).place_of_birth,
+          date_of_birth: paramBirthDate || currentSelectedStudent.date_of_birth,
+          place_of_birth: paramBirthPlace || currentSelectedStudent.birth_place,
           gender: currentSelectedStudent.sex,
+          photo_url: currentSelectedStudent.photo_url,
         },
         className,
         academicYearName,
@@ -466,10 +733,11 @@ export default function DocumentsPage() {
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 2. Convocation de Parent / Tuteur
     if (selectedTemplateId === 'parent_summons') {
       if (!currentSelectedStudent) return null;
-      const parentName = currentStudentParent ? `${currentStudentParent.first_name} ${currentStudentParent.last_name}` : 'Parent / Tuteur';
-      const parentPhone = currentStudentParent?.phone || '';
+      const parentName = paramParentName || 'Parent / Tuteur';
+      const parentPhone = paramParentPhone || '';
       const title = `Convocation Parent - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
       const baseFileName = `convocation_${currentSelectedStudent.matricule}`;
 
@@ -495,6 +763,7 @@ export default function DocumentsPage() {
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 3. Diplôme de Réussite & Tableau d'Honneur
     if (selectedTemplateId === 'honor_diploma') {
       if (!currentSelectedStudent) return null;
       const title = `Diplôme d’Honneur - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
@@ -522,12 +791,11 @@ export default function DocumentsPage() {
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 4. Carte d'Identité Scolaire
     if (selectedTemplateId === 'student_card') {
       if (!currentSelectedStudent) return null;
       const title = `Carte Scolaire - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
       const baseFileName = `carte_scolaire_${currentSelectedStudent.matricule}`;
-      const parentName = currentStudentParent ? `${currentStudentParent.first_name} ${currentStudentParent.last_name}` : undefined;
-      const parentPhone = currentStudentParent?.phone || undefined;
 
       const html = buildStudentCardHtml({
         school,
@@ -536,16 +804,20 @@ export default function DocumentsPage() {
           last_name: currentSelectedStudent.last_name,
           matricule: currentSelectedStudent.matricule,
           photo_url: currentSelectedStudent.photo_url,
-        },
+          date_of_birth: paramBirthDate || currentSelectedStudent.date_of_birth,
+          birth_place: paramBirthPlace || currentSelectedStudent.birth_place,
+          sex: currentSelectedStudent.sex,
+        } as any,
         className,
         academicYearName,
-        primaryGuardian: parentName,
-        primaryGuardianPhone: parentPhone,
+        primaryGuardian: paramParentName || undefined,
+        primaryGuardianPhone: paramParentPhone || undefined,
       });
 
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 5. Feuille d'Appel / Registre de Classe
     if (selectedTemplateId === 'class_roster') {
       const title = `Feuille d’Appel & Registre - ${className}`;
       const baseFileName = `registre_${className.replace(/\s+/g, '_')}`;
@@ -566,19 +838,13 @@ export default function DocumentsPage() {
       return { html, title, baseFileName, entityType: 'class', entityId: currentSelectedClass?.id || school.id };
     }
 
+    // 6. Bulletin Scolaire Trimestriel (Real Grades)
     if (selectedTemplateId === 'report_card') {
       if (!currentSelectedStudent) return null;
       const title = `Bulletin Scolaire - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
       const baseFileName = `bulletin_${currentSelectedStudent.matricule}`;
 
-      const sampleSubjects = [
-        { name: 'Français (Expression & Grammaire)', devoirsAvg: 14.5, compScore: 15, subjectAvg: 14.8, coefficient: 4, weightedScore: 59.2 },
-        { name: 'Mathématiques & Géométrie', devoirsAvg: 16.0, compScore: 17.5, subjectAvg: 17.0, coefficient: 4, weightedScore: 68.0 },
-        { name: 'Sciences de la Vie & de la Terre', devoirsAvg: 13.0, compScore: 14.0, subjectAvg: 13.7, coefficient: 2, weightedScore: 27.4 },
-        { name: 'Histoire & Géographie', devoirsAvg: 15.0, compScore: 14.5, subjectAvg: 14.7, coefficient: 2, weightedScore: 29.4 },
-        { name: 'Anglais', devoirsAvg: 16.5, compScore: 18.0, subjectAvg: 17.5, coefficient: 2, weightedScore: 35.0 },
-        { name: 'Éducation Civique & Morale', devoirsAvg: 17.0, compScore: 16.0, subjectAvg: 16.3, coefficient: 1, weightedScore: 16.3 },
-      ];
+      const rc = studentReportCardData || computeStudentReportCardData(currentSelectedStudent.id, generatorClassId, paramTerm);
 
       const html = buildReportCardHtml({
         school,
@@ -591,59 +857,99 @@ export default function DocumentsPage() {
         className,
         academicYearName,
         term: paramTerm,
-        subjects: sampleSubjects,
-        overallAverage: 15.7,
-        rank: 1,
-        totalStudents: availableStudentsForClass.length || 28,
-        classAverage: 12.8,
-        maxAverage: 16.9,
-        minAverage: 7.5,
+        subjects: rc.subjects,
+        overallAverage: rc.overallAverage,
+        rank: rc.rank,
+        totalStudents: rc.totalStudents,
+        classAverage: rc.classAverage,
+        maxAverage: rc.maxAverage,
+        minAverage: rc.minAverage,
       });
 
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 7. Bulletin de Salaire (Real Teacher Payroll)
     if (selectedTemplateId === 'payslip') {
       const teacher = currentSelectedTeacher;
-      const name = teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Enseignant';
+      const name = teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Personnel';
       const title = `Bulletin de Salaire - ${name}`;
       const baseFileName = `bulletin_paie_${teacher?.matricule || 'personnel'}`;
 
-      const mockPayroll = {
-        month: new Date().getMonth() + 1,
-        year: new Date().getFullYear(),
-        base_salary: 280000,
-        bonuses: 45000,
-        deductions: 22000,
-        net_salary: 303000,
+      const baseSalaryNum = Number(salaryBase) || 0;
+      const sursalaireNum = Number(salarySursalaire) || 0;
+      const transportNum = Number(salaryTransport) || 0;
+      const ancienneteNum = Number(salaryAnciennete) || 0;
+      const primesNum = Number(salaryAutresPrimes) || 0;
+      const deductionsNum = Number(salaryDeductions) || 0;
+      const netPayNum = (baseSalaryNum + sursalaireNum + transportNum + ancienneteNum + primesNum) - deductionsNum;
+
+      const dynamicPayroll = {
+        month: payrollMonth,
+        year: payrollYear,
+        base_salary: baseSalaryNum,
+        bonuses: sursalaireNum + transportNum + ancienneteNum + primesNum,
+        deductions: deductionsNum,
+        net_salary: netPayNum,
         details: {
-          sursalaire: 25000,
-          transport: 20000,
-          anciennete: 15000,
-          cr: 3500,
-          its: 8500,
-          cnps: 10000,
+          sursalaire: sursalaireNum,
+          transport: transportNum,
+          anciennete: ancienneteNum,
+          autres_primes: primesNum,
+          cr: Math.round(deductionsNum * 0.4),
+          its: Math.round(deductionsNum * 0.6),
         },
       };
 
       const html = buildPayslipHtml({
         school,
-        payroll: mockPayroll,
+        payroll: dynamicPayroll,
         person: teacher || {
           first_name: 'Enseignant',
           last_name: 'Principal',
           matricule: 'ENS-001',
-          specialty: 'Lettres Modernes',
+          specialty: 'Enseignement',
         },
       });
 
       return { html, title, baseFileName, entityType: 'teacher', entityId: teacher?.id || school.id };
     }
 
+    // 8. Relevé Financier Élève (Real Finance & Payments)
     if (selectedTemplateId === 'account_statement') {
       if (!currentSelectedStudent) return null;
       const title = `Relevé Financier - ${currentSelectedStudent.last_name} ${currentSelectedStudent.first_name}`;
       const baseFileName = `releve_compte_${currentSelectedStudent.matricule}`;
+
+      const studentTuition = payments.filter(p => p.student_id === currentSelectedStudent.id);
+      const studentCanteen = canteenPayments.filter(p => p.student_id === currentSelectedStudent.id);
+
+      const realHistory = [
+        ...studentTuition.map(p => ({
+          receipt_number: p.receipt_number || 'REC-XXXX',
+          payment_date: p.payment_date,
+          payment_method: p.payment_method || 'Espèces',
+          amount: Number(p.amount) || 0,
+          is_canteen: false,
+          description: 'Scolarité annuelle',
+        })),
+        ...studentCanteen.map(p => ({
+          receipt_number: p.receipt_number || 'REC-CANTINE',
+          payment_date: p.payment_date,
+          payment_method: p.payment_method || 'Mobile Money',
+          amount: Number(p.amount) || 0,
+          is_canteen: true,
+          description: `Cantine scolaire - Trimestre ${p.trimester || 1}`,
+        })),
+      ].sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
+      const resFin = studentResolvedFinance || {
+        planName: 'Tarif Standard',
+        totalExpected: 0,
+        totalPaid: 0,
+        remaining: 0,
+        schedule: [],
+      };
 
       const html = buildStudentAccountStatementHtml({
         school,
@@ -654,41 +960,36 @@ export default function DocumentsPage() {
         },
         className,
         academicYearName,
-        planName: 'Plan Standard Trimestriel',
-        totalExpected: 350000,
-        totalPaid: 250000,
-        remaining: 100000,
-        installments: [
-          { installment_number: 1, label: 'Inscription & 1ère Tranche', amount: 150000, due_date: '2026-09-15' },
-          { installment_number: 2, label: '2ème Tranche', amount: 100000, due_date: '2026-12-15' },
-          { installment_number: 3, label: '3ème Tranche (Solde)', amount: 100000, due_date: '2027-03-15' },
-        ],
-        paymentHistory: [
-          { receipt_number: 'REC-2026-00142', payment_date: '2026-09-10', payment_method: 'Espèces', amount: 150000 },
-          { receipt_number: 'REC-2026-00984', payment_date: '2026-12-12', payment_method: 'Wave / Mobile Money', amount: 100000 },
-        ],
+        planName: resFin.planName,
+        totalExpected: resFin.totalExpected,
+        totalPaid: resFin.totalPaid,
+        remaining: resFin.remaining,
+        installments: resFin.schedule,
+        paymentHistory: realHistory,
       });
 
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
+    // 9. Liste des Fournitures Scolaires (Real Supplies)
     if (selectedTemplateId === 'supply_list') {
       const title = `Liste des Fournitures - ${className}`;
       const baseFileName = `fournitures_${className.replace(/\s+/g, '_')}`;
 
-      const sampleSupplies = [
-        { item_name: 'Livre de Lecture & Expression CP/CE', category: 'manuel' as const, quantity: 1, unit_price: 6500, is_mandatory: true, notes: 'Programme officiel' },
-        { item_name: 'Cahier de Mathématiques 200 pages', category: 'cahier' as const, quantity: 3, unit_price: 1200, is_mandatory: true, notes: 'Grands carreaux' },
-        { item_name: 'Boîte de craies et ardoise', category: 'papeterie' as const, quantity: 1, unit_price: 2500, is_mandatory: true },
-        { item_name: 'Boîte d’instruments de géométrie', category: 'geometrie' as const, quantity: 1, unit_price: 3500, is_mandatory: true },
-        { item_name: 'Uniforme scolaire réglementaire', category: 'uniforme' as const, quantity: 2, unit_price: 12000, is_mandatory: true, notes: 'Écusson de l’école inclus' },
-      ];
+      const formattedSupplies = classRealSupplies.map(s => ({
+        item_name: s.item_name,
+        category: (s.category || 'autre') as any,
+        quantity: Number(s.quantity) || 1,
+        unit_price: Number(s.unit_price) || 0,
+        is_mandatory: s.is_mandatory ?? true,
+        notes: s.notes,
+      }));
 
       const html = buildClassSupplyListHtml({
         school,
         className,
         academicYearName,
-        items: sampleSupplies,
+        items: formattedSupplies,
       });
 
       return { html, title, baseFileName, entityType: 'class', entityId: currentSelectedClass?.id || school.id };
@@ -697,7 +998,7 @@ export default function DocumentsPage() {
     return null;
   }
 
-  // Action: Live Print
+  // Live Print Action
   function handlePrintCurrentDocument() {
     const generated = generateCurrentHtml();
     if (!generated) {
@@ -707,7 +1008,7 @@ export default function DocumentsPage() {
     openPrintPreview(generated.html);
   }
 
-  // Action: Download HTML
+  // Download HTML Action
   function handleDownloadCurrentDocument() {
     const generated = generateCurrentHtml();
     if (!generated) {
@@ -717,7 +1018,7 @@ export default function DocumentsPage() {
     downloadTextDocument(generated.html, `${generated.baseFileName}.html`);
   }
 
-  // Action: Archive Document in School Database
+  // Archive Document Action
   async function handleArchiveCurrentDocument() {
     const generated = generateCurrentHtml();
     if (!generated || !school) {
@@ -738,7 +1039,6 @@ export default function DocumentsPage() {
         uploadedBy: profile?.id,
       });
 
-      // Refresh documents
       const { data: updatedDocs } = await supabase
         .from('documents')
         .select('*')
@@ -766,11 +1066,8 @@ export default function DocumentsPage() {
   // Filtered Vault documents
   const filteredVaultDocuments = useMemo(() => {
     return documents.filter(doc => {
-      // Entity filter
       if (vaultEntityFilter !== 'all' && doc.entity_type !== vaultEntityFilter) return false;
-      // Type filter
       if (vaultTypeFilter !== 'all' && doc.document_type !== vaultTypeFilter) return false;
-      // Search
       if (vaultSearch.trim()) {
         const query = vaultSearch.toLowerCase();
         const matchesTitle = doc.title.toLowerCase().includes(query);
@@ -801,7 +1098,6 @@ export default function DocumentsPage() {
     return `Établissement : ${school?.name || 'Direction'}`;
   }
 
-  // Count stats
   const totalVaultCount = documents.filter(d => VAULT_DOC_TYPES.some(v => v.id === d.document_type)).length;
   const totalOfficialCount = documents.length - totalVaultCount;
 
@@ -831,7 +1127,7 @@ export default function DocumentsPage() {
               Documents Scolaires & Numérisation
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Générez instantanément toutes les pièces officielles (attestations, convocations, diplômes de réussite, bulletins, fiches de paie) et archivez les pièces d’état civil numérisées (extraits de naissance, certificats médicaux, contrats).
+              Générez instantanément toutes les pièces officielles avec les <strong>données réelles</strong> de vos élèves et enseignants (notes réelles, versements réels, état civil et salaires réels) et archivez les pièces numérisées.
             </p>
 
             {/* Navigation Tabs */}
@@ -901,7 +1197,7 @@ export default function DocumentsPage() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-slate-900">Modèles de Documents Prêts à l’Emploi</h2>
-              <p className="text-sm text-slate-500">Cliquez sur un document pour configurer les informations et l’imprimer directement.</p>
+              <p className="text-sm text-slate-500">Sélectionnez le document à générer. Les données réelles du dossier de l'élève ou de l'enseignant s'insèrent automatiquement.</p>
             </div>
           </div>
 
@@ -932,7 +1228,7 @@ export default function DocumentsPage() {
                   </div>
 
                   <div className="mt-5 border-t border-slate-100 pt-4 flex items-center justify-between">
-                    <span className="text-xs font-medium text-slate-400">Prêt pour impression</span>
+                    <span className="text-xs font-medium text-slate-400">Données Réelles</span>
                     <button
                       onClick={() => openGeneratorFor(tpl.id)}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-blue-600"
@@ -951,7 +1247,6 @@ export default function DocumentsPage() {
       {/* TAB 2: COFFRE-FORT NUMERIQUE & PIECES JOINTES */}
       {activeTab === 'vault' && (
         <div className="space-y-6">
-          {/* Action Bar */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-xl font-bold text-slate-900">Archives & Pièces Numérisées</h2>
@@ -978,7 +1273,6 @@ export default function DocumentsPage() {
           {/* Filters Bar */}
           <div className="surface-card p-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {/* Search */}
               <div className="relative">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                 <input
@@ -990,7 +1284,6 @@ export default function DocumentsPage() {
                 />
               </div>
 
-              {/* Entity Filter */}
               <div>
                 <select
                   value={vaultEntityFilter}
@@ -1004,7 +1297,6 @@ export default function DocumentsPage() {
                 </select>
               </div>
 
-              {/* Type Filter */}
               <div>
                 <select
                   value={vaultTypeFilter}
@@ -1039,8 +1331,6 @@ export default function DocumentsPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {filteredVaultDocuments.map(doc => {
                 const isImage = doc.file_url?.startsWith('data:image') || doc.file_url?.match(/\.(jpeg|jpg|gif|png|webp)/i);
-                const isHtml = doc.file_url?.startsWith('data:text/html') || doc.file_url?.endsWith('.html');
-                const isPdf = doc.file_url?.startsWith('data:application/pdf') || doc.file_url?.endsWith('.pdf');
 
                 return (
                   <div
@@ -1074,7 +1364,6 @@ export default function DocumentsPage() {
 
                     <div className="mt-4 border-t border-slate-100 pt-3 flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        {/* Preview */}
                         <button
                           onClick={() => setPreviewDoc(doc)}
                           className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200"
@@ -1084,7 +1373,6 @@ export default function DocumentsPage() {
                           <span>Voir</span>
                         </button>
 
-                        {/* Download */}
                         {doc.file_url && (
                           <a
                             href={doc.file_url}
@@ -1100,7 +1388,6 @@ export default function DocumentsPage() {
                         )}
                       </div>
 
-                      {/* Delete */}
                       <button
                         onClick={() => handleDeleteDocument(doc.id)}
                         className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition"
@@ -1118,7 +1405,7 @@ export default function DocumentsPage() {
       )}
 
       {/* ========================================================= */}
-      {/* MODAL: DOCUMENT GENERATOR STUDIO                          */}
+      {/* MODAL: DOCUMENT GENERATOR STUDIO (REAL DATA SYNCHRONIZED)  */}
       {/* ========================================================= */}
       <Modal
         isOpen={isGeneratorModalOpen}
@@ -1172,7 +1459,7 @@ export default function DocumentsPage() {
               </label>
               <select
                 value={generatorTeacherId}
-                onChange={e => setGeneratorTeacherId(e.target.value)}
+                onChange={e => handleGeneratorTeacherChange(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
               >
                 {teachers.map(t => (
@@ -1208,7 +1495,7 @@ export default function DocumentsPage() {
                   </label>
                   <select
                     value={generatorStudentId}
-                    onChange={e => setGeneratorStudentId(e.target.value)}
+                    onChange={e => handleGeneratorStudentChange(e.target.value)}
                     className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                   >
                     {availableStudentsForClass.map(s => (
@@ -1222,27 +1509,57 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          {/* Context Banner */}
+          {/* Context Banner: Selected Student Summary */}
           {currentSelectedStudent && selectedTemplateId !== 'payslip' && (
-            <div className="flex items-center gap-3 rounded-xl bg-blue-50/70 border border-blue-200/60 p-3 text-xs text-blue-900">
-              <GraduationCap className="h-5 w-5 text-blue-600 shrink-0" />
-              <div>
-                <span className="font-bold">
-                  {currentSelectedStudent.last_name} {currentSelectedStudent.first_name}
-                </span>{' '}
-                • Matricule : <span className="font-mono">{currentSelectedStudent.matricule}</span>
-                {currentStudentParent && (
-                  <span className="ml-2 text-blue-700">
-                    • Tuteur : {currentStudentParent.first_name} {currentStudentParent.last_name} ({currentStudentParent.phone || 'Sans contact'})
-                  </span>
-                )}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-blue-50/70 border border-blue-200/60 p-3.5 text-xs text-blue-900">
+              <div className="flex items-center gap-3">
+                <GraduationCap className="h-5 w-5 text-blue-600 shrink-0" />
+                <div>
+                  <span className="font-bold text-sm text-slate-900">
+                    {currentSelectedStudent.last_name} {currentSelectedStudent.first_name}
+                  </span>{' '}
+                  • Matricule : <span className="font-mono font-bold text-blue-700">{currentSelectedStudent.matricule}</span>
+                  {paramParentName && (
+                    <span className="ml-2 text-slate-600">
+                      • Tuteur : <strong>{paramParentName}</strong> ({paramParentPhone || 'Sans contact'})
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <span className="rounded-md bg-white px-2 py-1 font-semibold text-blue-800 border border-blue-200">
+                  {currentSelectedClass?.name || 'Classe'}
+                </span>
               </div>
             </div>
           )}
 
-          {/* Specific Parameters: Attestation & Frequentation */}
+          {/* SPECIFIC FIELDS: Attestation & Fréquentation */}
           {(selectedTemplateId === 'school_certificate' || selectedTemplateId === 'attendance_certificate') && (
-            <div className="space-y-3">
+            <div className="space-y-3.5 rounded-xl border border-blue-200/70 bg-blue-50/30 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date de naissance</label>
+                  <input
+                    type="date"
+                    value={paramBirthDate}
+                    onChange={e => setParamBirthDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Lieu de naissance</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Abidjan Cocody"
+                    value={paramBirthPlace}
+                    onChange={e => setParamBirthPlace(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Mention spéciale / Objet spécifique (optionnel)
@@ -1252,15 +1569,38 @@ export default function DocumentsPage() {
                   placeholder="Ex : Pour constitution de dossier d'allocations familiales"
                   value={paramPurpose}
                   onChange={e => setParamPurpose(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
                 />
               </div>
             </div>
           )}
 
-          {/* Specific Parameters: Convocation Parent */}
+          {/* SPECIFIC FIELDS: Convocation Parent */}
           {selectedTemplateId === 'parent_summons' && (
             <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nom complet du parent / tuteur</label>
+                  <input
+                    type="text"
+                    value={paramParentName}
+                    onChange={e => setParamParentName(e.target.value)}
+                    placeholder="Ex: M. Kouassi Jean"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Téléphone du parent / contact</label>
+                  <input
+                    type="text"
+                    value={paramParentPhone}
+                    onChange={e => setParamParentPhone(e.target.value)}
+                    placeholder="Ex: +225 07 00 00 00 00"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Date du rendez-vous</label>
@@ -1315,7 +1655,7 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          {/* Specific Parameters: Diplome & Tableau d'Honneur */}
+          {/* SPECIFIC FIELDS: Diplome & Tableau d'Honneur (Real Calculated Stats) */}
           {selectedTemplateId === 'honor_diploma' && (
             <div className="space-y-4 rounded-xl border border-purple-200 bg-purple-50/40 p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1374,12 +1714,21 @@ export default function DocumentsPage() {
                   />
                 </div>
               </div>
+
+              <div className="flex items-center gap-2 text-xs text-purple-700 bg-purple-100/60 p-2.5 rounded-lg">
+                <Sparkles size={15} />
+                <span>
+                  {studentReportCardData?.hasRealGrades
+                    ? `Moyenne (${studentReportCardData.overallAverage}/20) et Rang (${studentReportCardData.rank}e) extraits directement des notes réelles de l'élève.`
+                    : 'Aucune note enregistrée pour ce trimestre dans le menu Évaluations ; vous pouvez renseigner la moyenne manuellement ci-dessus.'}
+                </span>
+              </div>
             </div>
           )}
 
-          {/* Specific Parameters: Bulletin Scolaire */}
+          {/* SPECIFIC FIELDS: Bulletin Scolaire (Real Grades Summary) */}
           {selectedTemplateId === 'report_card' && (
-            <div className="space-y-3">
+            <div className="space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Période d'évaluation</label>
                 <select
@@ -1394,6 +1743,203 @@ export default function DocumentsPage() {
                   <option value="Semestre 2">2ème Semestre</option>
                 </select>
               </div>
+
+              {/* Real Grades Summary Banner */}
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-indigo-600" />
+                    <span className="font-bold text-sm text-indigo-900">Données Réelles du Bulletin</span>
+                  </div>
+                  <span className="text-xs font-semibold text-indigo-700">
+                    {studentReportCardData?.hasRealGrades
+                      ? `${studentReportCardData.subjects.length} matières évaluées`
+                      : 'En attente de saisie des notes'}
+                  </span>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs">
+                  <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                    <p className="text-slate-500">Moyenne Élève</p>
+                    <p className="font-bold text-base text-indigo-700">
+                      {studentReportCardData?.hasRealGrades ? `${studentReportCardData.overallAverage} / 20` : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                    <p className="text-slate-500">Rang</p>
+                    <p className="font-bold text-base text-slate-800">
+                      {studentReportCardData?.hasRealGrades ? `${studentReportCardData.rank}e sur ${studentReportCardData.totalStudents}` : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                    <p className="text-slate-500">Moy. de Classe</p>
+                    <p className="font-bold text-base text-slate-800">
+                      {studentReportCardData?.hasRealGrades ? `${studentReportCardData.classAverage} / 20` : '—'}
+                    </p>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg border border-indigo-100">
+                    <p className="text-slate-500">Note Max / Min</p>
+                    <p className="font-bold text-base text-slate-800">
+                      {studentReportCardData?.hasRealGrades ? `${studentReportCardData.maxAverage} / ${studentReportCardData.minAverage}` : '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Bulletin de Salaire (Real Teacher Payroll Form) */}
+          {selectedTemplateId === 'payslip' && (
+            <div className="space-y-4 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mois</label>
+                  <select
+                    value={payrollMonth}
+                    onChange={e => setPayrollMonth(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    {[
+                      'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+                      'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'
+                    ].map((m, idx) => (
+                      <option key={m} value={idx + 1}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Année</label>
+                  <input
+                    type="number"
+                    value={payrollYear}
+                    onChange={e => setPayrollYear(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Salaire de base (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salaryBase}
+                    onChange={e => setSalaryBase(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Sursalaire (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salarySursalaire}
+                    onChange={e => setSalarySursalaire(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Transport (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salaryTransport}
+                    onChange={e => setSalaryTransport(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Ancienneté (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salaryAnciennete}
+                    onChange={e => setSalaryAnciennete(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Autres primes (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salaryAutresPrimes}
+                    onChange={e => setSalaryAutresPrimes(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Retenues & Cotisations (FCFA)</label>
+                  <input
+                    type="number"
+                    value={salaryDeductions}
+                    onChange={e => setSalaryDeductions(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Net pay live banner */}
+              <div className="flex items-center justify-between bg-white p-3 rounded-xl border border-emerald-200">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600">Net à Payer Calculé :</span>
+                <span className="text-lg font-black text-emerald-700">
+                  {formatCurrency((salaryBase + salarySursalaire + salaryTransport + salaryAnciennete + salaryAutresPrimes) - salaryDeductions)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Relevé Financier (Real Payments & Balances) */}
+          {selectedTemplateId === 'account_statement' && (
+            <div className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50/40 p-4">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-sm text-cyan-900">Situation Financière Réelle de l'Élève</span>
+                <span className="text-xs font-semibold text-cyan-700">
+                  Plan : {studentResolvedFinance?.planName || 'Standard'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="bg-white p-2.5 rounded-lg border border-cyan-100">
+                  <p className="text-slate-500">Total Attendu</p>
+                  <p className="font-bold text-base text-slate-900">
+                    {formatCurrency(studentResolvedFinance?.totalExpected || 0)}
+                  </p>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-cyan-100">
+                  <p className="text-slate-500">Déjà Réglé</p>
+                  <p className="font-bold text-base text-emerald-600">
+                    {formatCurrency(studentResolvedFinance?.totalPaid || 0)}
+                  </p>
+                </div>
+                <div className="bg-white p-2.5 rounded-lg border border-cyan-100">
+                  <p className="text-slate-500">Solde Restant</p>
+                  <p className="font-bold text-base text-rose-600">
+                    {formatCurrency(studentResolvedFinance?.remaining || 0)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="text-xs text-cyan-800 bg-white/70 p-2.5 rounded-lg border border-cyan-200">
+                Tous les reçus réels ({payments.filter(p => p.student_id === generatorStudentId).length} paiement(s) de scolarité et{' '}
+                {canteenPayments.filter(p => p.student_id === generatorStudentId).length} versement(s) cantine) seront intégrés dans le relevé.
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Fournitures Scolaires */}
+          {selectedTemplateId === 'supply_list' && (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/40 p-3.5 text-xs text-teal-900">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-sm">Fournitures enregistrées pour {currentSelectedClass?.name}</span>
+                <span className="font-semibold">{classRealSupplies.length} article(s)</span>
+              </div>
+              <p className="mt-1 text-slate-600">
+                {classRealSupplies.length > 0
+                  ? `La liste et le budget estimatif seront générés à partir des ${classRealSupplies.length} manuels et fournitures réels de cette classe.`
+                  : 'Aucune fourniture n’est encore configurée pour cette classe dans la base de données. Vous pouvez les configurer dans la gestion des fournitures.'}
+              </p>
             </div>
           )}
 
@@ -1559,7 +2105,7 @@ export default function DocumentsPage() {
                     const st = students.find(s => s.id === uploadEntityId);
                     if (st) suffix = ` - ${st.last_name} ${st.first_name}`;
                   }
-                  setUploadTitle(`${typeObj.label}${suffix}`);
+                  setUploadTitle(`${typeLabel(e.target.value)}${suffix}`);
                 }
               }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
@@ -1660,4 +2206,8 @@ export default function DocumentsPage() {
       </Modal>
     </div>
   );
+
+  function typeLabel(id: string) {
+    return VAULT_DOC_TYPES.find(v => v.id === id)?.label || 'Document';
+  }
 }
