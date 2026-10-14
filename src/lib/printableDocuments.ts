@@ -2028,4 +2028,549 @@ export function buildClassSupplyListHtml({
   );
 }
 
+export interface SchoolCertificateInput {
+  school: School;
+  certificateType: 'attestation_scolarite' | 'certificat_frequentation';
+  student: {
+    first_name: string;
+    last_name: string;
+    matricule: string;
+    date_of_birth?: string;
+    place_of_birth?: string;
+    gender?: string;
+    photo_url?: string;
+  };
+  className: string;
+  academicYearName: string;
+  referenceNumber?: string;
+  city?: string;
+  date?: string;
+  directorName?: string;
+  purpose?: string;
+}
+
+export function buildSchoolCertificateHtml({
+  school,
+  certificateType,
+  student,
+  className,
+  academicYearName,
+  referenceNumber,
+  city,
+  date,
+  directorName,
+  purpose,
+}: SchoolCertificateInput) {
+  const isAttestation = certificateType === 'attestation_scolarite';
+  const docTitle = isAttestation ? 'ATTESTATION DE SCOLARITÉ' : 'CERTIFICAT DE FRÉQUENTATION';
+  const docSub = isAttestation
+    ? 'Attestation d’inscription régulière et de scolarité'
+    : 'Certificat constatant la fréquentation assidue des cours';
+  const ref = referenceNumber || `REF-${Math.floor(100000 + Math.random() * 900000)}/${new Date().getFullYear()}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+  const genderTitle = student.gender === 'F' ? 'l’élève (Fille)' : 'l’élève';
+
+  return printableShell(
+    `${docTitle} - ${student.first_name} ${student.last_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; min-height: 270mm;">
+        
+        <!-- Filigrane d'authenticité -->
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 80px; font-weight: 900; color: rgba(148, 163, 184, 0.08); pointer-events: none; text-transform: uppercase; white-space: nowrap; user-select: none;">
+          ${escapeHtml(school.name)}
+        </div>
+
+        <!-- En-tête officiel -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #1e3a8a;">
+          <div style="display: flex; align-items: center; gap: 16px; max-width: 60%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 80px; height: 80px; object-fit: contain; border-radius: 12px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 76px; height: 76px; border-radius: 12px; background: #1e3a8a; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 24px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; line-height: 1.2;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''}<br />
+                ${school.phone ? `Tél : ${escapeHtml(school.phone)}` : ''} ${school.email ? `| Email : ${escapeHtml(school.email)}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px; color: #475569;">
+            <p style="margin: 0; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+            <p style="margin: 2px 0 0; font-style: italic; color: #64748b;">Union - Discipline - Travail</p>
+            <p style="margin: 6px 0 0; font-weight: 700; color: #0284c7;">MINISTÈRE DE L'ÉDUCATION NATIONALE</p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8;">N° d'enregistrement : <strong>${escapeHtml(ref)}</strong></p>
+          </div>
+        </div>
+
+        <!-- Titre du document -->
+        <div style="text-align: center; margin: 40px 0 35px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: #0284c7; background: #f0f9ff; padding: 4px 14px; border-radius: 999px; border: 1px solid #bae6fd; margin-bottom: 8px;">DOCUMENT OFFICIEL</span>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: 0.05em; color: #0f172a; text-transform: uppercase; border-bottom: 3px double #1e3a8a; display: inline-block; padding-bottom: 6px;">
+            ${escapeHtml(docTitle)}
+          </h1>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #64748b; font-style: italic;">
+            ${escapeHtml(docSub)}
+          </p>
+        </div>
+
+        <!-- Corps de l'attestation -->
+        <div style="font-size: 14.5px; line-height: 1.8; color: #1e293b; margin: 0 16px;">
+          <p style="margin: 0 0 20px;">
+            Le Chef d'Établissement soussigné, atteste par la présente que :
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #1e3a8a; border-radius: 12px; padding: 20px 24px; margin: 24px 0;">
+            <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 12px; font-size: 14px;">
+              <span style="font-weight: 700; color: #475569;">Nom et Prénoms :</span>
+              <span style="font-weight: 900; font-size: 16px; color: #0f172a; text-transform: uppercase;">${escapeHtml(student.last_name)} ${escapeHtml(student.first_name)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Matricule :</span>
+              <span style="font-family: monospace; font-weight: 800; font-size: 15px; color: #0284c7;">${escapeHtml(student.matricule)}</span>
+
+              ${student.date_of_birth ? `
+                <span style="font-weight: 700; color: #475569;">Né(e) le :</span>
+                <span><strong>${escapeHtml(formatDate(student.date_of_birth))}</strong> ${student.place_of_birth ? `à <strong>${escapeHtml(student.place_of_birth)}</strong>` : ''}</span>
+              ` : ''}
+
+              <span style="font-weight: 700; color: #475569;">Classe fréquentée :</span>
+              <span style="font-weight: 800; color: #1e3a8a; font-size: 15px;">${escapeHtml(className)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Année scolaire :</span>
+              <span style="font-weight: 800; color: #0f172a;">${escapeHtml(academicYearName)}</span>
+            </div>
+          </div>
+
+          <p style="margin: 24px 0 16px; text-align: justify;">
+            Est régulièrement inscrit(e) sur les registres matricules de l'établissement et suit avec assiduité l'ensemble des enseignements et activités pédagogiques prescrits par les programmes officiels.
+          </p>
+
+          ${purpose ? `
+            <p style="margin: 12px 0; font-size: 13.5px; color: #334155; background: #f1f5f9; padding: 10px 14px; border-radius: 8px;">
+              <strong>Objet / Mention spéciale :</strong> ${escapeHtml(purpose)}
+            </p>
+          ` : ''}
+
+          <p style="margin: 24px 0 0; text-align: justify; font-style: italic; color: #334155;">
+            En foi de quoi, la présente attestation lui est délivrée pour servir et valoir ce que de droit devant toutes autorités compétentes et administrations.
+          </p>
+        </div>
+
+        <!-- Date et Signatures -->
+        <div style="margin-top: 50px; display: flex; justify-content: flex-end;">
+          <div style="text-align: center; width: 260px;">
+            <p style="margin: 0; font-size: 13px; color: #475569;">Fait à ${escapeHtml(currentCity)}, le ${escapeHtml(currentDate)}</p>
+            <p style="margin: 8px 0 0; font-size: 14px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
+              Le Chef d'Établissement / La Direction
+            </p>
+            <p style="margin: 4px 0 60px; font-size: 12px; color: #64748b;">(Signature et Cachet Officiel)</p>
+            
+            <div style="border-top: 1px dashed #94a3b8; padding-top: 8px;">
+              <span style="font-weight: 700; font-size: 13px; color: #1e3a8a;">
+                ${escapeHtml(directorName || 'Le Directeur des Études')}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bas de page sécurisé -->
+        <div style="position: absolute; bottom: 25px; left: 40px; right: 40px; border-top: 1px solid #e2e8f0; padding-top: 12px; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #94a3b8;">
+          <div>Authenticité certifiée - Système de Gestion Scolaire Numérique</div>
+          <div>Page 1/1 • Ref: ${escapeHtml(ref)}</div>
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+export interface ParentSummonsInput {
+  school: School;
+  student: {
+    first_name: string;
+    last_name: string;
+    matricule: string;
+  };
+  parentName: string;
+  parentPhone?: string;
+  className: string;
+  referenceNumber?: string;
+  summonsDate: string;
+  summonsTime: string;
+  location?: string;
+  reason: string;
+  directorName?: string;
+  city?: string;
+  date?: string;
+  notes?: string;
+}
+
+export function buildParentSummonsHtml({
+  school,
+  student,
+  parentName,
+  parentPhone,
+  className,
+  referenceNumber,
+  summonsDate,
+  summonsTime,
+  location,
+  reason,
+  directorName,
+  city,
+  date,
+  notes,
+}: ParentSummonsInput) {
+  const ref = referenceNumber || `CONV-${Math.floor(100000 + Math.random() * 900000)}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+
+  return printableShell(
+    `Convocation Parent - ${student.first_name} ${student.last_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 36px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative;">
+        
+        <!-- En-tête -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 20px; border-bottom: 2px solid #0f172a;">
+          <div style="display: flex; align-items: center; gap: 14px; max-width: 65%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 70px; height: 70px; object-fit: contain; border-radius: 10px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 66px; height: 66px; border-radius: 10px; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 18px; font-weight: 800; color: #0f172a; text-transform: uppercase;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 3px 0 0; font-size: 11px; color: #64748b;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''} | Tél : ${escapeHtml(school.phone || '')}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px;">
+            <p style="margin: 0; color: #64748b;">Fait à ${escapeHtml(currentCity)}, le ${escapeHtml(currentDate)}</p>
+            <p style="margin: 4px 0 0; font-weight: 800; color: #dc2626;">RÉF : ${escapeHtml(ref)}</p>
+          </div>
+        </div>
+
+        <!-- Titre -->
+        <div style="text-align: center; margin: 30px 0 25px;">
+          <div style="display: inline-block; background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 10px 24px;">
+            <h1 style="margin: 0; font-size: 22px; font-weight: 900; color: #991b1b; text-transform: uppercase; letter-spacing: 0.05em;">
+              CONVOCATION DE PARENT / TUTEUR LÉGAL
+            </h1>
+          </div>
+        </div>
+
+        <!-- Destinataire -->
+        <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; margin-bottom: 24px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 13px;">
+            <div>
+              <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">À l'attention de :</p>
+              <p style="margin: 0; font-size: 15px; font-weight: 800; color: #0f172a;">${escapeHtml(parentName || 'Parent / Tuteur de l’élève')}</p>
+              ${parentPhone ? `<p style="margin: 2px 0 0; font-size: 12px; color: #475569;">Contact : <strong>${escapeHtml(parentPhone)}</strong></p>` : ''}
+            </div>
+            <div>
+              <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Concernant l'élève :</p>
+              <p style="margin: 0; font-size: 15px; font-weight: 800; color: #1e3a8a;">${escapeHtml(student.last_name)} ${escapeHtml(student.first_name)}</p>
+              <p style="margin: 2px 0 0; font-size: 12px; color: #475569;">Classe : <strong>${escapeHtml(className)}</strong> | Matr. : <strong>${escapeHtml(student.matricule)}</strong></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Corps du message -->
+        <div style="font-size: 14px; line-height: 1.7; color: #1e293b;">
+          <p style="margin: 0 0 16px;">
+            Madame, Monsieur le Responsable Légal,
+          </p>
+          <p style="margin: 0 0 16px; text-align: justify;">
+            La Direction de l'établissement vous prie de bien vouloir vous présenter impérativement au sein de notre établissement pour un entretien personnel concernant votre enfant :
+          </p>
+
+          <!-- Détails du Rendez-vous -->
+          <div style="background: #fff7ed; border: 1.5px solid #fdba74; border-radius: 12px; padding: 18px 24px; margin: 20px 0;">
+            <div style="display: grid; grid-template-columns: 140px 1fr; row-gap: 10px; font-size: 14px;">
+              <span style="font-weight: 700; color: #9a3412;">📅 Date du rendez-vous :</span>
+              <span style="font-weight: 800; font-size: 15px; color: #c2410c;">${escapeHtml(summonsDate)}</span>
+
+              <span style="font-weight: 700; color: #9a3412;">⏰ Heure précise :</span>
+              <span style="font-weight: 800; font-size: 15px; color: #c2410c;">${escapeHtml(summonsTime)}</span>
+
+              <span style="font-weight: 700; color: #9a3412;">📍 Lieu d'accueil :</span>
+              <span style="font-weight: 700; color: #1e293b;">${escapeHtml(location || 'Bureau de la Direction / Administration')}</span>
+
+              <span style="font-weight: 700; color: #9a3412;">🎯 Objet / Motif :</span>
+              <span style="font-weight: 800; color: #991b1b; font-size: 14.5px;">${escapeHtml(reason)}</span>
+            </div>
+          </div>
+
+          ${notes ? `
+            <div style="margin: 16px 0; background: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #334155;">
+              <strong>Observations complémentaires :</strong> ${escapeHtml(notes)}
+            </div>
+          ` : ''}
+
+          <p style="margin: 18px 0 0; font-weight: 600; color: #991b1b;">
+            ⚠️ Compte tenu de l'importance de cette rencontre pour la scolarité et l'avenir de l'élève, votre présence effective est indispensable. En cas d'empêchement majeur, prière d'informer immédiatement la direction pour reprogrammer la date.
+          </p>
+        </div>
+
+        <!-- Signature Direction -->
+        <div style="margin-top: 35px; display: flex; justify-content: flex-end;">
+          <div style="text-align: center; width: 240px;">
+            <p style="margin: 0; font-size: 13px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
+              La Direction de l'Établissement
+            </p>
+            <p style="margin: 4px 0 45px; font-size: 11px; color: #64748b;">(Signature et Cachet)</p>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 6px;">
+              <span style="font-weight: 700; font-size: 12px; color: #1e3a8a;">${escapeHtml(directorName || 'Le Chef d’Établissement')}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coupon détachable pour le parent -->
+        <div style="margin-top: 40px; border-top: 2px dashed #94a3b8; padding-top: 20px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 11px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em;">
+              ✂️ TALON DE CONFIRMATION / ACCUSÉ DE RÉCEPTION (À RETOURNER SIGNÉ À L'ÉCOLE SOUS 48H)
+            </span>
+            <span style="font-size: 10px; font-family: monospace; color: #94a3b8;">Réf: ${escapeHtml(ref)}</span>
+          </div>
+
+          <div style="font-size: 12px; line-height: 1.6; color: #334155; background: #fafafa; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px 18px;">
+            <p style="margin: 0 0 8px;">
+              Je soussigné(e) <strong>${escapeHtml(parentName || '....................................................................')}</strong>, 
+              responsable de l'élève <strong>${escapeHtml(student.last_name)} ${escapeHtml(student.first_name)}</strong> (${escapeHtml(className)}), 
+              confirme avoir reçu la convocation pour le <strong>${escapeHtml(summonsDate)}</strong> à <strong>${escapeHtml(summonsTime)}</strong>.
+            </p>
+            <div style="display: flex; gap: 30px; margin: 10px 0;">
+              <span>[ ] Confirme ma présence à l'heure indiquée</span>
+              <span>[ ] Sollicite un report au : ........................................</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 20px;">
+              <span>Date : ........................................</span>
+              <span>Signature du Parent / Tuteur : ....................................................</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+export interface HonorDiplomaInput {
+  school: School;
+  diplomaType: 'reussite' | 'tableau_honneur' | 'excellence' | 'encouragement';
+  student: {
+    first_name: string;
+    last_name: string;
+    matricule: string;
+    photo_url?: string;
+  };
+  className: string;
+  academicYearName: string;
+  periodLabel?: string;
+  average?: number;
+  rank?: number | string;
+  distinction?: string;
+  city?: string;
+  date?: string;
+  teacherName?: string;
+  directorName?: string;
+}
+
+export function buildHonorDiplomaHtml({
+  school,
+  diplomaType,
+  student,
+  className,
+  academicYearName,
+  periodLabel,
+  average,
+  rank,
+  distinction,
+  city,
+  date,
+  teacherName,
+  directorName,
+}: HonorDiplomaInput) {
+  const typeTitles: Record<string, { title: string; subtitle: string; color: string; badge: string }> = {
+    reussite: {
+      title: 'DIPLÔME DE RÉUSSITE',
+      subtitle: 'Pour la brillante réussite de l’année académique',
+      color: '#0f766e',
+      badge: 'FÉLICITATIONS OFFICIELLES',
+    },
+    tableau_honneur: {
+      title: 'TABLEAU D’HONNEUR',
+      subtitle: 'Avec les Félicitations du Conseil des Maîtres & Professeurs',
+      color: '#b45309',
+      badge: 'MENTION HONORIFIQUE',
+    },
+    excellence: {
+      title: 'PRIX D’EXCELLENCE',
+      subtitle: 'Pour l’exemplarité de son travail et son esprit d’effort',
+      color: '#1e3a8a',
+      badge: 'MAJOR & EXCELLENCE',
+    },
+    encouragement: {
+      title: 'DIPLÔME D’ENCOURAGEMENT',
+      subtitle: 'Pour ses progrès constants et son assiduité remarquable',
+      color: '#4338ca',
+      badge: 'ENCOURAGEMENTS',
+    },
+  };
+
+  const meta = typeTitles[diplomaType] || typeTitles.reussite;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+
+  return printableShell(
+    `${meta.title} - ${student.first_name} ${student.last_name}`,
+    `
+    <div class="page" style="padding: 20px; font-family: 'Georgia', serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 297mm; min-height: 200mm; margin: 0 auto; background: #fffefb; border: 12px double ${meta.color}; border-radius: 18px; padding: 40px 50px; box-shadow: 0 16px 40px rgba(0,0,0,0.12); position: relative; box-sizing: border-box;">
+        
+        <!-- Ornements d'angle -->
+        <div style="position: absolute; top: 12px; left: 16px; font-size: 26px; color: ${meta.color};">✦</div>
+        <div style="position: absolute; top: 12px; right: 16px; font-size: 26px; color: ${meta.color};">✦</div>
+        <div style="position: absolute; bottom: 12px; left: 16px; font-size: 26px; color: ${meta.color};">✦</div>
+        <div style="position: absolute; bottom: 12px; right: 16px; font-size: 26px; color: ${meta.color};">✦</div>
+
+        <!-- En-tête -->
+        <div style="text-align: center; border-bottom: 2px solid ${meta.color}; padding-bottom: 18px; margin-bottom: 25px;">
+          <p style="margin: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; color: #64748b;">
+            RÉPUBLIQUE DE CÔTE D'IVOIRE • MINISTÈRE DE L'ÉDUCATION NATIONALE
+          </p>
+          <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 10px;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 50px; height: 50px; object-fit: contain;" />`
+                : ''
+            }
+            <h2 style="margin: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 22px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 0.05em;">
+              ${escapeHtml(school.name)}
+            </h2>
+          </div>
+          <p style="margin: 4px 0 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; color: #64748b;">
+            ${escapeHtml(school.address || '')}${school.city ? ` - ${escapeHtml(school.city)}` : ''}
+          </p>
+        </div>
+
+        <!-- Badge & Grand Titre -->
+        <div style="text-align: center; margin: 20px 0 25px;">
+          <div style="display: inline-block; padding: 4px 18px; border-radius: 999px; background: ${meta.color}; color: white; font-family: 'Segoe UI', Arial, sans-serif; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 12px;">
+            ${escapeHtml(meta.badge)}
+          </div>
+          <h1 style="margin: 0; font-size: 38px; font-weight: 900; letter-spacing: 0.08em; color: ${meta.color}; text-transform: uppercase; text-shadow: 1px 1px 2px rgba(0,0,0,0.08);">
+            ${escapeHtml(meta.title)}
+          </h1>
+          <p style="margin: 8px 0 0; font-style: italic; font-size: 15px; color: #475569;">
+            ${escapeHtml(meta.subtitle)}
+          </p>
+        </div>
+
+        <!-- Décerné à -->
+        <div style="text-align: center; margin: 25px 0;">
+          <p style="margin: 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; text-transform: uppercase; letter-spacing: 0.15em; color: #64748b;">
+            Décerné avec honneur à l'élève :
+          </p>
+          <div style="display: inline-block; margin: 12px auto; padding: 8px 30px; border-bottom: 2px solid ${meta.color};">
+            <span style="font-size: 30px; font-weight: 900; color: #0f172a; text-transform: uppercase; letter-spacing: 0.04em;">
+              ${escapeHtml(student.last_name)} ${escapeHtml(student.first_name)}
+            </span>
+          </div>
+          <p style="margin: 4px 0 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #334155;">
+            Inscrit(e) en classe de <strong>${escapeHtml(className)}</strong> • Matricule : <strong style="font-family: monospace;">${escapeHtml(student.matricule)}</strong>
+          </p>
+          <p style="margin: 4px 0 0; font-family: 'Segoe UI', Arial, sans-serif; font-size: 13px; color: #64748b;">
+            ${escapeHtml(periodLabel || `Année Scolaire ${academicYearName}`)}
+          </p>
+        </div>
+
+        <!-- Performances clés -->
+        ${
+          average !== undefined || rank !== undefined || distinction
+            ? `
+          <div style="display: flex; justify-content: center; gap: 30px; margin: 24px 0;">
+            ${
+              average !== undefined
+                ? `
+              <div style="background: white; border: 1.5px solid ${meta.color}; border-radius: 12px; padding: 10px 22px; text-align: center; min-width: 120px;">
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b;">Moyenne</div>
+                <div style="font-size: 22px; font-weight: 900; color: ${meta.color};">${average.toFixed(2)} / 20</div>
+              </div>
+            `
+                : ''
+            }
+            ${
+              rank !== undefined
+                ? `
+              <div style="background: white; border: 1.5px solid ${meta.color}; border-radius: 12px; padding: 10px 22px; text-align: center; min-width: 120px;">
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b;">Rang</div>
+                <div style="font-size: 22px; font-weight: 900; color: ${meta.color};">${rank}${typeof rank === 'number' && rank === 1 ? 'er' : 'ème'}</div>
+              </div>
+            `
+                : ''
+            }
+            ${
+              distinction
+                ? `
+              <div style="background: white; border: 1.5px solid ${meta.color}; border-radius: 12px; padding: 10px 22px; text-align: center; min-width: 140px;">
+                <div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b;">Mention</div>
+                <div style="font-size: 18px; font-weight: 900; color: ${meta.color};">${escapeHtml(distinction)}</div>
+              </div>
+            `
+                : ''
+            }
+          </div>
+        `
+            : ''
+        }
+
+        <!-- Signatures & Sceau -->
+        <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; padding: 0 40px; font-family: 'Segoe UI', Arial, sans-serif;">
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
+              Le Professeur Principal
+            </p>
+            <div style="height: 55px;"></div>
+            <div style="border-top: 1px dashed #94a3b8; padding-top: 6px;">
+              <span style="font-size: 12px; color: #475569;">${escapeHtml(teacherName || 'Le Titulaire de Classe')}</span>
+            </div>
+          </div>
+
+          <!-- Sceau doré central -->
+          <div style="text-align: center;">
+            <div style="width: 72px; height: 72px; border-radius: 50%; border: 3px double ${meta.color}; margin: 0 auto; display: flex; align-items: center; justify-content: center; background: #fffcf0; color: ${meta.color}; font-weight: 900; font-size: 10px; letter-spacing: 0.05em; text-align: center; text-transform: uppercase; padding: 6px;">
+              SCEAU OFFICIEL
+            </div>
+            <p style="margin: 6px 0 0; font-size: 10px; color: #94a3b8;">Fait à ${escapeHtml(currentCity)}, le ${escapeHtml(currentDate)}</p>
+          </div>
+
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 800; color: #0f172a; text-transform: uppercase;">
+              Le Chef d'Établissement
+            </p>
+            <div style="height: 55px;"></div>
+            <div style="border-top: 1px dashed #94a3b8; padding-top: 6px;">
+              <span style="font-size: 12px; color: #475569;">${escapeHtml(directorName || 'La Direction Générale')}</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+
 

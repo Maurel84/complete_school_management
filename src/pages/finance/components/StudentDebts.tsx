@@ -151,30 +151,77 @@ export default function StudentDebts({
     setDetailsOpen(true);
   }
 
+  function cleanPhone(rawPhone?: string): string {
+    if (!rawPhone) return '';
+    let p = rawPhone.replace(/[^\d+]/g, '');
+    if (p.startsWith('+')) {
+      p = p.substring(1);
+    } else if (p.length === 10 || p.length === 8) {
+      // Default to Ivory Coast (+225) if standard local number
+      p = `225${p}`;
+    }
+    return p;
+  }
+
   function openAlert(row: any) {
     setSelectedStudent(row);
-    const text = `Bonjour ${row.parentName}, nous vous rappelons que le versement de scolarité de l'élève ${row.first_name} ${row.last_name} présente un reste à payer de ${formatCurrency(row.remaining)}. Merci de régulariser sous peu. Groupe Scolaire La Harpe de David.`;
+    const text = `Bonjour ${row.parentName},\n\nNous vous informons que le dossier de scolarité de votre enfant ${row.first_name} ${row.last_name} (Classe: ${row.class?.name || '-'}) présente un solde restant de ${formatCurrency(row.remaining)}.\n\nMerci de bien vouloir passer au service comptabilité de l'établissement pour la régularisation.\n\nCordialement,\nLa Direction - ${school?.name || 'Groupe Scolaire'}`;
     setAlertMessage(text);
     setAlertOpen(true);
   }
 
-  async function handleSendAlert() {
-    setSendingAlert(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    if (alertChannel === 'whatsapp' && selectedStudent?.parentPhone) {
-      const url = `https://web.whatsapp.com/send?phone=${selectedStudent.parentPhone.replace(
-        /\s+/g,
-        ''
-      )}&text=${encodeURIComponent(alertMessage)}`;
-      window.open(url, '_blank');
-    } else {
-      alert(`Notification simulée envoyée avec succès par ${alertChannel.toUpperCase()} !`);
+  function applyAlertTemplate(type: 'standard' | 'urgent' | 'convocation') {
+    if (!selectedStudent) return;
+    if (type === 'standard') {
+      setAlertMessage(
+        `Bonjour ${selectedStudent.parentName},\n\nNous vous rappelons que le versement de scolarité de l'élève ${selectedStudent.first_name} ${selectedStudent.last_name} (${selectedStudent.class?.name || ''}) présente un solde à payer de ${formatCurrency(selectedStudent.remaining)}.\n\nMerci de vous rapprocher de la caisse pour le règlement.\n\n${school?.name || 'Groupe Scolaire'}`
+      );
+    } else if (type === 'urgent') {
+      setAlertMessage(
+        `⚠️ RAPPEL URGENT - ÉCHÉANCE DÉPASSÉE\n\nCher parent ${selectedStudent.parentName},\nLa tranche de scolarité de votre enfant ${selectedStudent.first_name} ${selectedStudent.last_name} est actuellement en retard de ${formatCurrency(selectedStudent.delayAmount || selectedStudent.remaining)}.\n\nNous vous prions de régulariser cette situation sous 48 heures pour éviter toute perturbation dans les cours.\n\nLe Service Financier - ${school?.name || 'Groupe Scolaire'}`
+      );
+    } else if (type === 'convocation') {
+      setAlertMessage(
+        `CONVOCATION ADMINISTRATIVE\n\nMadame/Monsieur ${selectedStudent.parentName},\nVous êtes prié(e) de vous présenter au secrétariat de l'école concernant le dossier de scolarité de ${selectedStudent.first_name} ${selectedStudent.last_name}.\n\nMerci de vous munir des reçus de versement.\n\nLa Direction - ${school?.name || 'Groupe Scolaire'}`
+      );
     }
+  }
 
-    setSendingAlert(false);
-    setAlertOpen(false);
+  async function handleSendAlert() {
+    if (!selectedStudent) return;
+    setSendingAlert(true);
+
+    const phone = cleanPhone(selectedStudent.parentPhone);
+    const parentEmail = selectedStudent.parents?.[0]?.parent?.email || selectedStudent.email;
+
+    try {
+      if (alertChannel === 'whatsapp') {
+        if (!phone) {
+          alert('Numéro de téléphone du parent manquant ou invalide.');
+          setSendingAlert(false);
+          return;
+        }
+        const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(alertMessage)}`;
+        window.open(waUrl, '_blank');
+      } else if (alertChannel === 'sms') {
+        if (!phone) {
+          alert('Numéro de téléphone du parent manquant ou invalide.');
+          setSendingAlert(false);
+          return;
+        }
+        const smsUrl = `sms:${phone}?body=${encodeURIComponent(alertMessage)}`;
+        window.open(smsUrl, '_blank');
+      } else if (alertChannel === 'email') {
+        const mailUrl = `mailto:${parentEmail || ''}?subject=${encodeURIComponent(`Relance Scolarité - ${selectedStudent.first_name} ${selectedStudent.last_name}`)}&body=${encodeURIComponent(alertMessage)}`;
+        window.open(mailUrl, '_blank');
+      }
+
+      setAlertOpen(false);
+    } catch (e: any) {
+      alert(`Erreur lors de l'envoi : ${e.message}`);
+    } finally {
+      setSendingAlert(false);
+    }
   }
 
   const columns: Column<any>[] = [
@@ -494,12 +541,41 @@ export default function StudentDebts({
               </div>
             </FormField>
 
+            <div>
+              <label className="text-xs font-semibold text-slate-600 block mb-1.5">
+                Modèles de message rapides :
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => applyAlertTemplate('standard')}
+                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 transition"
+                >
+                  Rappel standard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyAlertTemplate('urgent')}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition"
+                >
+                  ⚠️ Échéance dépassée
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyAlertTemplate('convocation')}
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 transition"
+                >
+                  Convocation école
+                </button>
+              </div>
+            </div>
+
             <FormField label="Message de relance" required>
               <textarea
                 value={alertMessage}
                 onChange={e => setAlertMessage(e.target.value)}
-                rows={4}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:outline-none focus:border-emerald-500"
+                rows={5}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs focus:outline-none focus:border-emerald-500 font-sans leading-relaxed"
               />
             </FormField>
           </div>

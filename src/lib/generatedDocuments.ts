@@ -26,16 +26,25 @@ export async function saveGeneratedDocument({
   const path = `${schoolId}/${entityType}/${entityId}/${fileName}`;
   const file = new Blob([html], { type: 'text/html;charset=utf-8' });
 
-  const { error: uploadError } = await supabase.storage.from('school-documents').upload(path, file, {
-    upsert: true,
-    cacheControl: '3600',
-    contentType: 'text/html',
-  });
+  let fileUrl = '';
+  try {
+    const { error: uploadError } = await supabase.storage.from('school-documents').upload(path, file, {
+      upsert: true,
+      cacheControl: '3600',
+      contentType: 'text/html',
+    });
 
-  if (uploadError) throw uploadError;
-
-  const { data } = supabase.storage.from('school-documents').getPublicUrl(path);
-  const fileUrl = data.publicUrl;
+    if (uploadError) {
+      console.warn('Storage upload warning, using data URL fallback:', uploadError.message);
+      fileUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+    } else {
+      const { data } = supabase.storage.from('school-documents').getPublicUrl(path);
+      fileUrl = data.publicUrl;
+    }
+  } catch (err) {
+    console.warn('Storage upload exception, using data URL fallback:', err);
+    fileUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  }
 
   const { data: existing } = await supabase
     .from('documents')

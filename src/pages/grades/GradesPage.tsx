@@ -5,210 +5,284 @@ import { useAuth } from '../../contexts/AuthContext';
 import DataTable from '../../components/common/DataTable';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
-import { GRADE_TYPES } from '../../lib/utils';
+import Badge from '../../components/common/Badge';
+import { GRADE_TYPES, formatDate } from '../../lib/utils';
 import type { Grade, Subject, Student, Class } from '../../types';
-import { Plus, ClipboardList, Printer, Edit, Trash2 } from 'lucide-react';
+import {
+  Plus,
+  Printer,
+  Edit,
+  Trash2,
+  Table,
+  FileText,
+  CheckCircle2,
+  Award,
+  TrendingUp,
+  Search,
+  BookOpen,
+  Users,
+} from 'lucide-react';
 import { buildReportCardHtml, openPrintPreview } from '../../lib/printableDocuments';
+
+interface StudentGradeInput {
+  student_id: string;
+  score: number | '';
+  max_score: number;
+  comments: string;
+  grade_id?: string;
+}
 
 export default function GradesPage() {
   const { school, academicYear } = useApp();
   const { isSuperAdmin, isAdmin, isDirector, isTeacher } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
+  const canManage = isSuperAdmin || isAdmin || isDirector || isTeacher;
 
   const [grades, setGrades] = useState<Grade[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Tabs: 'grid' (Saisie collective par classe/matière), 'reports' (Bulletins), 'history' (Registre)
+  const [tab, setTab] = useState<'grid' | 'reports' | 'history'>('grid');
+
+  // Collective Grid Selectors
+  const [selectedClass, setSelectedClass] = useState('');
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedTerm, setSelectedTerm] = useState('1');
+  const [selectedGradeType, setSelectedGradeType] = useState('devoir');
+  const [evalTitle, setEvalTitle] = useState('Devoir 1');
+  const [defaultMaxScore, setDefaultMaxScore] = useState<number>(20);
+  const [evalCoefficient, setEvalCoefficient] = useState<number>(1);
+  const [evalDate, setEvalDate] = useState<string>(new Date().toISOString().split('T')[0]);
+
+  // Collective Grid Row State: student_id -> { score, max_score, comments, grade_id }
+  const [gridRows, setGridRows] = useState<Record<string, StudentGradeInput>>({});
+  const [savingGrid, setSavingGrid] = useState(false);
+  const [gridNotice, setGridNotice] = useState<string | null>(null);
+
+  // Single Grade Modal (History tab)
   const [modalOpen, setModalOpen] = useState(false);
   const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [selectedClass, setSelectedClass] = useState('');
-  const [tab, setTab] = useState<'grades' | 'reports'>('grades');
-  const [selectedTerm, setSelectedTerm] = useState('1');
-  const [form, setForm] = useState({
-    student_id: '', subject_id: '', class_id: '', score: 0, max_score: 20,
-    coefficient: 1, grade_type: 'devoir', title: '', term: '1', comments: '',
+  const [singleForm, setSingleForm] = useState({
+    student_id: '',
+    subject_id: '',
+    class_id: '',
+    score: 0,
+    max_score: 20,
+    coefficient: 1,
+    grade_type: 'devoir',
+    title: '',
+    term: '1',
+    comments: '',
   });
 
-  useEffect(() => { if (school) fetchData(); }, [school]);
+  useEffect(() => {
+    if (school) fetchData();
+  }, [school]);
 
   async function fetchData() {
     setLoading(true);
     const sid = school!.id;
-    const [gRes, subRes, stuRes, clsRes] = await Promise.all([
-      supabase.from('grades').select('*').eq('school_id', sid).order('date', { ascending: false }),
-      supabase.from('subjects').select('*').eq('school_id', sid).order('name'),
-      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).order('last_name'),
-      supabase.from('classes').select('*').eq('school_id', sid).order('name'),
-    ]);
-    setGrades((gRes.data as Grade[]) || []);
-    setSubjects((subRes.data as Subject[]) || []);
-    setStudents((stuRes.data as Student[]) || []);
-    setClasses((clsRes.data as Class[]) || []);
-    setLoading(false);
-  }
-
-  function handleOpenCreate() {
-    setEditingGradeId(null);
-    setForm({
-      student_id: '', subject_id: '', class_id: selectedClass || '', score: 0, max_score: 20,
-      coefficient: 1, grade_type: 'devoir', title: '', term: '1', comments: '',
-    });
-    setModalOpen(true);
-  }
-
-  function handleOpenEdit(g: Grade) {
-    setEditingGradeId(g.id);
-    setForm({
-      student_id: g.student_id,
-      subject_id: g.subject_id,
-      class_id: g.class_id,
-      score: g.score,
-      max_score: g.max_score,
-      coefficient: g.coefficient,
-      grade_type: g.grade_type,
-      title: g.title || '',
-      term: g.term || '1',
-      comments: g.comments || '',
-    });
-    setModalOpen(true);
-  }
-
-  async function handleDeleteGrade(id: string) {
-    if (!isGeneralAdmin) {
-      alert("Seul l'administrateur général a le droit de supprimer une note.");
-      return;
-    }
-    if (!confirm("⚠️ Voulez-vous vraiment supprimer cette note enregistrée par erreur ?")) return;
-
-    const { error } = await supabase.from('grades').delete().eq('id', id);
-    if (error) {
-      alert(`Erreur de suppression : ${error.message}`);
-    } else {
-      fetchData();
-    }
-  }
-
-  async function handleSave() {
-    setSaving(true);
     try {
-      if (editingGradeId) {
-        const { error } = await supabase.from('grades').update({
-          student_id: form.student_id,
-          subject_id: form.subject_id,
-          class_id: form.class_id,
-          score: form.score,
-          max_score: form.max_score,
-          coefficient: form.coefficient,
-          grade_type: form.grade_type,
-          title: form.title,
-          term: form.term,
-          comments: form.comments,
-        }).eq('id', editingGradeId);
+      const [gRes, subRes, stuRes, clsRes] = await Promise.all([
+        supabase
+          .from('grades')
+          .select('*, student:students(id, first_name, last_name, matricule, class_id), subject:subjects(id, name, code)')
+          .eq('school_id', sid)
+          .order('date', { ascending: false }),
+        supabase.from('subjects').select('*').eq('school_id', sid).order('name'),
+        supabase.from('students').select('id, first_name, last_name, matricule, class_id, photo_url').eq('school_id', sid).order('last_name'),
+        supabase.from('classes').select('*').eq('school_id', sid).order('name'),
+      ]);
 
-        if (error) throw error;
+      setGrades((gRes.data as Grade[]) || []);
+      setSubjects((subRes.data as Subject[]) || []);
+      setStudents((stuRes.data as Student[]) || []);
+      setClasses((clsRes.data as Class[]) || []);
+
+      if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
+        setSelectedClass(clsRes.data[0].id);
+      }
+      if (subRes.data && subRes.data.length > 0 && !selectedSubject) {
+        setSelectedSubject(subRes.data[0].id);
+      }
+    } catch (e) {
+      console.error('Error fetching grades', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Filter students for the currently selected class
+  const classStudents = useMemo(() => {
+    if (!selectedClass) return [];
+    return students.filter(s => s.class_id === selectedClass);
+  }, [students, selectedClass]);
+
+  // Synchronize collective grid rows whenever selectors change
+  useEffect(() => {
+    if (!selectedClass || !selectedSubject) return;
+
+    // Find existing grades matching: class, subject, term, grade_type and title
+    const existingGrades = grades.filter(
+      g =>
+        g.class_id === selectedClass &&
+        g.subject_id === selectedSubject &&
+        g.term === selectedTerm &&
+        g.grade_type === selectedGradeType &&
+        (evalTitle ? g.title?.toLowerCase() === evalTitle.toLowerCase() : true)
+    );
+
+    const existingMap = new Map<string, Grade>();
+    existingGrades.forEach(g => existingMap.set(g.student_id, g));
+
+    const newRows: Record<string, StudentGradeInput> = {};
+    classStudents.forEach(st => {
+      const match = existingMap.get(st.id);
+      if (match) {
+        newRows[st.id] = {
+          student_id: st.id,
+          score: match.score,
+          max_score: match.max_score || defaultMaxScore,
+          comments: match.comments || '',
+          grade_id: match.id,
+        };
       } else {
-        const { error } = await supabase.from('grades').insert({
-          ...form,
-          school_id: school!.id,
-          academic_year_id: academicYear?.id,
-          date: new Date().toISOString().split('T')[0],
-        });
+        newRows[st.id] = {
+          student_id: st.id,
+          score: '',
+          max_score: defaultMaxScore,
+          comments: '',
+        };
+      }
+    });
 
-        if (error) throw error;
+    setGridRows(newRows);
+    setGridNotice(null);
+  }, [selectedClass, selectedSubject, selectedTerm, selectedGradeType, evalTitle, defaultMaxScore, classStudents, grades]);
+
+  function handleScoreChange(studentId: string, val: string) {
+    const num = val === '' ? '' : parseFloat(val);
+    setGridRows(prev => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] || { student_id: studentId, score: '', max_score: defaultMaxScore, comments: '' }),
+        score: num === '' ? '' : Math.max(0, num),
+      },
+    }));
+  }
+
+  function handleCommentChange(studentId: string, comments: string) {
+    setGridRows(prev => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] || { student_id: studentId, score: '', max_score: defaultMaxScore, comments: '' }),
+        comments,
+      },
+    }));
+  }
+
+  async function handleSaveGrid() {
+    if (!selectedClass || !selectedSubject || !school?.id) return;
+    setSavingGrid(true);
+    setGridNotice(null);
+
+    try {
+      const rowsToSave: any[] = [];
+      Object.values(gridRows).forEach(row => {
+        if (row.score !== '') {
+          rowsToSave.push({
+            ...(row.grade_id ? { id: row.grade_id } : {}),
+            school_id: school.id,
+            academic_year_id: academicYear?.id,
+            class_id: selectedClass,
+            student_id: row.student_id,
+            subject_id: selectedSubject,
+            term: selectedTerm,
+            grade_type: selectedGradeType,
+            title: evalTitle || 'Évaluation',
+            score: Number(row.score),
+            max_score: Number(row.max_score || defaultMaxScore),
+            coefficient: Number(evalCoefficient || 1),
+            comments: row.comments.trim() || null,
+            date: evalDate,
+          });
+        }
+      });
+
+      if (rowsToSave.length === 0) {
+        alert('Veuillez saisir au moins une note avant d’enregistrer.');
+        setSavingGrid(false);
+        return;
       }
 
-      setModalOpen(false);
-      setEditingGradeId(null);
-      fetchData();
+      const { error } = await supabase.from('grades').upsert(rowsToSave);
+      if (error) throw error;
+
+      setGridNotice(`✅ ${rowsToSave.length} note(s) enregistrée(s) avec succès pour la classe !`);
+      void fetchData();
     } catch (err: any) {
-      alert(`Erreur : ${err.message}`);
+      alert(`Erreur d'enregistrement : ${err.message}`);
     } finally {
-      setSaving(false);
+      setSavingGrid(false);
     }
   }
 
-  const filteredGrades = selectedClass
-    ? grades.filter(g => g.class_id === selectedClass)
-    : grades;
+  // Statistics for the current grid
+  const gridStats = useMemo(() => {
+    const scores = Object.values(gridRows)
+      .filter(r => r.score !== '')
+      .map(r => (Number(r.score) / Number(r.max_score || 20)) * 20);
 
-  const columns = [
-    { key: 'student_id', label: 'Élève', render: (g: Grade) => {
-      const s = students.find(s => s.id === g.student_id);
-      return s ? `${s.last_name} ${s.first_name}` : '-';
-    }},
-    { key: 'subject_id', label: 'Matière', render: (g: Grade) => subjects.find(s => s.id === g.subject_id)?.name || '-' },
-    { key: 'title', label: 'Intitulé' },
-    { key: 'grade_type', label: 'Type', render: (g: Grade) => GRADE_TYPES.find(t => t.value === g.grade_type)?.label || g.grade_type },
-    { key: 'score', label: 'Note', render: (g: Grade) => <span className="font-medium">{g.score}/{g.max_score}</span> },
-    { key: 'coefficient', label: 'Coeff.' },
-    { key: 'term', label: 'Trimestre' },
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (g: Grade) => (
-        <div className="flex items-center gap-1">
-          {(isGeneralAdmin || isDirector || isTeacher) && (
-            <button
-              onClick={() => handleOpenEdit(g)}
-              className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 transition"
-              title="Modifier la note"
-            >
-              <Edit size={15} />
-            </button>
-          )}
-          {isGeneralAdmin && (
-            <button
-              onClick={() => handleDeleteGrade(g.id)}
-              className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
-              title="Supprimer la note (Admin Général)"
-            >
-              <Trash2 size={15} />
-            </button>
-          )}
-        </div>
-      ),
-    },
-  ];
+    const count = scores.length;
+    if (count === 0) return { count: 0, average: 0, min: 0, max: 0, passRate: 0 };
 
+    const sum = scores.reduce((a, b) => a + b, 0);
+    const average = parseFloat((sum / count).toFixed(2));
+    const min = parseFloat(Math.min(...scores).toFixed(2));
+    const max = parseFloat(Math.max(...scores).toFixed(2));
+    const passCount = scores.filter(s => s >= 10).length;
+    const passRate = Math.round((passCount / count) * 100);
+
+    return { count, average, min, max, passRate };
+  }, [gridRows]);
+
+  // Report Cards Calculation (Bulletins)
   const calculatedReportCards = useMemo(() => {
-    if (!selectedClass || !selectedTerm) return [];
+    if (!selectedClass) return [];
 
-    const classStudents = students.filter(s => s.class_id === selectedClass);
-    const classGrades = grades.filter(g => g.class_id === selectedClass && g.term === selectedTerm);
+    const classGrades = grades.filter(
+      g => g.class_id === selectedClass && (!selectedTerm || g.term === selectedTerm)
+    );
 
-    const reportCardsList = classStudents.map(student => {
+    const list = classStudents.map(student => {
       const studentGrades = classGrades.filter(g => g.student_id === student.id);
-      
       const subjectGradesMap: Record<string, Grade[]> = {};
+
       studentGrades.forEach(g => {
-        if (!subjectGradesMap[g.subject_id]) {
-          subjectGradesMap[g.subject_id] = [];
-        }
+        if (!subjectGradesMap[g.subject_id]) subjectGradesMap[g.subject_id] = [];
         subjectGradesMap[g.subject_id].push(g);
       });
 
       const subjectsDetails = Object.keys(subjectGradesMap).map(subjectId => {
         const subject = subjects.find(sub => sub.id === subjectId);
         const gradesList = subjectGradesMap[subjectId];
-        
+
         const devoirs = gradesList.filter(g => g.grade_type !== 'composition');
         const composition = gradesList.find(g => g.grade_type === 'composition');
 
-        const devoirsAvg = devoirs.length > 0
-          ? devoirs.reduce((sum, g) => sum + (g.score / g.max_score) * 20, 0) / devoirs.length
-          : 10;
-        
-        const compScore = composition ? (composition.score / composition.max_score) * 20 : null;
+        const devoirsAvg =
+          devoirs.length > 0
+            ? devoirs.reduce((sum, g) => sum + (g.score / (g.max_score || 20)) * 20, 0) / devoirs.length
+            : 10;
+
+        const compScore = composition ? (composition.score / (composition.max_score || 20)) * 20 : null;
 
         let subjectAvg = devoirsAvg;
         if (compScore !== null) {
-          if (devoirs.length > 0) {
-            subjectAvg = (devoirsAvg * 2 + compScore) / 3;
-          } else {
-            subjectAvg = compScore;
-          }
+          subjectAvg = devoirs.length > 0 ? (devoirsAvg * 2 + compScore) / 3 : compScore;
         }
 
         const coefficient = gradesList[0]?.coefficient || 1;
@@ -231,191 +305,600 @@ export default function GradesPage() {
       return {
         student,
         subjects: subjectsDetails,
-        overallAverage,
+        overallAverage: parseFloat(overallAverage.toFixed(2)),
       };
     });
 
-    const sorted = [...reportCardsList].sort((a, b) => b.overallAverage - a.overallAverage);
-    
-    const averages = sorted.map(rc => rc.overallAverage);
-    const maxAverage = averages.length > 0 ? Math.max(...averages) : 0;
-    const minAverage = averages.length > 0 ? Math.min(...averages) : 0;
-    const classAverage = averages.length > 0 ? averages.reduce((sum, a) => sum + a, 0) / averages.length : 0;
+    const sorted = [...list].sort((a, b) => b.overallAverage - a.overallAverage);
+    return sorted.map((rc, idx) => ({ ...rc, rank: idx + 1 }));
+  }, [selectedClass, selectedTerm, classStudents, grades, subjects]);
 
-    return sorted.map((rc, idx) => ({
-      ...rc,
-      rank: idx + 1,
-      totalStudents: sorted.length,
-      classAverage,
-      maxAverage,
-      minAverage,
-    }));
-  }, [selectedClass, selectedTerm, students, grades, subjects]);
-
-  function handlePrintReportCard(rc: any) {
+  function handlePrintReportCard(row: any) {
     if (!school) return;
-    const cls = classes.find(c => c.id === selectedClass);
+    const currentClass = classes.find(c => c.id === selectedClass);
+    const allAverages = calculatedReportCards.map(rc => rc.overallAverage);
+    const classAvg = allAverages.length > 0 ? allAverages.reduce((a, b) => a + b, 0) / allAverages.length : 0;
+
     const html = buildReportCardHtml({
       school,
-      student: rc.student,
-      className: cls?.name || 'Classe',
-      academicYearName: academicYear?.name || 'En cours',
+      student: row.student,
+      academicYearName: academicYear?.name || '2026-2027',
+      className: currentClass?.name || 'Classe non assignée',
       term: selectedTerm,
-      subjects: rc.subjects,
-      overallAverage: rc.overallAverage,
-      rank: rc.rank,
-      totalStudents: rc.totalStudents,
-      classAverage: rc.classAverage,
-      maxAverage: rc.maxAverage,
-      minAverage: rc.minAverage,
+      subjects: row.subjects,
+      overallAverage: row.overallAverage,
+      rank: row.rank,
+      totalStudents: calculatedReportCards.length,
+      classAverage: parseFloat(classAvg.toFixed(2)),
+      maxAverage: allAverages.length > 0 ? Math.max(...allAverages) : 0,
+      minAverage: allAverages.length > 0 ? Math.min(...allAverages) : 0,
     });
+
     openPrintPreview(html);
   }
 
-  const reportColumns = [
-    { key: 'rank', label: 'Rang', render: (rc: any) => <span className="font-bold text-slate-800">{rc.rank}<sup>{rc.rank === 1 ? 'er' : 'ème'}</sup></span> },
-    { key: 'student', label: 'Élève', render: (rc: any) => `${rc.student.last_name} ${rc.student.first_name}` },
-    { key: 'overallAverage', label: 'Moyenne générale', render: (rc: any) => <span className="font-semibold text-slate-900">{rc.overallAverage.toFixed(2)} / 20</span> },
-    { key: 'honor', label: 'Mention / Décision', render: (rc: any) => {
-      const avg = rc.overallAverage;
-      if (avg >= 16) return <span className="text-emerald-600 font-bold">Félicitations</span>;
-      if (avg >= 14) return <span className="text-emerald-500 font-semibold">Encouragements</span>;
-      if (avg >= 12) return <span className="text-blue-500 font-semibold">Tableau d'honneur</span>;
-      if (avg >= 10) return <span className="text-slate-600">Moyen</span>;
-      return <span className="text-red-500 font-medium">Insuffisant</span>;
-    }},
-    {
-      key: 'actions',
-      label: 'Actions',
-      render: (rc: any) => (
-        <button
-          onClick={() => handlePrintReportCard(rc)}
-          className="rounded-full p-2 text-blue-600 transition hover:bg-blue-50"
-          title="Imprimer le Bulletin"
-        >
-          <Printer size={15} />
-        </button>
-      ),
-    },
-  ];
+  function handlePrintGridSheet() {
+    window.print();
+  }
 
-  const classStudents = selectedClass
-    ? students.filter(s => s.class_id === selectedClass)
-    : students;
+  async function handleDeleteGrade(id: string) {
+    if (!isGeneralAdmin) {
+      alert("Seul l'administrateur général a le droit de supprimer une note.");
+      return;
+    }
+    if (!confirm('⚠️ Voulez-vous vraiment supprimer cette note ?')) return;
+
+    const { error } = await supabase.from('grades').delete().eq('id', id);
+    if (error) {
+      alert(`Erreur : ${error.message}`);
+    } else {
+      void fetchData();
+    }
+  }
+
+  const selectedClassName = classes.find(c => c.id === selectedClass)?.name || 'Classe';
+  const selectedSubjectName = subjects.find(s => s.id === selectedSubject)?.name || 'Matière';
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Notes & Bulletins</h1>
-          <p className="text-gray-500 mt-1">Gestion des évaluations et des bulletins scolaires</p>
+          <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <BookOpen className="text-blue-600" size={26} />
+            Évaluations & Notes Scolaires
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Grille de saisie collective par classe et matière, calcul de moyennes et bulletins
+          </p>
         </div>
-        {tab === 'grades' && (isAdmin || isDirector || isTeacher) && (
-          <button onClick={handleOpenCreate} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-            <Plus size={18} /> Nouvelle note
+
+        <div className="flex items-center gap-2">
+          {tab === 'grid' && (
+            <button
+              onClick={handlePrintGridSheet}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl text-xs font-semibold shadow-2xs transition"
+            >
+              <Printer size={15} /> Imprimer le relevé
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        {[
+          { key: 'grid', label: 'Grille de Saisie par Classe & Matière', icon: <Table size={16} /> },
+          { key: 'reports', label: 'Bulletins Trimestriels & Classement', icon: <Award size={16} /> },
+          { key: 'history', label: 'Registre Individuel des Notes', icon: <FileText size={16} /> },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key as any)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+              tab === t.key
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            {t.icon}
+            <span>{t.label}</span>
           </button>
-        )}
+        ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-3">
-        <button
-          onClick={() => setTab('grades')}
-          className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
-            tab === 'grades'
-              ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/15'
-              : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900'
-          }`}
-        >
-          Saisie des notes
-        </button>
-        <button
-          onClick={() => setTab('reports')}
-          className={`rounded-full px-4 py-2.5 text-sm font-medium transition ${
-            tab === 'reports'
-              ? 'bg-slate-900 text-white shadow-lg shadow-slate-900/15'
-              : 'bg-white/70 text-slate-600 hover:bg-white hover:text-slate-900'
-          }`}
-        >
-          Bulletins Trimestriels
-        </button>
-      </div>
+      {/* TAB 1: GRILLE DE SAISIE PAR CLASSE & MATIERE */}
+      {tab === 'grid' && (
+        <div className="space-y-6">
+          {/* Selectors Bar */}
+          <div className="surface-card p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+              <div className="lg:col-span-2">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  1. Classe :
+                </label>
+                <select
+                  value={selectedClass}
+                  onChange={e => setSelectedClass(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
+                >
+                  <option value="">-- Choisir une classe --</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-      <div className="flex flex-wrap gap-3 items-center">
-        <div>
-          <label className="block text-xs font-semibold text-slate-500 mb-1">Classe</label>
-          <select value={selectedClass} onChange={e => setSelectedClass(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
-            <option value="">Sélectionner une classe</option>
-            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+              <div className="lg:col-span-2">
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  2. Matière :
+                </label>
+                <select
+                  value={selectedSubject}
+                  onChange={e => setSelectedSubject(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
+                >
+                  <option value="">-- Choisir une matière --</option>
+                  {subjects.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code || '-'})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        {tab === 'reports' && (
-          <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1">Trimestre</label>
-            <select value={selectedTerm} onChange={e => setSelectedTerm(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white">
-              <option value="1">1er Trimestre</option>
-              <option value="2">2ème Trimestre</option>
-              <option value="3">3ème Trimestre</option>
-            </select>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  Trimestre :
+                </label>
+                <select
+                  value={selectedTerm}
+                  onChange={e => setSelectedTerm(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none"
+                >
+                  <option value="1">1er Trimestre</option>
+                  <option value="2">2ème Trimestre</option>
+                  <option value="3">3ème Trimestre</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  Type d'évaluation :
+                </label>
+                <select
+                  value={selectedGradeType}
+                  onChange={e => {
+                    setSelectedGradeType(e.target.value);
+                    if (e.target.value === 'composition') setEvalTitle('Composition');
+                  }}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 focus:outline-none"
+                >
+                  {GRADE_TYPES.map(gt => (
+                    <option key={gt.value} value={gt.value}>
+                      {gt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Sub-parameters */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-slate-100 text-xs">
+              <div>
+                <label className="font-medium text-slate-600 block mb-1">Intitulé précis :</label>
+                <input
+                  type="text"
+                  value={evalTitle}
+                  onChange={e => setEvalTitle(e.target.value)}
+                  placeholder="Ex: Devoir 1, Interro surprise..."
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium"
+                />
+              </div>
+              <div>
+                <label className="font-medium text-slate-600 block mb-1">Barème (Note sur) :</label>
+                <input
+                  type="number"
+                  value={defaultMaxScore}
+                  onChange={e => setDefaultMaxScore(parseFloat(e.target.value) || 20)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium"
+                />
+              </div>
+              <div>
+                <label className="font-medium text-slate-600 block mb-1">Coefficient :</label>
+                <input
+                  type="number"
+                  value={evalCoefficient}
+                  onChange={e => setEvalCoefficient(parseFloat(e.target.value) || 1)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium"
+                />
+              </div>
+              <div>
+                <label className="font-medium text-slate-600 block mb-1">Date d'évaluation :</label>
+                <input
+                  type="date"
+                  value={evalDate}
+                  onChange={e => setEvalDate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-medium"
+                />
+              </div>
+            </div>
           </div>
-        )}
-      </div>
 
-      {tab === 'grades' ? (
-        <DataTable columns={columns} data={filteredGrades as any[]} searchKeys={['title']} searchPlaceholder="Rechercher une note..." loading={loading} />
-      ) : selectedClass ? (
-        <DataTable columns={reportColumns} data={calculatedReportCards} searchKeys={['student.last_name']} searchPlaceholder="Rechercher un élève..." loading={loading} />
-      ) : (
-        <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-slate-500">
-          Veuillez sélectionner une classe pour calculer les bulletins scolaires.
+          {/* Real-time Class Performance Banner */}
+          {selectedClass && selectedSubject && classStudents.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="surface-card p-4 text-center">
+                <p className="text-xs text-slate-500 font-semibold uppercase">Élèves notés</p>
+                <p className="text-2xl font-bold text-slate-800 mt-1">
+                  {gridStats.count} / {classStudents.length}
+                </p>
+              </div>
+              <div className="surface-card p-4 text-center bg-blue-50/40 border border-blue-100">
+                <p className="text-xs text-blue-700 font-semibold uppercase">Moyenne Classe</p>
+                <p className="text-2xl font-bold text-blue-800 mt-1">
+                  {gridStats.count > 0 ? `${gridStats.average} / 20` : '-'}
+                </p>
+              </div>
+              <div className="surface-card p-4 text-center bg-emerald-50/40 border border-emerald-100">
+                <p className="text-xs text-emerald-700 font-semibold uppercase">Note Max</p>
+                <p className="text-2xl font-bold text-emerald-800 mt-1">
+                  {gridStats.count > 0 ? `${gridStats.max} / 20` : '-'}
+                </p>
+              </div>
+              <div className="surface-card p-4 text-center bg-rose-50/40 border border-rose-100">
+                <p className="text-xs text-rose-700 font-semibold uppercase">Note Min</p>
+                <p className="text-2xl font-bold text-rose-800 mt-1">
+                  {gridStats.count > 0 ? `${gridStats.min} / 20` : '-'}
+                </p>
+              </div>
+              <div className="surface-card p-4 text-center bg-purple-50/40 border border-purple-100 col-span-2 sm:col-span-1">
+                <p className="text-xs text-purple-700 font-semibold uppercase">Taux Réussite</p>
+                <p className="text-2xl font-bold text-purple-800 mt-1">
+                  {gridStats.count > 0 ? `${gridStats.passRate}%` : '-'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {gridNotice && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900 flex items-center justify-between">
+              <span>{gridNotice}</span>
+              <button onClick={() => setGridNotice(null)} className="text-xs text-emerald-700 underline">
+                Fermer
+              </button>
+            </div>
+          )}
+
+          {/* Collective Spreadsheet Table */}
+          {selectedClass && selectedSubject ? (
+            classStudents.length > 0 ? (
+              <div className="surface-card overflow-hidden">
+                <div className="p-4 bg-slate-50/80 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+                  <div>
+                    Saisie pour la classe de <strong>{selectedClassName}</strong> en <strong>{selectedSubjectName}</strong> ({evalTitle} - Trimestre {selectedTerm})
+                  </div>
+                  <span className="text-slate-500">
+                    💡 Tapez directement la note dans la case. La moyenne s'actualise en temps réel.
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 text-xs uppercase tracking-wider">
+                        <th className="px-4 py-3.5 w-12 text-center">N°</th>
+                        <th className="px-4 py-3.5">Élève</th>
+                        <th className="px-4 py-3.5 text-center w-36">Note sur {defaultMaxScore}</th>
+                        <th className="px-4 py-3.5 text-center w-32">Mention</th>
+                        <th className="px-4 py-3.5">Appréciation pédagogique</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {classStudents.map((st, idx) => {
+                        const row = gridRows[st.id] || {
+                          student_id: st.id,
+                          score: '',
+                          max_score: defaultMaxScore,
+                          comments: '',
+                        };
+
+                        const numScore = row.score !== '' ? Number(row.score) : null;
+                        const scoreOn20 = numScore !== null ? (numScore / defaultMaxScore) * 20 : null;
+
+                        let mentionLabel = 'Non noté';
+                        let mentionClass = 'text-slate-400 bg-slate-100';
+
+                        if (scoreOn20 !== null) {
+                          if (scoreOn20 >= 16) {
+                            mentionLabel = 'Très Bien';
+                            mentionClass = 'text-emerald-700 bg-emerald-100 font-bold';
+                          } else if (scoreOn20 >= 14) {
+                            mentionLabel = 'Bien';
+                            mentionClass = 'text-teal-700 bg-teal-100 font-bold';
+                          } else if (scoreOn20 >= 12) {
+                            mentionLabel = 'Assez Bien';
+                            mentionClass = 'text-blue-700 bg-blue-100 font-semibold';
+                          } else if (scoreOn20 >= 10) {
+                            mentionLabel = 'Passable';
+                            mentionClass = 'text-amber-700 bg-amber-100 font-semibold';
+                          } else {
+                            mentionLabel = 'Insuffisant';
+                            mentionClass = 'text-rose-700 bg-rose-100 font-bold';
+                          }
+                        }
+
+                        return (
+                          <tr key={st.id} className="hover:bg-slate-50/60 transition">
+                            <td className="px-4 py-3 text-center font-medium text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="font-bold text-slate-900 text-sm">
+                                {st.last_name} {st.first_name}
+                              </p>
+                              <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                {st.matricule}
+                              </p>
+                            </td>
+
+                            {/* Score Input */}
+                            <td className="px-4 py-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <input
+                                  type="number"
+                                  step="0.25"
+                                  min="0"
+                                  max={defaultMaxScore}
+                                  placeholder="--"
+                                  value={row.score}
+                                  onChange={e => handleScoreChange(st.id, e.target.value)}
+                                  className="w-20 text-center font-extrabold text-slate-900 text-sm py-1.5 rounded-xl border border-slate-200 bg-white focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
+                                />
+                                <span className="text-slate-400 font-semibold text-xs">
+                                  /{defaultMaxScore}
+                                </span>
+                              </div>
+                            </td>
+
+                            {/* Mention Badge */}
+                            <td className="px-4 py-3 text-center">
+                              <span className={`inline-block px-2.5 py-1 rounded-full text-[11px] ${mentionClass}`}>
+                                {mentionLabel}
+                              </span>
+                            </td>
+
+                            {/* Observation / Appreciation */}
+                            <td className="px-4 py-3">
+                              <input
+                                type="text"
+                                placeholder="Appréciation pour l'élève..."
+                                value={row.comments}
+                                onChange={e => handleCommentChange(st.id, e.target.value)}
+                                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/15"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer Save Button */}
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                  <div className="text-xs text-slate-500">
+                    {gridStats.count} note(s) prêtes à être sauvegardées pour <strong>{selectedClassName}</strong>.
+                  </div>
+                  <button
+                    onClick={() => void handleSaveGrid()}
+                    disabled={savingGrid}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>{savingGrid ? 'Enregistrement en cours...' : 'Enregistrer toutes les notes de la classe'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="surface-card p-12 text-center text-slate-400">
+                <Users size={40} className="mx-auto mb-3 text-slate-300" />
+                <p className="font-semibold text-slate-700">Aucun élève trouvé dans cette classe.</p>
+              </div>
+            )
+          ) : (
+            <div className="surface-card p-12 text-center text-slate-400">
+              <Table size={40} className="mx-auto mb-3 text-slate-300" />
+              <p className="font-semibold text-slate-700">Sélectionnez la Classe et la Matière ci-dessus</p>
+              <p className="text-xs mt-1">La grille collective des élèves s'affichera directement pour la saisie des notes.</p>
+            </div>
+          )}
         </div>
       )}
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editingGradeId ? 'Modifier la note' : 'Nouvelle note'} size="lg"
-        actions={<>
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
-          <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">Enregistrer</button>
-        </>}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FormField label="Classe" required>
-            <select value={form.class_id} onChange={e => setForm({...form, class_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Sélectionner</option>
-              {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Élève" required>
-            <select value={form.student_id} onChange={e => setForm({...form, student_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Sélectionner</option>
-              {classStudents.map(s => <option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Matière" required>
-            <select value={form.subject_id} onChange={e => setForm({...form, subject_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Sélectionner</option>
-              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Type d'évaluation">
-            <select value={form.grade_type} onChange={e => setForm({...form, grade_type: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              {GRADE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Intitulé"><input type="text" value={form.title} onChange={e => setForm({...form, title: e.target.value})} placeholder="Ex: Devoir 1" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Trimestre">
-            <select value={form.term} onChange={e => setForm({...form, term: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="1">1er Trimestre</option>
-              <option value="2">2ème Trimestre</option>
-              <option value="3">3ème Trimestre</option>
-            </select>
-          </FormField>
-          <FormField label="Note" required><input type="number" step="0.5" value={form.score} onChange={e => setForm({...form, score: parseFloat(e.target.value) || 0})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Note maximum"><input type="number" value={form.max_score} onChange={e => setForm({...form, max_score: parseFloat(e.target.value) || 20})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Coefficient"><input type="number" value={form.coefficient} onChange={e => setForm({...form, coefficient: parseFloat(e.target.value) || 1})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Commentaire"><textarea value={form.comments} onChange={e => setForm({...form, comments: e.target.value})} rows={2} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
+      {/* TAB 2: BULLETINS TRIMESTRIELS */}
+      {tab === 'reports' && (
+        <div className="space-y-4">
+          <div className="surface-card p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={selectedClass}
+                onChange={e => setSelectedClass(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold"
+              >
+                <option value="">Sélectionner une classe</option>
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={selectedTerm}
+                onChange={e => setSelectedTerm(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold"
+              >
+                <option value="1">1er Trimestre</option>
+                <option value="2">2ème Trimestre</option>
+                <option value="3">3ème Trimestre</option>
+              </select>
+            </div>
+
+            <div className="text-xs font-medium text-slate-500">
+              {calculatedReportCards.length} élève(s) classé(s)
+            </div>
+          </div>
+
+          {selectedClass ? (
+            <DataTable
+              columns={[
+                {
+                  key: 'rank',
+                  label: 'Rang',
+                  render: row => (
+                    <span
+                      className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${
+                        row.rank === 1
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                          : row.rank === 2
+                          ? 'bg-slate-200 text-slate-800'
+                          : row.rank === 3
+                          ? 'bg-amber-50 text-amber-800'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {row.rank}e
+                    </span>
+                  ),
+                },
+                {
+                  key: 'student',
+                  label: 'Élève',
+                  render: row => (
+                    <div>
+                      <p className="font-bold text-slate-900">
+                        {row.student.last_name} {row.student.first_name}
+                      </p>
+                      <p className="text-[11px] text-slate-400 font-mono">{row.student.matricule}</p>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'overallAverage',
+                  label: 'Moyenne Trimestrielle',
+                  render: row => (
+                    <span
+                      className={`font-extrabold text-sm ${
+                        row.overallAverage >= 14
+                          ? 'text-emerald-700'
+                          : row.overallAverage >= 10
+                          ? 'text-blue-700'
+                          : 'text-rose-700'
+                      }`}
+                    >
+                      {row.overallAverage} / 20
+                    </span>
+                  ),
+                },
+                {
+                  key: 'appreciation',
+                  label: 'Appréciation Générale',
+                  render: row => {
+                    const avg = row.overallAverage;
+                    if (avg >= 16) return <span className="text-emerald-700 font-semibold text-xs">Félicitations du Conseil</span>;
+                    if (avg >= 14) return <span className="text-teal-700 font-semibold text-xs">Tableau d'Honneur</span>;
+                    if (avg >= 12) return <span className="text-blue-700 font-medium text-xs">Encouragements</span>;
+                    if (avg >= 10) return <span className="text-slate-700 text-xs">Passable</span>;
+                    return <span className="text-rose-600 font-medium text-xs">Doit intensifier ses efforts</span>;
+                  },
+                },
+                {
+                  key: 'actions',
+                  label: 'Actions',
+                  render: row => (
+                    <button
+                      onClick={() => handlePrintReportCard(row)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-xl text-xs font-bold transition border border-blue-200"
+                    >
+                      <Printer size={13} />
+                      <span>Imprimer le Bulletin</span>
+                    </button>
+                  ),
+                },
+              ]}
+              data={calculatedReportCards}
+              loading={loading}
+            />
+          ) : (
+            <div className="surface-card p-12 text-center text-slate-400">
+              <Award size={40} className="mx-auto mb-3 text-slate-300" />
+              <p className="font-semibold text-slate-700">Sélectionnez une classe ci-dessus</p>
+              <p className="text-xs mt-1">Le classement et les bulletins trimestriels seront calculés automatiquement.</p>
+            </div>
+          )}
         </div>
-      </Modal>
+      )}
+
+      {/* TAB 3: REGISTRE INDIVIDUEL DES NOTES */}
+      {tab === 'history' && (
+        <div className="space-y-4">
+          <DataTable
+            columns={[
+              {
+                key: 'student',
+                label: 'Élève',
+                render: (g: Grade) => {
+                  const s = (g as any).student || students.find(st => st.id === g.student_id);
+                  return s ? `${s.last_name} ${s.first_name}` : '-';
+                },
+              },
+              {
+                key: 'subject',
+                label: 'Matière',
+                render: (g: Grade) => {
+                  const sub = (g as any).subject || subjects.find(sb => sb.id === g.subject_id);
+                  return sub?.name || '-';
+                },
+              },
+              { key: 'title', label: 'Évaluation' },
+              { key: 'term', label: 'Trimestre', render: (g: Grade) => `Trimestre ${g.term}` },
+              {
+                key: 'score',
+                label: 'Note',
+                render: (g: Grade) => (
+                  <span className="font-bold text-slate-900">
+                    {g.score} / {g.max_score}
+                  </span>
+                ),
+              },
+              { key: 'coefficient', label: 'Coeff.' },
+              { key: 'date', label: 'Date', render: (g: Grade) => formatDate(g.date) },
+              ...(isGeneralAdmin
+                ? [
+                    {
+                      key: 'actions',
+                      label: 'Actions',
+                      render: (g: Grade) => (
+                        <button
+                          onClick={() => void handleDeleteGrade(g.id)}
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition"
+                          title="Supprimer la note (Admin)"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+            data={grades}
+            loading={loading}
+          />
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,61 +8,253 @@ import Badge from '../../components/common/Badge';
 import FormField from '../../components/common/FormField';
 import { formatDate } from '../../lib/utils';
 import type { Attendance, DisciplineRecord, Student, Class } from '../../types';
-import { CalendarCheck, Plus, AlertTriangle, UserCheck, UserX, Clock, Trash2 } from 'lucide-react';
+import {
+  CalendarCheck,
+  Plus,
+  AlertTriangle,
+  UserCheck,
+  UserX,
+  Clock,
+  Trash2,
+  Users,
+  CheckCircle2,
+  XCircle,
+  HelpCircle,
+  FileSpreadsheet,
+  ShieldAlert,
+  Send,
+  Printer,
+  Search,
+} from 'lucide-react';
+
+interface AttendanceRowState {
+  student_id: string;
+  status: 'present' | 'absent' | 'late';
+  reason: string;
+  justified: boolean;
+  attendance_id?: string;
+}
 
 export default function AttendancePage() {
   const { school } = useApp();
   const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
+  const canManage = isSuperAdmin || isAdmin || isDirector || isSupervisor || isTeacher;
 
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [discipline, setDiscipline] = useState<DisciplineRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'attendance' | 'discipline'>('attendance');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [disciplineModal, setDisciplineModal] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [tab, setTab] = useState<'sheet' | 'history' | 'discipline'>('sheet');
+
+  // Sheet Controls
   const [selectedClass, setSelectedClass] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [sheetSession, setSheetSession] = useState<'journee' | 'matin' | 'apres_midi'>('journee');
+  const [sheetRows, setSheetRows] = useState<Record<string, AttendanceRowState>>({});
+  const [savingSheet, setSavingSheet] = useState(false);
+  const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
 
-  const [attForm, setAttForm] = useState({ student_id: '', status: 'present', reason: '', justified: false });
-  const [discForm, setDiscForm] = useState({ student_id: '', type: 'observation', description: '', sanction: '', parent_notified: false });
+  // History Filters
+  const [historyClassFilter, setHistoryClassFilter] = useState('');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+  const [historySearch, setHistorySearch] = useState('');
 
-  useEffect(() => { if (school) fetchData(); }, [school]);
+  // Discipline Modal state
+  const [disciplineModal, setDisciplineModal] = useState(false);
+  const [savingDiscipline, setSavingDiscipline] = useState(false);
+  const [discForm, setDiscForm] = useState({
+    student_id: '',
+    type: 'observation',
+    description: '',
+    sanction: '',
+    parent_notified: false,
+  });
+
+  useEffect(() => {
+    if (school) fetchData();
+  }, [school]);
 
   async function fetchData() {
     setLoading(true);
     const sid = school!.id;
-    const [attRes, discRes, stuRes, clsRes] = await Promise.all([
-      supabase.from('attendance').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(1000),
-      supabase.from('discipline_records').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(500),
-      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).order('last_name'),
-      supabase.from('classes').select('*').eq('school_id', sid).order('name'),
-    ]);
-    setAttendance((attRes.data as Attendance[]) || []);
-    setDiscipline((discRes.data as DisciplineRecord[]) || []);
-    setStudents((stuRes.data as Student[]) || []);
-    setClasses((clsRes.data as Class[]) || []);
-    setLoading(false);
+    try {
+      const [attRes, discRes, stuRes, clsRes] = await Promise.all([
+        supabase
+          .from('attendance')
+          .select('*, student:students(id, first_name, last_name, matricule, class_id, class:classes(name))')
+          .eq('school_id', sid)
+          .order('date', { ascending: false })
+          .limit(1000),
+        supabase
+          .from('discipline_records')
+          .select('*, student:students(id, first_name, last_name, matricule, class_id, class:classes(name))')
+          .eq('school_id', sid)
+          .order('date', { ascending: false })
+          .limit(500),
+        supabase
+          .from('students')
+          .select('id, first_name, last_name, matricule, class_id, photo_url, phone, student_parents(parent:parents(*))')
+          .eq('school_id', sid)
+          .order('last_name'),
+        supabase.from('classes').select('*').eq('school_id', sid).order('name'),
+      ]);
+
+      setAttendance((attRes.data as Attendance[]) || []);
+      setDiscipline((discRes.data as DisciplineRecord[]) || []);
+      setStudents((stuRes.data as unknown as Student[]) || []);
+      setClasses((clsRes.data as Class[]) || []);
+
+      if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
+        setSelectedClass(clsRes.data[0].id);
+      }
+    } catch (e) {
+      console.error('Error fetching attendance data', e);
+    } finally {
+      setLoading(false);
+    }
   }
 
-  async function handleSaveAttendance() {
-    setSaving(true);
-    await supabase.from('attendance').insert({
-      ...attForm,
-      school_id: school!.id,
-      class_id: students.find(s => s.id === attForm.student_id)?.class_id,
-      date: selectedDate,
+  // Filter students for the selected class in the sheet
+  const classStudents = useMemo(() => {
+    if (!selectedClass) return [];
+    return students.filter(s => s.class_id === selectedClass);
+  }, [students, selectedClass]);
+
+  // Synchronize sheetRows whenever selectedClass, selectedDate or attendance changes
+  useEffect(() => {
+    if (!selectedClass) return;
+
+    // Existing attendance records for this class on this date
+    const existingMap = new Map<string, Attendance>();
+    attendance.forEach(a => {
+      if (a.date === selectedDate) {
+        existingMap.set(a.student_id, a);
+      }
     });
-    setSaving(false); setModalOpen(false); fetchData();
+
+    const newRows: Record<string, AttendanceRowState> = {};
+    classStudents.forEach(st => {
+      const existing = existingMap.get(st.id);
+      if (existing) {
+        newRows[st.id] = {
+          student_id: st.id,
+          status: (existing.status as any) || 'present',
+          reason: existing.reason || '',
+          justified: Boolean(existing.justified),
+          attendance_id: existing.id,
+        };
+      } else {
+        newRows[st.id] = {
+          student_id: st.id,
+          status: 'present', // Default to present
+          reason: '',
+          justified: false,
+        };
+      }
+    });
+
+    setSheetRows(newRows);
+    setSaveSuccessNotice(null);
+  }, [selectedClass, selectedDate, classStudents, attendance]);
+
+  // Bulk actions on sheet
+  function markAllStatus(status: 'present' | 'absent' | 'late') {
+    setSheetRows(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(sId => {
+        updated[sId] = {
+          ...updated[sId],
+          status,
+          reason: status === 'present' ? '' : updated[sId].reason,
+          justified: status === 'present' ? false : updated[sId].justified,
+        };
+      });
+      return updated;
+    });
   }
 
+  function updateStudentRow(studentId: string, updates: Partial<AttendanceRowState>) {
+    setSheetRows(prev => ({
+      ...prev,
+      [studentId]: {
+        ...(prev[studentId] || { student_id: studentId, status: 'present', reason: '', justified: false }),
+        ...updates,
+      },
+    }));
+  }
+
+  async function handleSaveSheet() {
+    if (!selectedClass || !school?.id) return;
+    setSavingSheet(true);
+    setSaveSuccessNotice(null);
+
+    try {
+      const upsertList = Object.values(sheetRows).map(row => ({
+        ...(row.attendance_id ? { id: row.attendance_id } : {}),
+        student_id: row.student_id,
+        school_id: school.id,
+        class_id: selectedClass,
+        date: selectedDate,
+        status: row.status,
+        reason: row.status === 'present' ? null : row.reason.trim() || null,
+        justified: row.status === 'present' ? false : row.justified,
+      }));
+
+      // Upsert records
+      const { error } = await supabase.from('attendance').upsert(upsertList);
+      if (error) throw error;
+
+      setSaveSuccessNotice(`✅ Feuille d'appel enregistrée avec succès pour le ${formatDate(selectedDate)} !`);
+      void fetchData();
+    } catch (err: any) {
+      alert(`Erreur d'enregistrement : ${err.message}`);
+    } finally {
+      setSavingSheet(false);
+    }
+  }
+
+  // Statistics for current sheet
+  const sheetStats = useMemo(() => {
+    const rows = Object.values(sheetRows);
+    const total = rows.length;
+    const present = rows.filter(r => r.status === 'present').length;
+    const absent = rows.filter(r => r.status === 'absent').length;
+    const late = rows.filter(r => r.status === 'late').length;
+    const rate = total > 0 ? Math.round((present / total) * 100) : 100;
+    return { total, present, absent, late, rate };
+  }, [sheetRows]);
+
+  // Discipline Handlers
   async function handleSaveDiscipline() {
-    setSaving(true);
-    await supabase.from('discipline_records').insert({ ...discForm, school_id: school!.id, date: selectedDate });
-    setSaving(false); setDisciplineModal(false); fetchData();
+    if (!discForm.student_id || !discForm.description) {
+      alert('Veuillez sélectionner un élève et renseigner la description.');
+      return;
+    }
+    setSavingDiscipline(true);
+    try {
+      const { error } = await supabase.from('discipline_records').insert({
+        ...discForm,
+        school_id: school!.id,
+        date: selectedDate,
+      });
+      if (error) throw error;
+
+      setDisciplineModal(false);
+      setDiscForm({
+        student_id: '',
+        type: 'observation',
+        description: '',
+        sanction: '',
+        parent_notified: false,
+      });
+      void fetchData();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setSavingDiscipline(false);
+    }
   }
 
   async function handleDeleteAttendance(id: string) {
@@ -70,12 +262,12 @@ export default function AttendancePage() {
       alert("Seul l'administrateur général a le droit de supprimer une fiche d'absence.");
       return;
     }
-    if (!confirm("⚠️ Voulez-vous vraiment supprimer cet enregistrement de présence/absence ?")) return;
+    if (!confirm('⚠️ Supprimer définitivement cet enregistrement de présence ?')) return;
     const { error } = await supabase.from('attendance').delete().eq('id', id);
     if (error) {
       alert(`Erreur : ${error.message}`);
     } else {
-      fetchData();
+      void fetchData();
     }
   }
 
@@ -84,168 +276,642 @@ export default function AttendancePage() {
       alert("Seul l'administrateur général a le droit de supprimer un incident disciplinaire.");
       return;
     }
-    if (!confirm("⚠️ Voulez-vous vraiment supprimer cet enregistrement disciplinaire ?")) return;
+    if (!confirm('⚠️ Supprimer cet enregistrement disciplinaire ?')) return;
     const { error } = await supabase.from('discipline_records').delete().eq('id', id);
     if (error) {
       alert(`Erreur : ${error.message}`);
     } else {
-      fetchData();
+      void fetchData();
     }
   }
 
+  // Filtered History
+  const filteredHistory = useMemo(() => {
+    return attendance.filter(a => {
+      const student = (a as any).student || students.find(s => s.id === a.student_id);
+      const matchClass = !historyClassFilter || student?.class_id === historyClassFilter;
+      const matchStatus = historyStatusFilter === 'all' || a.status === historyStatusFilter;
+      const name = `${student?.first_name || ''} ${student?.last_name || ''} ${student?.matricule || ''}`.toLowerCase();
+      const matchSearch = !historySearch || name.includes(historySearch.toLowerCase());
+      return matchClass && matchStatus && matchSearch;
+    });
+  }, [attendance, students, historyClassFilter, historyStatusFilter, historySearch]);
+
   const statusLabels: Record<string, string> = { present: 'Présent', absent: 'Absent', late: 'En retard' };
-
-  const attColumns = [
-    { key: 'student_id', label: 'Élève', render: (a: Attendance) => {
-      const s = students.find(s => s.id === a.student_id);
-      return s ? `${s.last_name} ${s.first_name}` : '-';
-    }},
-    { key: 'date', label: 'Date', render: (a: Attendance) => formatDate(a.date) },
-    { key: 'status', label: 'Statut', render: (a: Attendance) => <Badge status={a.status} label={statusLabels[a.status] || a.status} /> },
-    { key: 'justified', label: 'Justifié', render: (a: Attendance) => a.justified ? <span className="text-emerald-600 text-xs font-medium">Oui</span> : <span className="text-red-600 text-xs font-medium">Non</span> },
-    { key: 'reason', label: 'Motif' },
-    ...(isGeneralAdmin
-      ? [
-          {
-            key: 'actions',
-            label: 'Actions',
-            render: (a: Attendance) => (
-              <button
-                onClick={() => handleDeleteAttendance(a.id)}
-                className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
-                title="Supprimer la présence (Admin Général)"
-              >
-                <Trash2 size={15} />
-              </button>
-            ),
-          },
-        ]
-      : []),
-  ];
-
-  const discColumns = [
-    { key: 'student_id', label: 'Élève', render: (d: DisciplineRecord) => {
-      const s = students.find(s => s.id === d.student_id);
-      return s ? `${s.last_name} ${s.first_name}` : '-';
-    }},
-    { key: 'type', label: 'Type', render: (d: DisciplineRecord) => <span className="capitalize">{d.type}</span> },
-    { key: 'description', label: 'Description' },
-    { key: 'sanction', label: 'Sanction' },
-    { key: 'date', label: 'Date', render: (d: DisciplineRecord) => formatDate(d.date) },
-    { key: 'parent_notified', label: 'Parent notifié', render: (d: DisciplineRecord) => d.parent_notified ? 'Oui' : 'Non' },
-    ...(isGeneralAdmin
-      ? [
-          {
-            key: 'actions',
-            label: 'Actions',
-            render: (d: DisciplineRecord) => (
-              <button
-                onClick={() => handleDeleteDiscipline(d.id)}
-                className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
-                title="Supprimer l'incident (Admin Général)"
-              >
-                <Trash2 size={15} />
-              </button>
-            ),
-          },
-        ]
-      : []),
-  ];
-
-  const totalPresent = attendance.filter(a => a.status === 'present').length;
-  const totalAbsent = attendance.filter(a => a.status === 'absent').length;
-  const totalLate = attendance.filter(a => a.status === 'late').length;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Absences & Discipline</h1>
-          <p className="text-gray-500 mt-1">Suivi des présences et comportement</p>
+          <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <CalendarCheck className="text-emerald-600" size={26} />
+            Présences & Vie Scolaire
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Feuille d'appel collective par classe, registre d'assiduité et suivi disciplinaire
+          </p>
         </div>
-        {(isAdmin || isDirector || isSupervisor || isTeacher) && (
-          <div className="flex gap-2">
-            <button onClick={() => setModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
-              <Plus size={18} /> Enregistrer présence
-            </button>
-            <button onClick={() => setDisciplineModal(true)} className="flex items-center gap-2 px-4 py-2.5 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
-              <AlertTriangle size={18} /> Incident
+
+        {canManage && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDisciplineModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-xl text-xs font-semibold border border-rose-200 shadow-2xs transition"
+            >
+              <AlertTriangle size={15} /> Signaler un incident
             </button>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-100 rounded-xl">
-          <UserCheck size={20} className="text-emerald-600" />
-          <div><p className="text-2xl font-bold text-emerald-700">{totalPresent}</p><p className="text-sm text-emerald-600">Présences</p></div>
-        </div>
-        <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-xl">
-          <UserX size={20} className="text-red-600" />
-          <div><p className="text-2xl font-bold text-red-700">{totalAbsent}</p><p className="text-sm text-red-600">Absences</p></div>
-        </div>
-        <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-100 rounded-xl">
-          <Clock size={20} className="text-amber-600" />
-          <div><p className="text-2xl font-bold text-amber-700">{totalLate}</p><p className="text-sm text-amber-600">Retards</p></div>
-        </div>
+      {/* Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+        {[
+          { key: 'sheet', label: "Feuille d'Appel par Classe", icon: <CalendarCheck size={16} /> },
+          { key: 'history', label: 'Registre & Historique', icon: <FileSpreadsheet size={16} /> },
+          { key: 'discipline', label: 'Discipline & Sanctions', icon: <ShieldAlert size={16} /> },
+        ].map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key as any)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+              tab === t.key
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
-        <button onClick={() => setTab('attendance')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === 'attendance' ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent'}`}>Présences & Absences</button>
-        <button onClick={() => setTab('discipline')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === 'discipline' ? 'text-blue-600 border-blue-600' : 'text-gray-500 border-transparent'}`}>Discipline</button>
-      </div>
+      {/* TAB 1: FEUILLE D'APPEL PAR CLASSE */}
+      {tab === 'sheet' && (
+        <div className="space-y-6">
+          {/* Controls Bar */}
+          <div className="surface-card p-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  1. Sélectionner la Classe :
+                </label>
+                <select
+                  value={selectedClass}
+                  onChange={e => setSelectedClass(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 shadow-2xs"
+                >
+                  <option value="">-- Choisir une classe --</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-      {tab === 'attendance' && <DataTable columns={attColumns} data={attendance as any[]} searchKeys={[]} searchPlaceholder="Rechercher..." loading={loading} />}
-      {tab === 'discipline' && <DataTable columns={discColumns} data={discipline as any[]} searchKeys={['description', 'type']} searchPlaceholder="Rechercher un incident..." loading={loading} />}
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  2. Date de l'appel :
+                </label>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={e => setSelectedDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 shadow-2xs"
+                />
+              </div>
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Enregistrer une présence" size="md"
-        actions={<>
-          <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
-          <button onClick={handleSaveAttendance} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">Enregistrer</button>
-        </>}>
-        <div className="space-y-4">
-          <FormField label="Date"><input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Élève" required>
-            <select value={attForm.student_id} onChange={e => setAttForm({...attForm, student_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Sélectionner</option>
-              {students.map(s => <option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>)}
-            </select>
-          </FormField>
-          <FormField label="Statut" required>
-            <select value={attForm.status} onChange={e => setAttForm({...attForm, status: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="present">Présent</option>
-              <option value="absent">Absent</option>
-              <option value="late">En retard</option>
-            </select>
-          </FormField>
-          <FormField label="Motif"><input type="text" value={attForm.reason} onChange={e => setAttForm({...attForm, reason: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={attForm.justified} onChange={e => setAttForm({...attForm, justified: e.target.checked})} /> Absence justifiée</label>
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
+                  3. Séance :
+                </label>
+                <select
+                  value={sheetSession}
+                  onChange={e => setSheetSession(e.target.value as any)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 shadow-2xs"
+                >
+                  <option value="journee">Journée entière</option>
+                  <option value="matin">Matinée (08h - 12h)</option>
+                  <option value="apres_midi">Après-midi (14h - 17h)</option>
+                </select>
+              </div>
+
+              <div>
+                <button
+                  onClick={() => markAllStatus('present')}
+                  className="w-full flex items-center justify-center gap-1.5 py-2.5 px-4 bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition shadow-2xs"
+                >
+                  <UserCheck size={16} className="text-emerald-600" />
+                  <span>Tous Présents</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Stats Banner */}
+          {selectedClass && classStudents.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+              <div className="surface-card p-4 text-center">
+                <p className="text-xs text-slate-500 font-semibold uppercase">Effectif</p>
+                <p className="text-2xl font-bold text-slate-800 mt-1">{sheetStats.total}</p>
+              </div>
+              <div className="surface-card p-4 text-center bg-emerald-50/40 border border-emerald-100">
+                <p className="text-xs text-emerald-700 font-semibold uppercase">Présents</p>
+                <p className="text-2xl font-bold text-emerald-800 mt-1">{sheetStats.present}</p>
+              </div>
+              <div className="surface-card p-4 text-center bg-rose-50/40 border border-rose-100">
+                <p className="text-xs text-rose-700 font-semibold uppercase">Absents</p>
+                <p className="text-2xl font-bold text-rose-800 mt-1">{sheetStats.absent}</p>
+              </div>
+              <div className="surface-card p-4 text-center bg-amber-50/40 border border-amber-100">
+                <p className="text-xs text-amber-700 font-semibold uppercase">En Retard</p>
+                <p className="text-2xl font-bold text-amber-800 mt-1">{sheetStats.late}</p>
+              </div>
+              <div className="surface-card p-4 text-center bg-blue-50/40 border border-blue-100 col-span-2 sm:col-span-1">
+                <p className="text-xs text-blue-700 font-semibold uppercase">Assiduité</p>
+                <p className="text-2xl font-bold text-blue-800 mt-1">{sheetStats.rate}%</p>
+              </div>
+            </div>
+          )}
+
+          {saveSuccessNotice && (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900 flex items-center justify-between">
+              <span>{saveSuccessNotice}</span>
+              <button onClick={() => setSaveSuccessNotice(null)} className="text-xs text-emerald-700 underline">
+                Fermer
+              </button>
+            </div>
+          )}
+
+          {/* Student Roll Call Table */}
+          {selectedClass ? (
+            classStudents.length > 0 ? (
+              <div className="surface-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 text-xs uppercase tracking-wider">
+                        <th className="px-4 py-3.5 w-12 text-center">N°</th>
+                        <th className="px-4 py-3.5">Élève</th>
+                        <th className="px-4 py-3.5 text-center">Statut d'assiduité</th>
+                        <th className="px-4 py-3.5">Motif / Commentaire</th>
+                        <th className="px-4 py-3.5 text-center w-28">Justifié</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {classStudents.map((st, idx) => {
+                        const row = sheetRows[st.id] || {
+                          student_id: st.id,
+                          status: 'present',
+                          reason: '',
+                          justified: false,
+                        };
+
+                        return (
+                          <tr
+                            key={st.id}
+                            className={`transition ${
+                              row.status === 'absent'
+                                ? 'bg-rose-50/30'
+                                : row.status === 'late'
+                                ? 'bg-amber-50/30'
+                                : 'hover:bg-slate-50/50'
+                            }`}
+                          >
+                            <td className="px-4 py-3.5 text-center font-medium text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-3">
+                                {st.photo_url ? (
+                                  <img
+                                    src={st.photo_url}
+                                    alt={st.first_name}
+                                    className="w-9 h-9 rounded-full object-cover border border-slate-200"
+                                  />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600 text-xs">
+                                    {st.first_name?.charAt(0)}
+                                    {st.last_name?.charAt(0)}
+                                  </div>
+                                )}
+                                <div>
+                                  <p className="font-bold text-slate-900 text-sm">
+                                    {st.last_name} {st.first_name}
+                                  </p>
+                                  <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                                    {st.matricule}
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* Status Buttons */}
+                            <td className="px-4 py-3.5 text-center">
+                              <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => updateStudentRow(st.id, { status: 'present' })}
+                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                                    row.status === 'present'
+                                      ? 'bg-emerald-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-emerald-700'
+                                  }`}
+                                >
+                                  <CheckCircle2 size={13} />
+                                  <span>Présent</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => updateStudentRow(st.id, { status: 'absent' })}
+                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                                    row.status === 'absent'
+                                      ? 'bg-rose-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-rose-700'
+                                  }`}
+                                >
+                                  <XCircle size={13} />
+                                  <span>Absent</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => updateStudentRow(st.id, { status: 'late' })}
+                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                                    row.status === 'late'
+                                      ? 'bg-amber-600 text-white shadow-xs'
+                                      : 'text-slate-600 hover:text-amber-700'
+                                  }`}
+                                >
+                                  <Clock size={13} />
+                                  <span>Retard</span>
+                                </button>
+                              </div>
+                            </td>
+
+                            {/* Reason Input */}
+                            <td className="px-4 py-3.5">
+                              {row.status !== 'present' ? (
+                                <input
+                                  type="text"
+                                  placeholder={row.status === 'absent' ? "Motif de l'absence..." : 'Arrivé à quelle heure ?'}
+                                  value={row.reason}
+                                  onChange={e => updateStudentRow(st.id, { reason: e.target.value })}
+                                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+                                />
+                              ) : (
+                                <span className="text-slate-400 italic text-xs">Aucun motif nécessaire</span>
+                              )}
+                            </td>
+
+                            {/* Justified Checkbox */}
+                            <td className="px-4 py-3.5 text-center">
+                              {row.status !== 'present' ? (
+                                <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={row.justified}
+                                    onChange={e => updateStudentRow(st.id, { justified: e.target.checked })}
+                                    className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300"
+                                  />
+                                  <span className="text-xs font-medium text-slate-700">Justifié</span>
+                                </label>
+                              ) : (
+                                <span className="text-slate-300">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Footer Save Button */}
+                <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                  <div className="text-xs text-slate-500">
+                    Modifications apportées à la feuille d'appel du <strong>{formatDate(selectedDate)}</strong>.
+                  </div>
+                  <button
+                    onClick={() => void handleSaveSheet()}
+                    disabled={savingSheet}
+                    className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition disabled:opacity-50"
+                  >
+                    <CheckCircle2 size={16} />
+                    <span>{savingSheet ? 'Enregistrement...' : "Enregistrer l'appel de la classe"}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="surface-card p-12 text-center text-slate-400">
+                <Users size={40} className="mx-auto mb-3 text-slate-300" />
+                <p className="font-semibold text-slate-700">Aucun élève trouvé dans cette classe.</p>
+                <p className="text-xs mt-1">Veuillez d'abord inscrire des élèves dans cette classe.</p>
+              </div>
+            )
+          ) : (
+            <div className="surface-card p-12 text-center text-slate-400">
+              <CalendarCheck size={40} className="mx-auto mb-3 text-slate-300" />
+              <p className="font-semibold text-slate-700">Sélectionnez une classe ci-dessus</p>
+              <p className="text-xs mt-1">La liste complète des élèves apparaîtra instantanément pour faire l'appel.</p>
+            </div>
+          )}
         </div>
-      </Modal>
+      )}
 
-      <Modal isOpen={disciplineModal} onClose={() => setDisciplineModal(false)} title="Signaler un incident" size="md"
-        actions={<>
-          <button onClick={() => setDisciplineModal(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
-          <button onClick={handleSaveDiscipline} disabled={saving} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50">Enregistrer</button>
-        </>}>
+      {/* TAB 2: HISTORIQUE & REGISTRE GLOBAL */}
+      {tab === 'history' && (
         <div className="space-y-4">
-          <FormField label="Élève" required>
-            <select value={discForm.student_id} onChange={e => setDiscForm({...discForm, student_id: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
-              <option value="">Sélectionner</option>
-              {students.map(s => <option key={s.id} value={s.id}>{s.last_name} {s.first_name}</option>)}
+          {/* Filters */}
+          <div className="surface-card p-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <select
+                value={historyClassFilter}
+                onChange={e => setHistoryClassFilter(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium focus:outline-none"
+              >
+                <option value="">Toutes les classes</option>
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={historyStatusFilter}
+                onChange={e => setHistoryStatusFilter(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium focus:outline-none"
+              >
+                <option value="all">Tous les statuts</option>
+                <option value="absent">Absents uniquement</option>
+                <option value="late">Retards uniquement</option>
+                <option value="present">Présents</option>
+              </select>
+            </div>
+
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Rechercher par élève ou matricule..."
+                value={historySearch}
+                onChange={e => setHistorySearch(e.target.value)}
+                className="rounded-xl border border-slate-200 bg-white pl-8 pr-3 py-1.5 text-xs w-64 focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+          </div>
+
+          <DataTable
+            columns={[
+              {
+                key: 'student',
+                label: 'Élève',
+                render: (a: Attendance) => {
+                  const s = (a as any).student || students.find(st => st.id === a.student_id);
+                  return s ? (
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {s.last_name} {s.first_name}
+                      </p>
+                      <p className="text-[11px] text-slate-400">{s.matricule}</p>
+                    </div>
+                  ) : (
+                    '-'
+                  );
+                },
+              },
+              {
+                key: 'class',
+                label: 'Classe',
+                render: (a: Attendance) => {
+                  const s = (a as any).student || students.find(st => st.id === a.student_id);
+                  const c = classes.find(cl => cl.id === s?.class_id);
+                  return c?.name || '-';
+                },
+              },
+              {
+                key: 'date',
+                label: 'Date',
+                render: (a: Attendance) => formatDate(a.date),
+              },
+              {
+                key: 'status',
+                label: 'Statut',
+                render: (a: Attendance) => (
+                  <Badge status={a.status} label={statusLabels[a.status] || a.status} />
+                ),
+              },
+              {
+                key: 'justified',
+                label: 'Justifié',
+                render: (a: Attendance) =>
+                  a.justified ? (
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md text-[11px] font-semibold">
+                      Oui
+                    </span>
+                  ) : a.status !== 'present' ? (
+                    <span className="text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md text-[11px] font-semibold">
+                      Non
+                    </span>
+                  ) : (
+                    '-'
+                  ),
+              },
+              {
+                key: 'reason',
+                label: 'Motif',
+                render: (a: Attendance) => a.reason || <span className="text-slate-400 italic">-</span>,
+              },
+              ...(isGeneralAdmin
+                ? [
+                    {
+                      key: 'actions',
+                      label: 'Actions',
+                      render: (a: Attendance) => (
+                        <button
+                          onClick={() => void handleDeleteAttendance(a.id)}
+                          className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
+                          title="Supprimer la présence (Admin)"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+            data={filteredHistory}
+            loading={loading}
+          />
+        </div>
+      )}
+
+      {/* TAB 3: DISCIPLINE & SANCTIONS */}
+      {tab === 'discipline' && (
+        <div className="space-y-4">
+          <DataTable
+            columns={[
+              {
+                key: 'student',
+                label: 'Élève',
+                render: (d: DisciplineRecord) => {
+                  const s = (d as any).student || students.find(st => st.id === d.student_id);
+                  return s ? `${s.last_name} ${s.first_name}` : '-';
+                },
+              },
+              {
+                key: 'type',
+                label: 'Type d’incident',
+                render: (d: DisciplineRecord) => (
+                  <span className="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 border border-amber-200 capitalize">
+                    {d.type}
+                  </span>
+                ),
+              },
+              {
+                key: 'description',
+                label: 'Description des faits',
+                render: (d: DisciplineRecord) => (
+                  <span className="text-slate-800 font-medium">{d.description}</span>
+                ),
+              },
+              {
+                key: 'sanction',
+                label: 'Sanction décidée',
+                render: (d: DisciplineRecord) => d.sanction || '-',
+              },
+              {
+                key: 'date',
+                label: 'Date',
+                render: (d: DisciplineRecord) => formatDate(d.date),
+              },
+              {
+                key: 'parent_notified',
+                label: 'Parent notifié',
+                render: (d: DisciplineRecord) =>
+                  d.parent_notified ? (
+                    <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-xs font-semibold">
+                      Oui
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 bg-slate-100 px-2 py-0.5 rounded text-xs">
+                      Non
+                    </span>
+                  ),
+              },
+              ...(isGeneralAdmin
+                ? [
+                    {
+                      key: 'actions',
+                      label: 'Actions',
+                      render: (d: DisciplineRecord) => (
+                        <button
+                          onClick={() => void handleDeleteDiscipline(d.id)}
+                          className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
+                          title="Supprimer (Admin)"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+            data={discipline}
+            loading={loading}
+          />
+        </div>
+      )}
+
+      {/* Discipline Incident Modal */}
+      <Modal
+        isOpen={disciplineModal}
+        onClose={() => setDisciplineModal(false)}
+        title="Enregistrer un incident disciplinaire"
+        size="md"
+        actions={
+          <>
+            <button
+              onClick={() => setDisciplineModal(false)}
+              className="px-4 py-2.5 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={() => void handleSaveDiscipline()}
+              disabled={savingDiscipline}
+              className="px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs disabled:opacity-50"
+            >
+              {savingDiscipline ? 'Enregistrement...' : "Enregistrer l'incident"}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <FormField label="Élève concerné" required>
+            <select
+              value={discForm.student_id}
+              onChange={e => setDiscForm({ ...discForm, student_id: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
+            >
+              <option value="">-- Sélectionner un élève --</option>
+              {students.map(s => (
+                <option key={s.id} value={s.id}>
+                  {s.last_name} {s.first_name} ({s.matricule})
+                </option>
+              ))}
             </select>
           </FormField>
-          <FormField label="Type">
-            <select value={discForm.type} onChange={e => setDiscForm({...discForm, type: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500">
+
+          <FormField label="Type d'incident" required>
+            <select
+              value={discForm.type}
+              onChange={e => setDiscForm({ ...discForm, type: e.target.value })}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
+            >
               <option value="observation">Observation</option>
+              <option value="retard_repete">Retards répétés</option>
+              <option value="bavardage">Bavardage / Indiscipline</option>
               <option value="avertissement">Avertissement</option>
               <option value="blame">Blâme</option>
-              <option value="exclusion">Exclusion</option>
+              <option value="exclusion_temporaire">Exclusion temporaire</option>
+              <option value="autre">Autre manquement</option>
             </select>
           </FormField>
-          <FormField label="Description" required><textarea value={discForm.description} onChange={e => setDiscForm({...discForm, description: e.target.value})} rows={3} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <FormField label="Sanction"><input type="text" value={discForm.sanction} onChange={e => setDiscForm({...discForm, sanction: e.target.value})} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" /></FormField>
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={discForm.parent_notified} onChange={e => setDiscForm({...discForm, parent_notified: e.target.checked})} /> Parent notifié</label>
+
+          <FormField label="Description des faits" required>
+            <textarea
+              rows={3}
+              value={discForm.description}
+              onChange={e => setDiscForm({ ...discForm, description: e.target.value })}
+              placeholder="Expliciter précisément les faits constatés..."
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
+            />
+          </FormField>
+
+          <FormField label="Sanction appliquée">
+            <input
+              type="text"
+              value={discForm.sanction}
+              onChange={e => setDiscForm({ ...discForm, sanction: e.target.value })}
+              placeholder="Ex: Devoir supplémentaire, 2h de colle, convocation..."
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
+            />
+          </FormField>
+
+          <label className="flex items-center gap-2 cursor-pointer pt-2">
+            <input
+              type="checkbox"
+              checked={discForm.parent_notified}
+              onChange={e => setDiscForm({ ...discForm, parent_notified: e.target.checked })}
+              className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 border-slate-300"
+            />
+            <span className="text-xs font-semibold text-slate-700">
+              Informer le parent / tuteur légal
+            </span>
+          </label>
         </div>
       </Modal>
     </div>
