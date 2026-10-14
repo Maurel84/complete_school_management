@@ -8,11 +8,13 @@ import Badge from '../../components/common/Badge';
 import FormField from '../../components/common/FormField';
 import { formatDate } from '../../lib/utils';
 import type { Attendance, DisciplineRecord, Student, Class } from '../../types';
-import { CalendarCheck, Plus, AlertTriangle, UserCheck, UserX, Clock } from 'lucide-react';
+import { CalendarCheck, Plus, AlertTriangle, UserCheck, UserX, Clock, Trash2 } from 'lucide-react';
 
 export default function AttendancePage() {
   const { school } = useApp();
-  const { isAdmin, isDirector, isSupervisor, isTeacher } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher } = useAuth();
+  const isGeneralAdmin = isSuperAdmin || isAdmin;
+
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [discipline, setDiscipline] = useState<DisciplineRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -63,6 +65,34 @@ export default function AttendancePage() {
     setSaving(false); setDisciplineModal(false); fetchData();
   }
 
+  async function handleDeleteAttendance(id: string) {
+    if (!isGeneralAdmin) {
+      alert("Seul l'administrateur général a le droit de supprimer une fiche d'absence.");
+      return;
+    }
+    if (!confirm("⚠️ Voulez-vous vraiment supprimer cet enregistrement de présence/absence ?")) return;
+    const { error } = await supabase.from('attendance').delete().eq('id', id);
+    if (error) {
+      alert(`Erreur : ${error.message}`);
+    } else {
+      fetchData();
+    }
+  }
+
+  async function handleDeleteDiscipline(id: string) {
+    if (!isGeneralAdmin) {
+      alert("Seul l'administrateur général a le droit de supprimer un incident disciplinaire.");
+      return;
+    }
+    if (!confirm("⚠️ Voulez-vous vraiment supprimer cet enregistrement disciplinaire ?")) return;
+    const { error } = await supabase.from('discipline_records').delete().eq('id', id);
+    if (error) {
+      alert(`Erreur : ${error.message}`);
+    } else {
+      fetchData();
+    }
+  }
+
   const statusLabels: Record<string, string> = { present: 'Présent', absent: 'Absent', late: 'En retard' };
 
   const attColumns = [
@@ -74,6 +104,23 @@ export default function AttendancePage() {
     { key: 'status', label: 'Statut', render: (a: Attendance) => <Badge status={a.status} label={statusLabels[a.status] || a.status} /> },
     { key: 'justified', label: 'Justifié', render: (a: Attendance) => a.justified ? <span className="text-emerald-600 text-xs font-medium">Oui</span> : <span className="text-red-600 text-xs font-medium">Non</span> },
     { key: 'reason', label: 'Motif' },
+    ...(isGeneralAdmin
+      ? [
+          {
+            key: 'actions',
+            label: 'Actions',
+            render: (a: Attendance) => (
+              <button
+                onClick={() => handleDeleteAttendance(a.id)}
+                className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
+                title="Supprimer la présence (Admin Général)"
+              >
+                <Trash2 size={15} />
+              </button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const discColumns = [
@@ -86,6 +133,23 @@ export default function AttendancePage() {
     { key: 'sanction', label: 'Sanction' },
     { key: 'date', label: 'Date', render: (d: DisciplineRecord) => formatDate(d.date) },
     { key: 'parent_notified', label: 'Parent notifié', render: (d: DisciplineRecord) => d.parent_notified ? 'Oui' : 'Non' },
+    ...(isGeneralAdmin
+      ? [
+          {
+            key: 'actions',
+            label: 'Actions',
+            render: (d: DisciplineRecord) => (
+              <button
+                onClick={() => handleDeleteDiscipline(d.id)}
+                className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
+                title="Supprimer l'incident (Admin Général)"
+              >
+                <Trash2 size={15} />
+              </button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const totalPresent = attendance.filter(a => a.status === 'present').length;

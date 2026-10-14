@@ -1,16 +1,20 @@
 import DataTable from '../../../components/common/DataTable';
 import type { Column } from '../../../components/common/DataTable';
 import { formatCurrency, formatDate } from '../../../lib/utils';
-import { Download, Printer, Utensils } from 'lucide-react';
+import { Download, Printer, Trash2, Utensils } from 'lucide-react';
 
 interface CanteenModuleProps {
   canteenPayments: any[];
   onPrintReceipt: (payment: any) => void;
+  isGeneralAdmin?: boolean;
+  onDeletePayment?: (payment: any) => void;
 }
 
 export default function CanteenModule({
   canteenPayments = [],
   onPrintReceipt,
+  isGeneralAdmin = false,
+  onDeletePayment,
 }: CanteenModuleProps) {
   const columns: Column<any>[] = [
     { key: 'receipt_number', label: 'Reçu' },
@@ -45,12 +49,24 @@ export default function CanteenModule({
       key: 'actions',
       label: 'Actions',
       render: row => (
-        <button
-          onClick={() => onPrintReceipt(row)}
-          className="rounded-xl p-2 text-emerald-600 hover:bg-emerald-50 transition"
-        >
-          <Printer size={15} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onPrintReceipt(row)}
+            className="rounded-xl p-2 text-emerald-600 hover:bg-emerald-50 transition"
+            title="Imprimer le reçu"
+          >
+            <Printer size={15} />
+          </button>
+          {isGeneralAdmin && onDeletePayment && (
+            <button
+              onClick={() => onDeletePayment(row)}
+              className="rounded-xl p-2 text-rose-500 hover:bg-rose-50 transition"
+              title="Supprimer la transaction (Admin Général)"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
       ),
     },
   ];

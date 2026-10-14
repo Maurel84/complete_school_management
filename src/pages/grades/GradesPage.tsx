@@ -7,18 +7,21 @@ import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 import { GRADE_TYPES } from '../../lib/utils';
 import type { Grade, Subject, Student, Class } from '../../types';
-import { Plus, ClipboardList, Printer } from 'lucide-react';
+import { Plus, ClipboardList, Printer, Edit, Trash2 } from 'lucide-react';
 import { buildReportCardHtml, openPrintPreview } from '../../lib/printableDocuments';
 
 export default function GradesPage() {
   const { school, academicYear } = useApp();
-  const { isAdmin, isDirector, isTeacher } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isTeacher } = useAuth();
+  const isGeneralAdmin = isSuperAdmin || isAdmin;
+
   const [grades, setGrades] = useState<Grade[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [editingGradeId, setEditingGradeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedClass, setSelectedClass] = useState('');
   const [tab, setTab] = useState<'grades' | 'reports'>('grades');
@@ -46,15 +49,84 @@ export default function GradesPage() {
     setLoading(false);
   }
 
+  function handleOpenCreate() {
+    setEditingGradeId(null);
+    setForm({
+      student_id: '', subject_id: '', class_id: selectedClass || '', score: 0, max_score: 20,
+      coefficient: 1, grade_type: 'devoir', title: '', term: '1', comments: '',
+    });
+    setModalOpen(true);
+  }
+
+  function handleOpenEdit(g: Grade) {
+    setEditingGradeId(g.id);
+    setForm({
+      student_id: g.student_id,
+      subject_id: g.subject_id,
+      class_id: g.class_id,
+      score: g.score,
+      max_score: g.max_score,
+      coefficient: g.coefficient,
+      grade_type: g.grade_type,
+      title: g.title || '',
+      term: g.term || '1',
+      comments: g.comments || '',
+    });
+    setModalOpen(true);
+  }
+
+  async function handleDeleteGrade(id: string) {
+    if (!isGeneralAdmin) {
+      alert("Seul l'administrateur général a le droit de supprimer une note.");
+      return;
+    }
+    if (!confirm("⚠️ Voulez-vous vraiment supprimer cette note enregistrée par erreur ?")) return;
+
+    const { error } = await supabase.from('grades').delete().eq('id', id);
+    if (error) {
+      alert(`Erreur de suppression : ${error.message}`);
+    } else {
+      fetchData();
+    }
+  }
+
   async function handleSave() {
     setSaving(true);
-    await supabase.from('grades').insert({
-      ...form,
-      school_id: school!.id,
-      academic_year_id: academicYear?.id,
-      date: new Date().toISOString().split('T')[0],
-    });
-    setSaving(false); setModalOpen(false); fetchData();
+    try {
+      if (editingGradeId) {
+        const { error } = await supabase.from('grades').update({
+          student_id: form.student_id,
+          subject_id: form.subject_id,
+          class_id: form.class_id,
+          score: form.score,
+          max_score: form.max_score,
+          coefficient: form.coefficient,
+          grade_type: form.grade_type,
+          title: form.title,
+          term: form.term,
+          comments: form.comments,
+        }).eq('id', editingGradeId);
+
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('grades').insert({
+          ...form,
+          school_id: school!.id,
+          academic_year_id: academicYear?.id,
+          date: new Date().toISOString().split('T')[0],
+        });
+
+        if (error) throw error;
+      }
+
+      setModalOpen(false);
+      setEditingGradeId(null);
+      fetchData();
+    } catch (err: any) {
+      alert(`Erreur : ${err.message}`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   const filteredGrades = selectedClass
@@ -72,6 +144,32 @@ export default function GradesPage() {
     { key: 'score', label: 'Note', render: (g: Grade) => <span className="font-medium">{g.score}/{g.max_score}</span> },
     { key: 'coefficient', label: 'Coeff.' },
     { key: 'term', label: 'Trimestre' },
+    {
+      key: 'actions',
+      label: 'Actions',
+      render: (g: Grade) => (
+        <div className="flex items-center gap-1">
+          {(isGeneralAdmin || isDirector || isTeacher) && (
+            <button
+              onClick={() => handleOpenEdit(g)}
+              className="rounded-lg p-1.5 text-blue-600 hover:bg-blue-50 transition"
+              title="Modifier la note"
+            >
+              <Edit size={15} />
+            </button>
+          )}
+          {isGeneralAdmin && (
+            <button
+              onClick={() => handleDeleteGrade(g.id)}
+              className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 transition"
+              title="Supprimer la note (Admin Général)"
+            >
+              <Trash2 size={15} />
+            </button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   const calculatedReportCards = useMemo(() => {
@@ -213,7 +311,7 @@ export default function GradesPage() {
           <p className="text-gray-500 mt-1">Gestion des évaluations et des bulletins scolaires</p>
         </div>
         {tab === 'grades' && (isAdmin || isDirector || isTeacher) && (
-          <button onClick={() => setModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+          <button onClick={handleOpenCreate} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
             <Plus size={18} /> Nouvelle note
           </button>
         )}
@@ -275,7 +373,7 @@ export default function GradesPage() {
         </div>
       )}
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title="Nouvelle note" size="lg"
+      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editingGradeId ? 'Modifier la note' : 'Nouvelle note'} size="lg"
         actions={<>
           <button onClick={() => setModalOpen(false)} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">Annuler</button>
           <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50">Enregistrer</button>
