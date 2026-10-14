@@ -6,6 +6,7 @@ import type { Student, StudentParent, Profile } from '../types';
 import { resolveStudentFinance } from '../lib/financePlanResolver';
 
 export interface StudentFormInput {
+  matricule?: string;
   first_name: string;
   last_name: string;
   date_of_birth: string;
@@ -168,13 +169,17 @@ export function useStudents(schoolId?: string) {
         ...studentFields
       } = form;
 
-      const cleanedForm = {
+      const cleanedForm: any = {
         ...studentFields,
         class_id: studentFields.class_id || null,
         date_of_birth: studentFields.date_of_birth || null,
         email: studentFields.email || null,
         phone: studentFields.phone || null,
       };
+
+      if (studentFields.matricule !== undefined && studentFields.matricule.trim() !== '') {
+        cleanedForm.matricule = studentFields.matricule.trim();
+      }
 
       let savedStudent: any;
 
@@ -201,7 +206,7 @@ export function useStudents(schoolId?: string) {
       } else {
         // Insert
         const count = studentCount + 1;
-        const matricule = generateMatricule('ELV', count);
+        const matricule = studentFields.matricule?.trim() || generateMatricule('ELV', count);
         const { data, error } = await supabase
           .from('students')
           .insert({ ...cleanedForm, school_id: schoolId, matricule })
@@ -297,12 +302,53 @@ export function useStudents(schoolId?: string) {
     },
   });
 
+  const updateMatriculeMutation = useMutation({
+    mutationFn: async ({
+      studentId,
+      newMatricule,
+      profile,
+    }: {
+      studentId: string;
+      newMatricule: string;
+      profile?: Profile | null;
+    }) => {
+      if (!schoolId) throw new Error('School ID is required');
+      const cleanMatricule = newMatricule.trim();
+      if (!cleanMatricule) throw new Error('Le numéro matricule ne peut pas être vide');
+
+      const { data, error } = await supabase
+        .from('students')
+        .update({ matricule: cleanMatricule })
+        .eq('id', studentId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await recordAuditLog({
+        schoolId,
+        userId: profile?.id,
+        action: 'student_matricule_updated',
+        entityType: 'student',
+        entityId: studentId,
+        details: { new_matricule: cleanMatricule },
+      });
+
+      return data;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
+    },
+  });
+
   return {
     studentsQuery,
     saveStudent: saveStudentMutation.mutateAsync,
     isSaving: saveStudentMutation.isPending,
     archiveStudent: archiveStudentMutation.mutateAsync,
     isArchiving: archiveStudentMutation.isPending,
+    updateMatricule: updateMatriculeMutation.mutateAsync,
+    isUpdatingMatricule: updateMatriculeMutation.isPending,
   };
 }
 

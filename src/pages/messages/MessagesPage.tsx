@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatDateTime } from '../../lib/utils';
+import { formatDateTime, parsePhoneNumbers, formatCombinedPhone } from '../../lib/utils';
 import type { Message, Profile, Student, Class, Parent } from '../../types';
 import {
   Mail,
@@ -16,6 +16,8 @@ import {
   CheckCircle,
   ExternalLink,
   MessageCircle,
+  Save,
+  Check,
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
@@ -23,7 +25,9 @@ import FormField from '../../components/common/FormField';
 function cleanPhone(rawPhone?: string): string {
   if (!rawPhone) return '';
   let p = rawPhone.replace(/[^\d+]/g, '');
-  if (p.startsWith('+')) {
+  if (p.startsWith('00')) {
+    p = p.substring(2);
+  } else if (p.startsWith('+')) {
     p = p.substring(1);
   } else if (p.length === 10 || p.length === 8) {
     p = `225${p}`; // Default West Africa / Cote d'Ivoire prefix
@@ -57,6 +61,14 @@ export default function MessagesPage() {
   const [activeParentTarget, setActiveParentTarget] = useState<any | null>(null);
   const [messageChannel, setMessageChannel] = useState<'whatsapp' | 'sms' | 'email'>('whatsapp');
   const [parentMessageContent, setParentMessageContent] = useState('');
+
+  // Editable Contact Fields in Modal
+  const [contactMainPhone, setContactMainPhone] = useState('');
+  const [contactWhatsappPhone, setContactWhatsappPhone] = useState('');
+  const [contactIsSingleNumber, setContactIsSingleNumber] = useState(true);
+  const [contactEmail, setContactEmail] = useState('');
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactSaveNotice, setContactSaveNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (school) fetchData();
@@ -161,10 +173,53 @@ export default function MessagesPage() {
   function openParentMessage(item: any, defaultChannel: 'whatsapp' | 'sms' | 'email' = 'whatsapp') {
     setActiveParentTarget(item);
     setMessageChannel(defaultChannel);
+
+    const parsed = parsePhoneNumbers(item.parent.phone || '');
+    setContactMainPhone(parsed.mainPhone);
+    setContactWhatsappPhone(parsed.whatsappPhone);
+    setContactIsSingleNumber(parsed.isSingleNumber);
+    setContactEmail(item.parent.email || '');
+    setContactSaveNotice(null);
+
     const childName = item.children[0] ? `${item.children[0].first_name} ${item.children[0].last_name}` : 'votre enfant';
     const text = `Bonjour M./Mme ${item.parent.last_name || ''},\n\nNous vous contactons depuis l'établissement ${school?.name || 'Groupe Scolaire'} concernant ${childName}.\n\nMessage : \n\nCordialement,\nLa Direction`;
     setParentMessageContent(text);
     setCustomMsgModal(true);
+  }
+
+  async function handleSaveParentContact() {
+    if (!activeParentTarget?.parent?.id) return;
+    setSavingContact(true);
+    setContactSaveNotice(null);
+    try {
+      const combinedPhone = formatCombinedPhone(contactMainPhone, contactWhatsappPhone, contactIsSingleNumber);
+      const { error } = await supabase
+        .from('parents')
+        .update({
+          phone: combinedPhone,
+          email: contactEmail.trim(),
+        })
+        .eq('id', activeParentTarget.parent.id);
+
+      if (error) throw error;
+
+      // Update in-memory objects
+      activeParentTarget.parent.phone = combinedPhone;
+      activeParentTarget.parent.email = contactEmail.trim();
+      setParents(prev =>
+        prev.map(p =>
+          p.id === activeParentTarget.parent.id
+            ? { ...p, phone: combinedPhone, email: contactEmail.trim() }
+            : p
+        )
+      );
+      setContactSaveNotice('Numéro enregistré dans la fiche du parent !');
+      setTimeout(() => setContactSaveNotice(null), 3500);
+    } catch (err: any) {
+      alert("Erreur lors de l'enregistrement : " + err.message);
+    } finally {
+      setSavingContact(false);
+    }
   }
 
   function applyParentTemplate(type: 'reunion' | 'absence' | 'info' | 'felicitations') {
@@ -195,25 +250,42 @@ export default function MessagesPage() {
 
   function handleSendParentMessage() {
     if (!activeParentTarget) return;
-    const phone = cleanPhone(activeParentTarget.parent.phone);
-    const email = activeParentTarget.parent.email;
+
+    // Auto-sync in background if phone was modified in input
+    const combinedPhone = formatCombinedPhone(contactMainPhone, contactWhatsappPhone, contactIsSingleNumber);
+    if (activeParentTarget.parent?.id && combinedPhone && combinedPhone !== activeParentTarget.parent.phone) {
+      void supabase
+        .from('parents')
+        .update({ phone: combinedPhone, email: contactEmail.trim() })
+        .eq('id', activeParentTarget.parent.id)
+        .then(() => {
+          activeParentTarget.parent.phone = combinedPhone;
+          activeParentTarget.parent.email = contactEmail.trim();
+        });
+    }
+
+    const targetWaNumber = contactIsSingleNumber ? contactMainPhone : (contactWhatsappPhone || contactMainPhone);
+    const targetSmsNumber = contactMainPhone;
 
     if (messageChannel === 'whatsapp') {
-      if (!phone) {
-        alert('Numéro de téléphone du parent manquant ou non renseigné.');
+      const waClean = cleanPhone(targetWaNumber);
+      if (!waClean) {
+        alert('Numéro WhatsApp du parent manquant. Veuillez saisir le numéro dans le champ WhatsApp.');
         return;
       }
-      const url = `https://wa.me/${phone}?text=${encodeURIComponent(parentMessageContent)}`;
+      const url = `https://wa.me/${waClean}?text=${encodeURIComponent(parentMessageContent)}`;
       window.open(url, '_blank');
     } else if (messageChannel === 'sms') {
-      if (!phone) {
-        alert('Numéro de téléphone du parent manquant ou non renseigné.');
+      const smsClean = cleanPhone(targetSmsNumber);
+      if (!smsClean) {
+        alert('Numéro SMS / Téléphone du parent manquant.');
         return;
       }
-      const url = `sms:${phone}?body=${encodeURIComponent(parentMessageContent)}`;
+      const url = `sms:${smsClean}?body=${encodeURIComponent(parentMessageContent)}`;
       window.open(url, '_blank');
     } else if (messageChannel === 'email') {
-      const url = `mailto:${email || ''}?subject=${encodeURIComponent(
+      const emailToUse = contactEmail.trim() || activeParentTarget.parent.email;
+      const url = `mailto:${emailToUse || ''}?subject=${encodeURIComponent(
         `Information École - ${school?.name || 'Groupe Scolaire'}`
       )}&body=${encodeURIComponent(parentMessageContent)}`;
       window.open(url, '_blank');
@@ -371,7 +443,9 @@ export default function MessagesPage() {
                 <tbody className="divide-y divide-slate-100">
                   {filteredParents.map((item, idx) => {
                     const par = item.parent;
-                    const phone = cleanPhone(par.phone);
+                    const parsed = parsePhoneNumbers(par.phone || '');
+                    const mainClean = cleanPhone(parsed.mainPhone);
+                    const waClean = cleanPhone(parsed.isSingleNumber ? parsed.mainPhone : (parsed.whatsappPhone || parsed.mainPhone));
 
                     return (
                       <tr key={par.id || idx} className="hover:bg-slate-50/60 transition">
@@ -385,10 +459,41 @@ export default function MessagesPage() {
                         </td>
 
                         <td className="px-4 py-3.5">
-                          <p className="font-semibold text-slate-800 font-mono">
-                            {par.phone || <span className="text-slate-400 italic">Non renseigné</span>}
-                          </p>
-                          <p className="text-[11px] text-slate-500 mt-0.5">{par.email || '-'}</p>
+                          {par.phone ? (
+                            <div className="space-y-1">
+                              {parsed.isSingleNumber ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-slate-800 font-mono text-xs">
+                                    {parsed.mainPhone}
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    <Phone size={10} />
+                                    <MessageCircle size={10} />
+                                    Unique
+                                  </span>
+                                </div>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1 text-slate-800 font-mono text-xs">
+                                    <Phone size={11} className="text-blue-600" />
+                                    <span>{parsed.mainPhone || '-'}</span>
+                                  </div>
+                                  {parsed.whatsappPhone && (
+                                    <div className="flex items-center gap-1 text-emerald-700 font-mono text-xs font-semibold">
+                                      <MessageCircle size={11} className="text-emerald-600" />
+                                      <span>WA: {parsed.whatsappPhone}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              <p className="text-[11px] text-slate-500">{par.email || '-'}</p>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="text-slate-400 italic">Non renseigné</span>
+                              <p className="text-[11px] text-slate-500">{par.email || '-'}</p>
+                            </div>
+                          )}
                         </td>
 
                         <td className="px-4 py-3.5">
@@ -414,7 +519,7 @@ export default function MessagesPage() {
                             <button
                               onClick={() => openParentMessage(item, 'whatsapp')}
                               title="Envoyer un message WhatsApp"
-                              disabled={!phone}
+                              disabled={!waClean}
                               className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-lg text-xs font-bold transition border border-emerald-200 disabled:opacity-40"
                             >
                               <MessageCircle size={13} />
@@ -424,7 +529,7 @@ export default function MessagesPage() {
                             <button
                               onClick={() => openParentMessage(item, 'sms')}
                               title="Envoyer un SMS"
-                              disabled={!phone}
+                              disabled={!mainClean}
                               className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-lg text-xs font-bold transition border border-blue-200 disabled:opacity-40"
                             >
                               <Phone size={13} />
@@ -523,20 +628,136 @@ export default function MessagesPage() {
       >
         {activeParentTarget && (
           <div className="space-y-4">
-            {/* Target Summary */}
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3.5 text-xs text-slate-700 leading-relaxed">
-              <p>
-                Destinataire : <strong>{activeParentTarget.parent.first_name} {activeParentTarget.parent.last_name}</strong>
-              </p>
-              <p className="mt-1">
-                Téléphone : <strong>{activeParentTarget.parent.phone || 'Non renseigné'}</strong> • Email :{' '}
-                <strong>{activeParentTarget.parent.email || 'Non renseigné'}</strong>
-              </p>
-              {activeParentTarget.children[0] && (
-                <p className="mt-1">
-                  Élève concerné : <strong>{activeParentTarget.children[0].first_name} {activeParentTarget.children[0].last_name}</strong> (Classe: {activeParentTarget.children[0].class?.name || '-'})
-                </p>
+            {/* Target Summary & Editable Contacts */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 space-y-3.5 text-xs text-slate-700">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 border-b border-slate-200/60 pb-2.5">
+                <div>
+                  <p className="font-bold text-slate-900 text-sm">
+                    {activeParentTarget.parent.first_name} {activeParentTarget.parent.last_name}
+                  </p>
+                  {activeParentTarget.children[0] && (
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Élève : <strong>{activeParentTarget.children[0].first_name} {activeParentTarget.children[0].last_name}</strong> (Classe: {activeParentTarget.children[0].class?.name || '-'})
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveParentContact}
+                    disabled={savingContact}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 disabled:opacity-50 transition shadow-2xs"
+                    title="Enregistrer les modifications directement dans la fiche du parent"
+                  >
+                    <Save size={13} />
+                    <span>{savingContact ? 'Enregistrement...' : 'Enregistrer dans fiche parent'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {contactSaveNotice && (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-semibold flex items-center gap-1.5">
+                  <Check size={14} className="text-emerald-600" />
+                  {contactSaveNotice}
+                </div>
               )}
+
+              {/* Single Phone vs Separate WhatsApp/SMS Toggle */}
+              <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5">
+                  <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                    <Phone size={13} className="text-blue-600" />
+                    Numéro(s) de contact du parent
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer bg-slate-50 px-2 py-1 rounded-lg border border-slate-200 text-[11px] font-semibold text-slate-700 hover:bg-slate-100">
+                    <input
+                      type="checkbox"
+                      checked={contactIsSingleNumber}
+                      onChange={e => {
+                        const checked = e.target.checked;
+                        setContactIsSingleNumber(checked);
+                        if (checked) {
+                          setContactWhatsappPhone('');
+                        }
+                      }}
+                      className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-3.5 w-3.5"
+                    />
+                    <span>Un seul numéro pour tout (WhatsApp & Appels/SMS)</span>
+                  </label>
+                </div>
+
+                {contactIsSingleNumber ? (
+                  <div>
+                    <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                      Numéro unique (WhatsApp, SMS & Appels)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        value={contactMainPhone}
+                        onChange={e => setContactMainPhone(e.target.value)}
+                        placeholder="Ex: 0708091011 ou +225 0708091011"
+                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 pl-8 text-xs font-mono font-medium focus:bg-white focus:border-blue-500 focus:outline-none"
+                      />
+                      <Phone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Tous les messages WhatsApp, SMS et appels utiliseront ce numéro unique.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                        Numéro Appels & SMS Direct
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          value={contactMainPhone}
+                          onChange={e => setContactMainPhone(e.target.value)}
+                          placeholder="Ex: 0708091011"
+                          className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 pl-8 text-xs font-mono font-medium focus:bg-white focus:border-blue-500 focus:outline-none"
+                        />
+                        <Phone size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-semibold text-emerald-800 block mb-1">
+                        Numéro Dédié WhatsApp
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          value={contactWhatsappPhone}
+                          onChange={e => setContactWhatsappPhone(e.target.value)}
+                          placeholder="Ex: 0501020304"
+                          className="w-full rounded-xl border border-emerald-300 bg-emerald-50/20 px-3 py-2 pl-8 text-xs font-mono font-medium focus:bg-white focus:border-emerald-500 focus:outline-none"
+                        />
+                        <MessageCircle size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-emerald-600" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+                    Email du parent (Optionnel)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="email"
+                      value={contactEmail}
+                      onChange={e => setContactEmail(e.target.value)}
+                      placeholder="Ex: parent@email.com"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-2 pl-8 text-xs focus:bg-white focus:border-blue-500 focus:outline-none"
+                    />
+                    <Mail size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Channel Switcher */}

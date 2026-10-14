@@ -4,7 +4,7 @@ import type { Column } from '../../../components/common/DataTable';
 import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
 import FormField from '../../../components/common/FormField';
-import { formatCurrency, formatDate } from '../../../lib/utils';
+import { formatCurrency, formatDate, parsePhoneNumbers } from '../../../lib/utils';
 import { AlertTriangle, Bell, Mail, MessageSquare, Phone, Printer, Send } from 'lucide-react';
 import { buildStudentAccountStatementHtml, openPrintPreview } from '../../../lib/printableDocuments';
 import { resolveStudentFinance } from '../../../lib/financePlanResolver';
@@ -154,7 +154,9 @@ export default function StudentDebts({
   function cleanPhone(rawPhone?: string): string {
     if (!rawPhone) return '';
     let p = rawPhone.replace(/[^\d+]/g, '');
-    if (p.startsWith('+')) {
+    if (p.startsWith('00')) {
+      p = p.substring(2);
+    } else if (p.startsWith('+')) {
       p = p.substring(1);
     } else if (p.length === 10 || p.length === 8) {
       // Default to Ivory Coast (+225) if standard local number
@@ -191,13 +193,17 @@ export default function StudentDebts({
     if (!selectedStudent) return;
     setSendingAlert(true);
 
-    const phone = cleanPhone(selectedStudent.parentPhone);
+    const parsed = parsePhoneNumbers(selectedStudent.parentPhone || '');
+    const waNumber = parsed.isSingleNumber ? parsed.mainPhone : (parsed.whatsappPhone || parsed.mainPhone);
+    const smsNumber = parsed.mainPhone;
+
+    const phone = cleanPhone(alertChannel === 'whatsapp' ? waNumber : smsNumber);
     const parentEmail = selectedStudent.parents?.[0]?.parent?.email || selectedStudent.email;
 
     try {
       if (alertChannel === 'whatsapp') {
         if (!phone) {
-          alert('Numéro de téléphone du parent manquant ou invalide.');
+          alert('Numéro WhatsApp du parent manquant ou invalide.');
           setSendingAlert(false);
           return;
         }
@@ -205,7 +211,7 @@ export default function StudentDebts({
         window.open(waUrl, '_blank');
       } else if (alertChannel === 'sms') {
         if (!phone) {
-          alert('Numéro de téléphone du parent manquant ou invalide.');
+          alert('Numéro de téléphone / SMS du parent manquant ou invalide.');
           setSendingAlert(false);
           return;
         }
@@ -535,9 +541,32 @@ export default function StudentDebts({
                 <p>
                   Nom : <strong>{selectedStudent.parentName}</strong>
                 </p>
-                <p className="mt-1">
-                  Téléphone : <strong>{selectedStudent.parentPhone || 'Non renseigné'}</strong>
-                </p>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="text-slate-500">Téléphone :</span>
+                  {selectedStudent.parentPhone ? (
+                    (() => {
+                      const p = parsePhoneNumbers(selectedStudent.parentPhone);
+                      if (p.isSingleNumber) {
+                        return (
+                          <span className="font-bold text-slate-800 font-mono flex items-center gap-1.5">
+                            📞 {p.mainPhone}
+                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                              Numéro unique (WhatsApp/SMS)
+                            </span>
+                          </span>
+                        );
+                      }
+                      return (
+                        <div className="flex items-center gap-2 font-mono font-semibold flex-wrap">
+                          <span>📞 {p.mainPhone}</span>
+                          {p.whatsappPhone && <span className="text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">💬 WA: {p.whatsappPhone}</span>}
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <span className="text-slate-400 italic">Non renseigné</span>
+                  )}
+                </div>
               </div>
             </FormField>
 

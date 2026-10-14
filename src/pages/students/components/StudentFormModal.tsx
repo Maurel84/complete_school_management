@@ -2,13 +2,14 @@ import { ChangeEvent, useEffect, useState } from 'react';
 import Modal from '../../../components/common/Modal';
 import FormField from '../../../components/common/FormField';
 import { supabase } from '../../../lib/supabase';
-import { SEX_OPTIONS, STATUS_OPTIONS } from '../../../lib/utils';
+import { SEX_OPTIONS, STATUS_OPTIONS, generateMatricule, parsePhoneNumbers, formatCombinedPhone } from '../../../lib/utils';
 import { sanitizeDocumentName } from '../../../lib/printableDocuments';
-import { Camera, ImageOff, Upload, UserCheck } from 'lucide-react';
+import { Camera, ImageOff, Upload, UserCheck, Sparkles, MessageCircle, Phone } from 'lucide-react';
 import type { Class, Student } from '../../../types';
 import type { StudentFormInput } from '../../../hooks/useStudents';
 
 const EMPTY_STUDENT_FORM: StudentFormInput = {
+  matricule: '',
   first_name: '',
   last_name: '',
   date_of_birth: '',
@@ -73,6 +74,11 @@ export default function StudentFormModal({
   const [parentsList, setParentsList] = useState<ParentWithChildren[]>([]);
   const [loadingParents, setLoadingParents] = useState(false);
 
+  // Parent contact states
+  const [parentMainPhone, setParentMainPhone] = useState('');
+  const [parentWhatsappPhone, setParentWhatsappPhone] = useState('');
+  const [parentIsSingleNumber, setParentIsSingleNumber] = useState(true);
+
   useEffect(() => {
     if (!isOpen || !schoolId) return;
 
@@ -106,6 +112,7 @@ export default function StudentFormModal({
   useEffect(() => {
     if (student) {
       setForm({
+        matricule: student.matricule || '',
         first_name: student.first_name || '',
         last_name: student.last_name || '',
         date_of_birth: student.date_of_birth || '',
@@ -133,7 +140,7 @@ export default function StudentFormModal({
       // Try fetching linked primary parent for existing student
       supabase
         .from('student_parents')
-        .select('parent_id, relationship')
+        .select('parent_id, relationship, parent:parents(*)')
         .eq('student_id', student.id)
         .order('is_primary', { ascending: false })
         .limit(1)
@@ -145,10 +152,20 @@ export default function StudentFormModal({
               selected_parent_id: data[0].parent_id,
               relationship: data[0].relationship || 'Père/Mère',
             }));
+            const rawParent: any = data[0].parent;
+            const parentObj = Array.isArray(rawParent) ? rawParent[0] : rawParent;
+            const pPhone = parentObj?.phone || student.phone || '';
+            const parsed = parsePhoneNumbers(pPhone);
+            setParentMainPhone(parsed.mainPhone);
+            setParentWhatsappPhone(parsed.whatsappPhone);
+            setParentIsSingleNumber(parsed.isSingleNumber);
           }
         });
     } else {
       setForm(EMPTY_STUDENT_FORM);
+      setParentMainPhone('');
+      setParentWhatsappPhone('');
+      setParentIsSingleNumber(true);
     }
     setNotice(null);
   }, [student, isOpen]);
@@ -189,7 +206,12 @@ export default function StudentFormModal({
     setLocalSaving(true);
     setNotice(null);
     try {
-      await onSave(form);
+      const finalParentPhone = formatCombinedPhone(parentMainPhone, parentWhatsappPhone, parentIsSingleNumber);
+      const updatedForm: StudentFormInput = {
+        ...form,
+        new_parent_phone: finalParentPhone,
+      };
+      await onSave(updatedForm);
     } catch (error: any) {
       setNotice(error.message || "Une erreur est survenue lors de l'enregistrement de l'élève.");
     } finally {
@@ -227,6 +249,43 @@ export default function StudentFormModal({
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {/* Numéro Matricule (National Ministère ou Interne) */}
+          <div className="md:col-span-2 rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <label className="text-xs font-bold uppercase tracking-wider text-blue-900">
+                Numéro Matricule de l'Élève (National Ministère ou Interne)
+              </label>
+              <span className="text-[11px] font-semibold text-blue-700 bg-white px-2.5 py-0.5 rounded-full border border-blue-200">
+                Reporté sur tous les documents officiels
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={form.matricule || ''}
+                onChange={e => handleFormChange('matricule', e.target.value.toUpperCase())}
+                placeholder="Ex: 2024123456K (Matricule National Ministère) ou ELV001-XXXX"
+                className="w-full rounded-xl border border-blue-300 bg-white px-3.5 py-2.5 text-sm font-mono font-bold text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const random = Math.floor(1000 + Math.random() * 9000);
+                  const count = Math.floor(1 + Math.random() * 999);
+                  handleFormChange('matricule', generateMatricule('ELV', count));
+                }}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-xl border border-blue-300 bg-white px-3 py-2.5 text-xs font-bold text-blue-700 hover:bg-blue-100 transition shadow-xs"
+                title="Générer automatiquement un matricule interne"
+              >
+                <Sparkles size={13} />
+                <span>Générer auto</span>
+              </button>
+            </div>
+            <p className="mt-1.5 text-xs text-blue-800 leading-relaxed">
+              💡 <strong>Pour les élèves à partir du CP1 :</strong> Saisissez ou modifiez le numéro matricule national officiel fourni par le Ministère de l'Éducation Nationale. Il sera reporté fidèlement sur la carte scolaire, les attestations, les bulletins et les diplômes. Pour la Maternelle, vous pouvez générer un matricule interne auto.
+            </p>
+          </div>
+
           <FormField label="Prénom" required>
             <input
               type="text"
@@ -460,15 +519,92 @@ export default function StudentFormModal({
                       className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none"
                     />
                   </FormField>
-                  <FormField label="Téléphone Contact" required>
-                    <input
-                      type="tel"
-                      value={form.new_parent_phone || ''}
-                      onChange={e => handleFormChange('new_parent_phone', e.target.value)}
-                      placeholder="Ex: 0708091011"
-                      className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none font-mono"
-                    />
-                  </FormField>
+                  <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                        <Phone size={14} className="text-blue-600" />
+                        Numéro(s) de contact du parent
+                      </label>
+                      <label className="inline-flex items-center gap-2 cursor-pointer bg-white px-2.5 py-1 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50">
+                        <input
+                          type="checkbox"
+                          checked={parentIsSingleNumber}
+                          onChange={e => {
+                            const checked = e.target.checked;
+                            setParentIsSingleNumber(checked);
+                            if (checked) {
+                              setParentWhatsappPhone('');
+                              handleFormChange('new_parent_phone', parentMainPhone);
+                            } else {
+                              handleFormChange('new_parent_phone', formatCombinedPhone(parentMainPhone, parentWhatsappPhone, false));
+                            }
+                          }}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 h-4 w-4"
+                        />
+                        <span>Un seul numéro pour tout (WhatsApp & Appels/SMS)</span>
+                      </label>
+                    </div>
+
+                    {parentIsSingleNumber ? (
+                      <div>
+                        <FormField label="Numéro unique (WhatsApp, SMS & Appels)" required>
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={parentMainPhone}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setParentMainPhone(val);
+                                handleFormChange('new_parent_phone', val);
+                              }}
+                              placeholder="Ex: 0708091011 ou +225 0708091011"
+                              className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 pl-9 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                            />
+                            <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          </div>
+                        </FormField>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          Ce numéro recevra à la fois les appels, les SMS et les messages WhatsApp automatiques.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <FormField label="Numéro Principal (Appels & SMS)" required>
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={parentMainPhone}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setParentMainPhone(val);
+                                handleFormChange('new_parent_phone', formatCombinedPhone(val, parentWhatsappPhone, false));
+                              }}
+                              placeholder="Ex: 0708091011"
+                              className="w-full rounded-2xl border border-blue-200 bg-white px-3 py-2.5 pl-9 text-sm focus:border-blue-500 focus:outline-none font-mono"
+                            />
+                            <Phone size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          </div>
+                        </FormField>
+
+                        <FormField label="Numéro Dédié WhatsApp (Optionnel)">
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={parentWhatsappPhone}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setParentWhatsappPhone(val);
+                                handleFormChange('new_parent_phone', formatCombinedPhone(parentMainPhone, val, false));
+                              }}
+                              placeholder="Ex: 0501020304"
+                              className="w-full rounded-2xl border border-emerald-300 bg-emerald-50/30 px-3 py-2.5 pl-9 text-sm focus:border-emerald-500 focus:outline-none font-mono"
+                            />
+                            <MessageCircle size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-600" />
+                          </div>
+                        </FormField>
+                      </div>
+                    )}
+                  </div>
                   <FormField label="Lien de Parenté">
                     <select
                       value={form.relationship || 'Père/Mère'}

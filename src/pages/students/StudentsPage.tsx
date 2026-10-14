@@ -1069,6 +1069,9 @@ export default function StudentsPage() {
           onPrintReceipt={handlePrintReceipt}
           onEditPayment={openEditPayment}
           onDeletePayment={handleDeletePayment}
+          onUpdateMatricule={async () => {
+            await studentsQuery.refetch();
+          }}
           isGeneralAdmin={canManageStudents}
           academicYear={academicYear}
           school={school}

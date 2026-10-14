@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react';
 import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
-import { formatDate, formatCurrency } from '../../../lib/utils';
-import { Download, Link2, Printer, CreditCard, Utensils, FileText, Edit, Trash2 } from 'lucide-react';
+import { formatDate, formatCurrency, parsePhoneNumbers } from '../../../lib/utils';
+import { Download, Link2, Printer, CreditCard, Utensils, FileText, Edit, Trash2, Check, X, Phone, MessageCircle } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
 import type { AcademicYear, Class, School, Student } from '../../../types';
 
 interface StudentDetailModalProps {
@@ -18,6 +20,7 @@ interface StudentDetailModalProps {
   onPrintReceipt?: (payment: any, isCanteen: boolean) => void;
   onEditPayment?: (payment: any, isCanteen: boolean) => void;
   onDeletePayment?: (payment: any, isCanteen: boolean) => void;
+  onUpdateMatricule?: (studentId: string, newMatricule: string) => Promise<void>;
   isGeneralAdmin?: boolean;
   academicYear: AcademicYear | null;
   school: School | null;
@@ -51,11 +54,66 @@ export default function StudentDetailModal({
   onPrintReceipt,
   onEditPayment,
   onDeletePayment,
+  onUpdateMatricule,
   isGeneralAdmin,
   academicYear,
   school,
 }: StudentDetailModalProps) {
   if (!student) return null;
+
+  const [localMatricule, setLocalMatricule] = useState(student.matricule || '');
+  const [isEditingMatricule, setIsEditingMatricule] = useState(false);
+  const [inputMatricule, setInputMatricule] = useState(student.matricule || '');
+  const [savingMatricule, setSavingMatricule] = useState(false);
+  const [matriculeError, setMatriculeError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (student) {
+      setLocalMatricule(student.matricule || '');
+      setInputMatricule(student.matricule || '');
+      setIsEditingMatricule(false);
+      setMatriculeError(null);
+    }
+  }, [student]);
+
+  async function handleSaveMatricule() {
+    const clean = inputMatricule.trim().toUpperCase();
+    if (!clean) {
+      setMatriculeError('Le numéro matricule ne peut pas être vide');
+      return;
+    }
+
+    setSavingMatricule(true);
+    setMatriculeError(null);
+
+    try {
+      const { error } = await supabase
+        .from('students')
+        .update({ matricule: clean })
+        .eq('id', student?.id);
+
+      if (error) {
+        if (error.code === '23505') {
+          throw new Error(`Ce matricule "${clean}" est déjà attribué à un autre élève.`);
+        }
+        throw error;
+      }
+
+      setLocalMatricule(clean);
+      if (student) {
+        student.matricule = clean;
+      }
+      setIsEditingMatricule(false);
+
+      if (onUpdateMatricule && student?.id) {
+        await onUpdateMatricule(student.id, clean);
+      }
+    } catch (err: any) {
+      setMatriculeError(err.message || 'Erreur lors de la mise à jour du matricule');
+    } finally {
+      setSavingMatricule(false);
+    }
+  }
 
   const billingOrPrimaryGuardian =
     familyLinks.find(link => link.is_billing_contact)?.parent ||
@@ -67,6 +125,7 @@ export default function StudentDetailModal({
     : (student as any).parent_name || 'Non renseigné';
 
   const guardianPhone = billingOrPrimaryGuardian?.phone || (student as any).parent_phone || 'Non renseigné';
+  const parsedGuardian = parsePhoneNumbers(guardianPhone);
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Fiche élève & Guichet d'actions" size="xl">
@@ -94,8 +153,65 @@ export default function StudentDetailModal({
                     <h3 className="display-font text-2xl font-semibold text-slate-900">
                       {student.first_name} {student.last_name}
                     </h3>
-                    <p className="mt-1 text-sm text-slate-500">Matricule: {student.matricule}</p>
-                    <div className="mt-3">
+
+                    {/* Zone Matricule Modifiable (National Ministère ou Scolaire) */}
+                    <div className="mt-1">
+                      {isEditingMatricule ? (
+                        <div className="flex items-center gap-1.5 bg-blue-50 p-1.5 rounded-xl border border-blue-200 mt-1">
+                          <input
+                            type="text"
+                            value={inputMatricule}
+                            onChange={e => setInputMatricule(e.target.value)}
+                            className="px-2.5 py-1 rounded-lg border border-blue-300 text-xs font-mono font-bold uppercase bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Ex: Matricule National CP1+"
+                            autoFocus
+                          />
+                          <button
+                            onClick={handleSaveMatricule}
+                            disabled={savingMatricule}
+                            className="p-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition shadow-2xs"
+                            title="Valider le matricule"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setIsEditingMatricule(false);
+                              setInputMatricule(localMatricule);
+                              setMatriculeError(null);
+                            }}
+                            className="p-1.5 rounded-lg bg-slate-200 text-slate-700 hover:bg-slate-300 transition"
+                            title="Annuler"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 font-mono">
+                            Matricule: {localMatricule}
+                          </span>
+                          {canManageStudents && (
+                            <button
+                              onClick={() => {
+                                setInputMatricule(localMatricule);
+                                setIsEditingMatricule(true);
+                                setMatriculeError(null);
+                              }}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded-lg border border-blue-200 transition"
+                              title="Modifier le matricule (ex: attribuer le matricule national du Ministère)"
+                            >
+                              <Edit size={12} /> Modifier (National CP1+)
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {matriculeError && (
+                        <p className="text-xs text-red-600 font-semibold mt-1">{matriculeError}</p>
+                      )}
+                    </div>
+
+                    <div className="mt-2.5">
                       <Badge status={student.status} label={statusLabels[student.status] || student.status} />
                     </div>
                   </div>
@@ -139,8 +255,16 @@ export default function StudentDetailModal({
                   <span className="font-medium text-slate-800">{student.nationality || '-'}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500">Téléphone :</span>{' '}
-                  <span className="font-medium text-slate-800">{student.phone || '-'}</span>
+                  <span className="text-slate-500">Téléphone contact :</span>{' '}
+                  <span className="font-medium text-slate-800">
+                    {student.phone ? (
+                      (() => {
+                        const p = parsePhoneNumbers(student.phone);
+                        if (p.isSingleNumber) return `📞 ${p.mainPhone} (Numéro unique)`;
+                        return `📞 ${p.mainPhone}${p.whatsappPhone ? ` | 💬 WA: ${p.whatsappPhone}` : ''}`;
+                      })()
+                    ) : '-'}
+                  </span>
                 </div>
                 <div>
                   <span className="text-slate-500">Email :</span>{' '}
@@ -379,7 +503,7 @@ export default function StudentDetailModal({
                         <p className="text-xs font-bold line-clamp-1 text-slate-100">{student.first_name}</p>
                         <div className="mt-1 flex items-center gap-1">
                           <span className="bg-white text-blue-900 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">{(student as any).class?.name || 'Classe'}</span>
-                          <span className="text-[8px] font-mono font-bold text-amber-200">{student.matricule}</span>
+                          <span className="text-[8px] font-mono font-bold text-amber-200">{localMatricule}</span>
                         </div>
                       </div>
 
@@ -391,7 +515,7 @@ export default function StudentDetailModal({
                     </div>
 
                     <div className="flex justify-between items-center text-[7.5px] border-t border-white/20 pt-1 relative z-10 font-medium">
-                      <span className="opacity-90">{student.matricule}</span>
+                      <span className="opacity-90">{localMatricule}</span>
                       <span className="text-amber-200 font-extrabold">Valable jusqu'au 30/06/2027</span>
                     </div>
                   </div>
@@ -418,7 +542,10 @@ export default function StudentDetailModal({
                       <div className="col-span-2 bg-blue-50/80 p-1 rounded border border-blue-200">
                         <span className="text-[6.5px] text-blue-700 block font-bold uppercase tracking-tight">Parent / Tuteur Légal & Contact</span>
                         <strong className="text-slate-900 truncate block text-[8px]">{guardianName}</strong>
-                        <span className="text-blue-700 font-extrabold text-[7.5px] block font-mono">📞 Contact: {guardianPhone}</span>
+                        <span className="text-blue-700 font-extrabold text-[7.5px] block font-mono">
+                          📞 {parsedGuardian.mainPhone || guardianPhone}
+                          {parsedGuardian.whatsappPhone && ` • 💬 WA: ${parsedGuardian.whatsappPhone}`}
+                        </span>
                       </div>
                     </div>
 

@@ -242,3 +242,48 @@ export const SCHOOL_ROLE_BLUEPRINTS = [
     note: 'Le portail parent/élève doit rester strictement limité à leurs propres données.',
   },
 ];
+
+export interface ParsedPhones {
+  mainPhone: string;
+  whatsappPhone: string;
+  isSingleNumber: boolean;
+}
+
+export function parsePhoneNumbers(phoneStr?: string | null): ParsedPhones {
+  if (!phoneStr) return { mainPhone: '', whatsappPhone: '', isSingleNumber: true };
+  const trimmed = String(phoneStr).trim();
+
+  if (trimmed.includes('WA:')) {
+    const parts = trimmed.split(/WA:\s*/i);
+    const main = parts[0].replace(/[\/\,\;\-]\s*$/, '').trim();
+    const wa = (parts[1] || '').replace(/^[\/\,\;\-]\s*/, '').trim();
+    return {
+      mainPhone: main,
+      whatsappPhone: wa || main,
+      isSingleNumber: !wa || main === wa,
+    };
+  }
+
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/');
+    const main = parts[0].trim();
+    const wa = (parts[1] || '').trim();
+    return {
+      mainPhone: main,
+      whatsappPhone: wa || main,
+      isSingleNumber: !wa || main === wa,
+    };
+  }
+
+  return { mainPhone: trimmed, whatsappPhone: trimmed, isSingleNumber: true };
+}
+
+export function formatCombinedPhone(mainPhone: string, whatsappPhone: string, isSingleNumber: boolean): string {
+  const cleanMain = mainPhone.trim();
+  const cleanWa = whatsappPhone.trim();
+  if (isSingleNumber || !cleanWa || cleanMain === cleanWa) {
+    return cleanMain;
+  }
+  return `${cleanMain} / WA:${cleanWa}`;
+}
+
