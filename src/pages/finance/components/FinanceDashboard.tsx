@@ -88,7 +88,10 @@ export default function FinanceDashboard({
   // General aggregates
   const totalExpected = expectedTuition + canteenExpected;
   const totalCollected = collectedTuition + collectedCanteen;
-  const totalRemaining = Math.max(0, totalExpected - totalCollected);
+  // Accurately sum individual student debts (matches Suivi des dettes exactly)
+  const totalRemaining = useMemo(() => {
+    return studentFinances.reduce((sum, sf) => sum + sf.remaining, 0);
+  }, [studentFinances]);
   const recoveryRate = totalExpected > 0 ? (totalCollected / totalExpected) * 100 : 0;
 
   // Revenues by level
@@ -195,7 +198,7 @@ export default function FinanceDashboard({
         <StatCard
           icon={<GraduationCap size={20} />}
           value={students.length}
-          label="Élèves actifs"
+          label="Élèves inscrits"
           color="blue"
         />
         <StatCard

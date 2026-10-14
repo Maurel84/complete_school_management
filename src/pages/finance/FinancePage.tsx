@@ -139,7 +139,6 @@ export default function FinancePage() {
           parents:student_parents(parent_id, relationship, parent:parents(id, first_name, last_name, phone, email))
         `)
         .eq('school_id', schoolId)
-        .eq('status', 'active')
         .order('last_name');
 
       if (error) throw error;

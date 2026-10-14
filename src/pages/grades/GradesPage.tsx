@@ -38,9 +38,9 @@ export default function GradesPage() {
     const sid = school!.id;
     const [gRes, subRes, stuRes, clsRes] = await Promise.all([
       supabase.from('grades').select('*').eq('school_id', sid).order('date', { ascending: false }),
-      supabase.from('subjects').select('*').eq('school_id', sid),
-      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).eq('status', 'active'),
-      supabase.from('classes').select('*').eq('school_id', sid),
+      supabase.from('subjects').select('*').eq('school_id', sid).order('name'),
+      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).order('last_name'),
+      supabase.from('classes').select('*').eq('school_id', sid).order('name'),
     ]);
     setGrades((gRes.data as Grade[]) || []);
     setSubjects((subRes.data as Subject[]) || []);

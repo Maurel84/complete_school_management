@@ -36,10 +36,10 @@ export default function AttendancePage() {
     setLoading(true);
     const sid = school!.id;
     const [attRes, discRes, stuRes, clsRes] = await Promise.all([
-      supabase.from('attendance').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(100),
-      supabase.from('discipline_records').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(50),
-      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).eq('status', 'active'),
-      supabase.from('classes').select('*').eq('school_id', sid),
+      supabase.from('attendance').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(1000),
+      supabase.from('discipline_records').select('*').eq('school_id', sid).order('date', { ascending: false }).limit(500),
+      supabase.from('students').select('id, first_name, last_name, matricule, class_id').eq('school_id', sid).order('last_name'),
+      supabase.from('classes').select('*').eq('school_id', sid).order('name'),
     ]);
     setAttendance((attRes.data as Attendance[]) || []);
     setDiscipline((discRes.data as DisciplineRecord[]) || []);
