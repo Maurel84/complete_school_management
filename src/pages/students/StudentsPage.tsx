@@ -30,6 +30,7 @@ import {
   GraduationCap,
   Plus,
   Printer,
+  ShieldCheck,
   Trash2,
   AlertTriangle,
   CopyCheck,
@@ -43,6 +44,7 @@ import StudentFormModal from './components/StudentFormModal';
 import StudentDetailModal from './components/StudentDetailModal';
 import FamilyModal from './components/FamilyModal';
 import AuditDuplicatesModal from './components/AuditDuplicatesModal';
+import AuditLogsViewerModal from './components/AuditLogsViewerModal';
 import PaymentFormModal from '../finance/components/PaymentFormModal';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
@@ -51,13 +53,23 @@ type StudentListItem = Student & { class?: Pick<Class, 'id' | 'name'>; family_co
 
 export default function StudentsPage() {
   const { school, academicYear } = useApp();
-  const { isAdmin, isSuperAdmin, isDirector, isSupervisor, profile } = useAuth();
+  const {
+    isAdmin,
+    isSuperAdmin,
+    isDirector,
+    isSupervisor,
+    isCashier,
+    isAccountant,
+    isTeacher,
+    profile,
+  } = useAuth();
 
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [familyModalOpen, setFamilyModalOpen] = useState(false);
   const [auditModalOpen, setAuditModalOpen] = useState(false);
+  const [auditLogsOpen, setAuditLogsOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 
   // Quick Action Modal states (Guichet Unique)
@@ -77,7 +89,20 @@ export default function StudentsPage() {
   const [savingEditPayment, setSavingEditPayment] = useState<boolean>(false);
 
   const isGeneralAdmin = isSuperAdmin || isAdmin;
-  const canManageStudents = isSuperAdmin || isAdmin || isDirector || isSupervisor;
+  // All school staff members have access to student actions (create, edit, payments, print)
+  const isStaff =
+    isSuperAdmin ||
+    isAdmin ||
+    isDirector ||
+    isSupervisor ||
+    isCashier ||
+    isAccountant ||
+    isTeacher ||
+    profile?.account_type === 'staff';
+  const canManageStudents = isStaff;
+
+  const actorRole = (Array.isArray(profile?.role) ? profile?.role[0]?.name : (profile?.role as any)?.name) || 'staff';
+  const actorName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || profile?.email || 'Utilisateur';
 
   // Custom Hooks with TanStack Query
   const {
@@ -293,6 +318,9 @@ export default function StudentsPage() {
     await recordAuditLog({
       schoolId: school.id,
       userId: profile?.id,
+      userName: actorName,
+      userEmail: profile?.email,
+      userRole: actorRole,
       action: mode === 'print' ? 'student_card_printed' : 'student_card_downloaded',
       entityType: 'student',
       entityId: selectedStudent.id,
@@ -349,6 +377,25 @@ export default function StudentsPage() {
         reference: payment.receipt_number || '',
       });
 
+      // Record audit log
+      await recordAuditLog({
+        schoolId: school.id,
+        userId: profile?.id,
+        userName: actorName,
+        userEmail: profile?.email,
+        userRole: actorRole,
+        action: 'payment_tuition_created',
+        entityType: 'payment',
+        entityId: payment.id,
+        details: {
+          receipt_number: payment.receipt_number,
+          amount: payload.amount,
+          student_id: payload.student_id,
+          student_name: studentName,
+          payment_method: payload.payment_method,
+        },
+      });
+
       setPaymentModalOpen(false);
       void studentsQuery.refetch();
 
@@ -388,6 +435,26 @@ export default function StudentsPage() {
         debitAccountNo: debitAcc,
         creditAccountNo: '708200',
         reference: payload.receipt_number || '',
+      });
+
+      // Record audit log
+      await recordAuditLog({
+        schoolId: school.id,
+        userId: profile?.id,
+        userName: actorName,
+        userEmail: profile?.email,
+        userRole: actorRole,
+        action: 'payment_canteen_created',
+        entityType: 'canteen_payment',
+        entityId: cp.id,
+        details: {
+          receipt_number: cp.receipt_number,
+          amount: payload.amount,
+          trimester: payload.trimester,
+          student_id: payload.student_id,
+          student_name: studentName,
+          payment_method: payload.payment_method,
+        },
       });
 
       setPaymentModalOpen(false);
@@ -454,6 +521,23 @@ export default function StudentsPage() {
       remaining: fin.remaining,
       installments: fin.schedule,
       paymentHistory: allPayments,
+    });
+
+    void recordAuditLog({
+      schoolId: school.id,
+      userId: profile?.id,
+      userName: actorName,
+      userEmail: profile?.email,
+      userRole: actorRole,
+      action: 'statement_printed',
+      entityType: 'student',
+      entityId: student.id,
+      details: {
+        student_name: `${student.first_name} ${student.last_name}`,
+        matricule: student.matricule,
+        total_paid: fin.totalPaid,
+        remaining: fin.remaining,
+      },
     });
 
     openPrintPreview(html);
@@ -545,6 +629,23 @@ export default function StudentsPage() {
       paymentHistory: [...tuitionHistory, ...canteenHistory],
     });
 
+    void recordAuditLog({
+      schoolId: school.id,
+      userId: profile?.id,
+      userName: actorName,
+      userEmail: profile?.email,
+      userRole: actorRole,
+      action: 'receipt_printed',
+      entityType: isCanteen ? 'canteen_payment' : 'payment',
+      entityId: p.id,
+      details: {
+        receipt_number: p.receipt_number,
+        amount: p.amount,
+        student_name: `${(student as any).first_name || ''} ${(student as any).last_name || ''}`.trim(),
+        is_canteen: isCanteen,
+      },
+    });
+
     openPrintPreview(html);
   }
 
@@ -560,7 +661,7 @@ export default function StudentsPage() {
   }
 
   async function handleSaveEditedPayment() {
-    if (!editingPayment) return;
+    if (!editingPayment || !school?.id) return;
     if (editPaymentAmount <= 0) {
       alert('Veuillez saisir un montant valide supérieur à 0.');
       return;
@@ -581,6 +682,29 @@ export default function StudentsPage() {
 
       if (error) throw error;
 
+      // Log the update action
+      await recordAuditLog({
+        schoolId: school.id,
+        userId: profile?.id,
+        userName: actorName,
+        userEmail: profile?.email,
+        userRole: actorRole,
+        action: 'payment_updated',
+        entityType: editingIsCanteen ? 'canteen_payment' : 'payment',
+        entityId: editingPayment.id,
+        details: {
+          receipt_number: editingPayment.receipt_number,
+          old_amount: editingPayment.amount,
+          new_amount: editPaymentAmount,
+          old_method: editingPayment.payment_method,
+          new_method: editPaymentMethod,
+          old_date: editingPayment.payment_date,
+          new_date: editPaymentDate,
+          notes: editPaymentNotes,
+          is_canteen: editingIsCanteen,
+        },
+      });
+
       alert('✅ Versement rectifié avec succès ! Le total et les restes de l\'élève sont mis à jour.');
       setEditPaymentModalOpen(false);
       setEditingPayment(null);
@@ -593,13 +717,13 @@ export default function StudentsPage() {
   }
 
   async function handleDeletePayment(payment: any, isCanteen: boolean) {
-    if (!isGeneralAdmin) {
-      alert("Seul l'administrateur général a le droit de supprimer une ligne de versement.");
+    if (!canManageStudents || !school?.id) {
+      alert("Vous n'avez pas l'autorisation d'annuler une ligne de versement.");
       return;
     }
 
     const typeLabel = isCanteen ? 'de cantine' : 'de scolarité';
-    const confirmMsg = `⚠️ ATTENTION ACTION IRRÉVERSIBLE (ADMINISTRATEUR) :\n\nVoulez-vous vraiment supprimer le versement ${typeLabel} N° ${payment.receipt_number} d'un montant de ${formatCurrency(payment.amount)} ?\n\nCette action va annuler l'encaissement et recalculer immédiatement le solde et les restes à payer de l'élève.`;
+    const confirmMsg = `⚠️ ATTENTION ACTION IRRÉVERSIBLE :\n\nVoulez-vous vraiment supprimer le versement ${typeLabel} N° ${payment.receipt_number} d'un montant de ${formatCurrency(payment.amount)} ?\n\nCette action va annuler l'encaissement et recalculer immédiatement le solde et les restes à payer de l'élève.`;
 
     if (!confirm(confirmMsg)) return;
 
@@ -615,6 +739,26 @@ export default function StudentsPage() {
         const { error } = await supabase.from('payments').delete().eq('id', payment.id);
         if (error) throw error;
       }
+
+      // Record deletion in audit logs
+      await recordAuditLog({
+        schoolId: school.id,
+        userId: profile?.id,
+        userName: actorName,
+        userEmail: profile?.email,
+        userRole: actorRole,
+        action: 'payment_deleted',
+        entityType: isCanteen ? 'canteen_payment' : 'payment',
+        entityId: payment.id,
+        details: {
+          receipt_number: payment.receipt_number,
+          deleted_amount: payment.amount,
+          payment_method: payment.payment_method,
+          payment_date: payment.payment_date,
+          notes: payment.notes,
+          is_canteen: isCanteen,
+        },
+      });
 
       alert('🗑️ Versement supprimé avec succès. Les soldes et totaux ont été recalculés.');
       void studentsQuery.refetch();
@@ -821,6 +965,16 @@ export default function StudentsPage() {
           <p className="mt-1 text-sm text-slate-500">{students.length} élève(s) inscrit(s)</p>
         </div>
         <div className="flex items-center gap-2">
+          {isGeneralAdmin && (
+            <button
+              onClick={() => setAuditLogsOpen(true)}
+              className="inline-flex items-center gap-2 rounded-2xl bg-indigo-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-900 shadow-2xs border border-indigo-800/50"
+              title="Consulter le journal d'audit et surveiller les actions de tous les utilisateurs"
+            >
+              <ShieldCheck size={16} className="text-emerald-400" />
+              <span>Journal d'Audit</span>
+            </button>
+          )}
           <button
             onClick={() => setAuditModalOpen(true)}
             className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition border shadow-2xs ${
@@ -915,7 +1069,7 @@ export default function StudentsPage() {
           onPrintReceipt={handlePrintReceipt}
           onEditPayment={openEditPayment}
           onDeletePayment={handleDeletePayment}
-          isGeneralAdmin={isGeneralAdmin}
+          isGeneralAdmin={canManageStudents}
           academicYear={academicYear}
           school={school}
         />
@@ -1047,6 +1201,13 @@ export default function StudentsPage() {
           setAuditModalOpen(false);
           openDetail(s);
         }}
+      />
+
+      {/* Journal d'Audit & Surveillance des Actions Utilisateurs */}
+      <AuditLogsViewerModal
+        isOpen={auditLogsOpen}
+        onClose={() => setAuditLogsOpen(false)}
+        schoolId={school?.id}
       />
     </div>
   );

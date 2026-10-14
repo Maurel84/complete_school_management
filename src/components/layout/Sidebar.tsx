@@ -25,7 +25,7 @@ import {
 
 const navItems = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard, roles: ['super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher'] },
-  { label: 'Élèves', path: '/students', icon: GraduationCap, roles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher'] },
+  { label: 'Élèves', path: '/students', icon: GraduationCap, roles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher', 'accountant', 'cashier'] },
   { label: 'Parents', path: '/parents', icon: Users, roles: ['super_admin', 'admin', 'director', 'supervisor'] },
   { label: 'Classes', path: '/classes', icon: School, roles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'] },
   { label: 'Fournitures & Livres', path: '/supplies', icon: BookOpen, roles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'] },

@@ -43,7 +43,7 @@ export const APP_MODULES: AppModule[] = [
     path: '/students',
     description: 'Dossiers eleves, photos, familles et cartes scolaires.',
     category: 'Scolarite',
-    defaultRoles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher', 'parent'],
+    defaultRoles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher', 'accountant', 'cashier', 'parent'],
   },
   {
     key: 'parents',
