@@ -5,9 +5,12 @@ import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
 import FormField from '../../../components/common/FormField';
 import { formatCurrency, formatDate } from '../../../lib/utils';
-import { AlertTriangle, Bell, Mail, MessageSquare, Phone, Send } from 'lucide-react';
+import { AlertTriangle, Bell, Mail, MessageSquare, Phone, Printer, Send } from 'lucide-react';
+import { buildStudentAccountStatementHtml, openPrintPreview } from '../../../lib/printableDocuments';
 
 interface StudentDebtsProps {
+  school?: any;
+  academicYearName?: string;
   students: any[];
   payments: any[];
   canteenPayments: any[];
@@ -17,6 +20,8 @@ interface StudentDebtsProps {
 }
 
 export default function StudentDebts({
+  school,
+  academicYearName = '2026-2027',
   students = [],
   payments = [],
   canteenPayments = [],
@@ -31,6 +36,53 @@ export default function StudentDebts({
   const [alertMessage, setAlertMessage] = useState('');
   const [sendingAlert, setSendingAlert] = useState(false);
   const [classFilter, setClassFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  function handlePrintStatement(studentRow: any) {
+    if (!school) {
+      alert("Informations de l'établissement introuvables.");
+      return;
+    }
+
+    // Merge payment histories chronologically
+    const allPayments = [
+      ...studentRow.tuitionHistory.map((p: any) => ({
+        receipt_number: p.receipt_number,
+        payment_date: p.payment_date,
+        payment_method: p.payment_method,
+        amount: Number(p.amount),
+        is_canteen: false,
+        description: 'Scolarité annuelle',
+      })),
+      ...studentRow.canteenHistory.map((p: any) => ({
+        receipt_number: p.receipt_number,
+        payment_date: p.payment_date,
+        payment_method: p.payment_method,
+        amount: Number(p.amount),
+        is_canteen: true,
+        description: `Cantine scolaire - Trimestre ${p.trimester}`,
+      })),
+    ].sort((a, b) => new Date(a.payment_date).getTime() - new Date(b.payment_date).getTime());
+
+    const html = buildStudentAccountStatementHtml({
+      school,
+      student: {
+        first_name: studentRow.first_name,
+        last_name: studentRow.last_name,
+        matricule: studentRow.matricule,
+      },
+      className: studentRow.class?.name,
+      academicYearName,
+      planName: studentRow.planName,
+      totalExpected: studentRow.expected,
+      totalPaid: studentRow.paid,
+      remaining: studentRow.remaining,
+      installments: studentRow.installments,
+      paymentHistory: allPayments,
+    });
+
+    openPrintPreview(html);
+  }
 
   // Process debt statistics per student
   const studentDebtsList = useMemo(() => {
@@ -130,11 +182,18 @@ export default function StudentDebts({
     });
   }, [students, payments, canteenPayments, studentFees, studentInstallments]);
 
-  // Filter students based on selection
+  // Filter students based on selection and status
   const filteredStudents = useMemo(() => {
-    if (!classFilter) return studentDebtsList;
-    return studentDebtsList.filter(s => s.class_id === classFilter);
-  }, [studentDebtsList, classFilter]);
+    return studentDebtsList.filter(s => {
+      const matchClass = !classFilter || s.class_id === classFilter;
+      const matchStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'debt' && s.remaining > 0) ||
+        (statusFilter === 'late' && s.delayAmount > 0) ||
+        (statusFilter === 'paid' && s.status === 'paid');
+      return matchClass && matchStatus;
+    });
+  }, [studentDebtsList, classFilter, statusFilter]);
 
   function openDetails(row: any) {
     setSelectedStudent(row);
@@ -213,18 +272,26 @@ export default function StudentDebts({
       key: 'actions',
       label: 'Actions',
       render: row => (
-        <div className="flex gap-1">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => handlePrintStatement(row)}
+            title="Imprimer le relevé de compte complet de l'élève"
+            className="rounded-xl p-2 text-emerald-700 hover:bg-emerald-50 transition border border-emerald-200/60 bg-emerald-50/30"
+          >
+            <Printer size={15} />
+          </button>
           <button
             onClick={() => openDetails(row)}
-            className="rounded-xl p-2 text-blue-600 hover:bg-blue-50 transition"
+            className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 transition border border-blue-200/60 bg-blue-50/20"
           >
             Détails
           </button>
           <button
             onClick={() => openAlert(row)}
+            title="Relancer le parent"
             className="rounded-xl p-2 text-amber-600 hover:bg-amber-50 transition"
           >
-            <Bell size={16} />
+            <Bell size={15} />
           </button>
         </div>
       ),
@@ -235,19 +302,32 @@ export default function StudentDebts({
     <div className="space-y-6 animate-in">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="display-font text-2xl font-semibold text-slate-900">Suivi des dettes</h2>
+          <h2 className="display-font text-2xl font-semibold text-slate-900">Suivi des Dettes & Relevés Financiers</h2>
           <p className="text-sm text-slate-500">
-            Détails des tranches de scolarité, retards exigibles et cantine.
+            Détails des tranches de scolarité, retards exigibles, cantine et relevés de compte individuels.
           </p>
         </div>
 
-        <div className="w-full sm:max-w-xs">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Status Filter */}
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 focus:border-slate-900 focus:outline-none"
+          >
+            <option value="all">Tous les états</option>
+            <option value="debt">Avec Reste à payer (Dette)</option>
+            <option value="late">En Retard exigible</option>
+            <option value="paid">Soldés (Payés)</option>
+          </select>
+
+          {/* Class Filter */}
           <select
             value={classFilter}
             onChange={e => setClassFilter(e.target.value)}
-            className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none"
+            className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-700 focus:border-slate-900 focus:outline-none"
           >
-            <option value="">Filtrer par classe (Toutes)</option>
+            <option value="">Toutes les classes</option>
             {classes.map(c => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -271,6 +351,24 @@ export default function StudentDebts({
           onClose={() => setDetailsOpen(false)}
           title={`Compte financier - ${selectedStudent.first_name} ${selectedStudent.last_name}`}
           size="lg"
+          actions={
+            <div className="flex justify-between w-full items-center">
+              <button
+                type="button"
+                onClick={() => handlePrintStatement(selectedStudent)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition"
+              >
+                <Printer size={15} /> Imprimer Relevé Officiel
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailsOpen(false)}
+                className="rounded-xl px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+              >
+                Fermer
+              </button>
+            </div>
+          }
         >
           <div className="space-y-6">
             {/* Overview */}

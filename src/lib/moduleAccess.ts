@@ -5,6 +5,7 @@ export type ModuleKey =
   | 'students'
   | 'parents'
   | 'classes'
+  | 'supplies'
   | 'finance'
   | 'cash'
   | 'accounting'
@@ -59,6 +60,14 @@ export const APP_MODULES: AppModule[] = [
     description: 'Classes de la Petite Section au CM2.',
     category: 'Scolarite',
     defaultRoles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'],
+  },
+  {
+    key: 'supplies',
+    label: 'Fournitures & Livres',
+    path: '/supplies',
+    description: 'Listes de manuels scolaires et fournitures par classe et par an.',
+    category: 'Scolarite',
+    defaultRoles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor', 'parent'],
   },
   {
     key: 'finance',

@@ -579,6 +579,8 @@ export default function FinancePage() {
 
       {tab === 'debts' && (
         <StudentDebts
+          school={school}
+          academicYearName={academicYears.find(y => y.id === yearId)?.name || '2026-2027'}
           students={studentsQuery.data || []}
           payments={paymentsQuery.data || []}
           canteenPayments={canteenPaymentsQuery.data || []}

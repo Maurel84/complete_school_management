@@ -8,6 +8,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import StudentsPage from './pages/students/StudentsPage';
 import ParentsPage from './pages/parents/ParentsPage';
 import ClassesPage from './pages/classes/ClassesPage';
+import SchoolSuppliesPage from './pages/supplies/SchoolSuppliesPage';
 import FinancePage from './pages/finance/FinancePage';
 import CashPage from './pages/cash/CashPage';
 import AccountingPage from './pages/accounting/AccountingPage';
@@ -130,6 +131,7 @@ export default function App() {
         <Route path="/students" element={<ModuleRoute moduleKey="students"><StudentsPage /></ModuleRoute>} />
         <Route path="/parents" element={<ModuleRoute moduleKey="parents"><ParentsPage /></ModuleRoute>} />
         <Route path="/classes" element={<ModuleRoute moduleKey="classes"><ClassesPage /></ModuleRoute>} />
+        <Route path="/supplies" element={<ModuleRoute moduleKey="supplies"><SchoolSuppliesPage /></ModuleRoute>} />
         <Route path="/finance" element={<ModuleRoute moduleKey="finance"><FinancePage /></ModuleRoute>} />
         <Route path="/cash" element={<ModuleRoute moduleKey="cash"><CashPage /></ModuleRoute>} />
         <Route path="/accounting" element={<ModuleRoute moduleKey="accounting"><AccountingPage /></ModuleRoute>} />

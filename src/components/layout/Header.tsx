@@ -34,6 +34,7 @@ const moduleIcons: Record<ModuleKey, typeof LayoutDashboard> = {
   students: GraduationCap,
   parents: Users,
   classes: School,
+  supplies: BookOpen,
   finance: DollarSign,
   cash: Wallet,
   accounting: Calculator,

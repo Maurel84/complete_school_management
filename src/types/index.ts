@@ -458,3 +458,20 @@ export interface AlertItem {
   message: string;
   date: string;
 }
+
+export interface SchoolSupplyItem {
+  id: string;
+  school_id: string;
+  academic_year_id: string;
+  class_id?: string;
+  level_id?: string;
+  item_name: string;
+  category: 'manuel' | 'cahier' | 'papeterie' | 'geometrie' | 'uniforme' | 'autre';
+  quantity: number;
+  unit_price: number;
+  is_mandatory: boolean;
+  notes?: string;
+  created_at?: string;
+  class?: Class;
+  academic_year?: AcademicYear;
+}

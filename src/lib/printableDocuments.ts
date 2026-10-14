@@ -1667,3 +1667,365 @@ export function buildTrialBalanceHtml({
   );
 }
 
+export function buildStudentAccountStatementHtml({
+  school,
+  student,
+  className,
+  academicYearName = '2026-2027',
+  planName,
+  totalExpected,
+  totalPaid,
+  remaining,
+  installments = [],
+  paymentHistory = [],
+}: {
+  school: School;
+  student: PrintableStudent;
+  className?: string;
+  academicYearName?: string;
+  planName?: string;
+  totalExpected: number;
+  totalPaid: number;
+  remaining: number;
+  installments?: { installment_number: number; label: string; amount: number; due_date: string }[];
+  paymentHistory?: { receipt_number: string; payment_date: string; payment_method: string; amount: number; is_canteen?: boolean; description?: string }[];
+}) {
+  const title = `Relevé de compte - ${student.first_name} ${student.last_name}`;
+  const nowFormatted = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+
+  // Chronological installments status calculation
+  let runningPaid = totalPaid;
+  const enrichedInstallments = installments.map(inst => {
+    const amt = Number(inst.amount) || 0;
+    const paidForThisInst = Math.min(amt, runningPaid);
+    const rem = Math.max(0, amt - paidForThisInst);
+    runningPaid -= paidForThisInst;
+
+    let statusLabel = 'Non Payé';
+    let statusBg = '#fee2e2';
+    let statusColor = '#991b1b';
+    if (paidForThisInst >= amt) {
+      statusLabel = 'Soldé';
+      statusBg = '#dcfce7';
+      statusColor = '#166534';
+    } else if (paidForThisInst > 0) {
+      statusLabel = 'Partiel';
+      statusBg = '#fef3c7';
+      statusColor = '#92400e';
+    }
+
+    return {
+      ...inst,
+      paid: paidForThisInst,
+      remaining: rem,
+      statusLabel,
+      statusBg,
+      statusColor,
+    };
+  });
+
+  return wrapDocumentWithHeader(
+    school,
+    `RELEVÉ DE COMPTE FINANCIER ÉLÈVE`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      
+      <!-- Top Student info cards -->
+      <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px; margin-bottom: 20px;">
+        <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 12px; padding: 14px;">
+          <p style="margin: 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;">Informations Élève</p>
+          <h2 style="margin: 4px 0 6px 0; font-size: 18px; color: #0f172a; font-weight: 800;">
+            ${escapeHtml(student.last_name.toUpperCase())} ${escapeHtml(student.first_name)}
+          </h2>
+          <div style="display: flex; gap: 15px; font-size: 11px;">
+            <span>Matricule : <strong style="font-family: monospace; color: #1e3a8a;">${escapeHtml(student.matricule)}</strong></span>
+            <span>Classe : <strong style="color: #1e3a8a;">${escapeHtml(className || '-')}</strong></span>
+            <span>Année Scolaire : <strong>${escapeHtml(academicYearName)}</strong></span>
+          </div>
+          ${planName ? `<p style="margin: 6px 0 0 0; font-size: 11px; color: #475569;">Plan / Formule : <strong>${escapeHtml(planName)}</strong></p>` : ''}
+        </div>
+
+        <div style="background: ${remaining === 0 ? '#f0fdf4' : remaining > 0 && totalPaid > 0 ? '#fffbeb' : '#fef2f2'}; border: 1.5px solid ${remaining === 0 ? '#86efac' : remaining > 0 && totalPaid > 0 ? '#fde68a' : '#fecaca'}; border-radius: 12px; padding: 14px; text-align: center; display: flex; flex-direction: column; justify-content: center;">
+          <p style="margin: 0; font-size: 10px; font-weight: bold; text-transform: uppercase; color: #64748b;">Situation Globale</p>
+          <p style="margin: 4px 0 0 0; font-size: 18px; font-weight: 900; color: ${remaining === 0 ? '#15803d' : remaining > 0 && totalPaid > 0 ? '#b45309' : '#b91c1c'};">
+            ${remaining === 0 ? 'COMPTE SOLDÉ' : remaining > 0 && totalPaid > 0 ? 'SOLDE PARTIEL' : 'TOTAL IMPAYÉ'}
+          </p>
+          <p style="margin: 4px 0 0 0; font-size: 10px; color: #64748b;">Édité le ${escapeHtml(nowFormatted)}</p>
+        </div>
+      </div>
+
+      <!-- Financial Balance KPI Blocks -->
+      <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 22px;">
+        <div style="background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 10px; padding: 12px; text-align: center;">
+          <span style="font-size: 10px; text-transform: uppercase; color: #475569; font-weight: 700; display: block;">Total Frais Exigibles</span>
+          <strong style="font-size: 18px; color: #0f172a; margin-top: 4px; display: block; font-family: monospace;">${escapeHtml(formatCurrency(totalExpected))}</strong>
+        </div>
+        <div style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 10px; padding: 12px; text-align: center;">
+          <span style="font-size: 10px; text-transform: uppercase; color: #065f46; font-weight: 700; display: block;">Total Déjà Encaissé</span>
+          <strong style="font-size: 18px; color: #047857; margin-top: 4px; display: block; font-family: monospace;">${escapeHtml(formatCurrency(totalPaid))}</strong>
+        </div>
+        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 10px; padding: 12px; text-align: center;">
+          <span style="font-size: 10px; text-transform: uppercase; color: #991b1b; font-weight: 700; display: block;">Solde Restant à Régulariser</span>
+          <strong style="font-size: 18px; color: #b91c1c; margin-top: 4px; display: block; font-family: monospace;">${escapeHtml(formatCurrency(remaining))}</strong>
+        </div>
+      </div>
+
+      <!-- Section 1: Échéancier officiel des tranches -->
+      ${
+        enrichedInstallments.length > 0
+          ? `
+          <div style="margin-bottom: 22px;">
+            <h3 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1.5px solid #bfdbfe; padding-bottom: 4px;">
+              1. Échéancier contractuel des tranches de paiement
+            </h3>
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr style="background: #1e3a8a; color: white; text-align: left;">
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a;">Tranche / Versement</th>
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a; text-align: center; width: 110px;">Date d'échéance</th>
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a; text-align: right; width: 110px;">Montant Attendu</th>
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a; text-align: right; width: 110px;">Déjà Versé</th>
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a; text-align: right; width: 110px;">Reste Dû</th>
+                  <th style="padding: 7px 10px; border: 1px solid #1e3a8a; text-align: center; width: 90px;">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${enrichedInstallments
+                  .map(
+                    (inst, idx) => `
+                  <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #0f172a;">${escapeHtml(inst.label)}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center;">${escapeHtml(formatDate(inst.due_date))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">${escapeHtml(formatCurrency(inst.amount))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #047857; font-weight: bold;">${escapeHtml(formatCurrency(inst.paid))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; color: #b91c1c; font-weight: bold;">${escapeHtml(formatCurrency(inst.remaining))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center;">
+                      <span style="background: ${inst.statusBg}; color: ${inst.statusColor}; padding: 3px 8px; border-radius: 6px; font-size: 9.5px; font-weight: 800; text-transform: uppercase;">
+                        ${inst.statusLabel}
+                      </span>
+                    </td>
+                  </tr>
+                `,
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </div>
+          `
+          : ''
+      }
+
+      <!-- Section 2: Historique chronologique des règlements effectués -->
+      <div style="margin-bottom: 25px;">
+        <h3 style="margin: 0 0 8px 0; font-size: 12px; font-weight: 800; color: #1e3a8a; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1.5px solid #bfdbfe; padding-bottom: 4px;">
+          2. Historique complet des règlements et encaissements enregistrés
+        </h3>
+        ${
+          paymentHistory.length === 0
+            ? `<p style="font-size: 11px; color: #64748b; font-style: italic; padding: 10px 0;">Aucun versement n'a été enregistré à ce jour pour cet élève.</p>`
+            : `
+            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr style="background: #0f766e; color: white; text-align: left;">
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e; width: 35px; text-align: center;">N°</th>
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e; width: 100px; text-align: center;">Date</th>
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e; width: 130px;">N° Reçu / Réf</th>
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e;">Nature de l'encaissement</th>
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e; width: 110px;">Mode</th>
+                  <th style="padding: 7px 10px; border: 1px solid #0f766e; text-align: right; width: 120px;">Montant Versé</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${paymentHistory
+                  .map(
+                    (p, idx) => `
+                  <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold;">${idx + 1}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: center;">${escapeHtml(formatDate(p.payment_date))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: bold; color: #1e3a8a;">${escapeHtml(p.receipt_number)}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1;">${escapeHtml(p.description || (p.is_canteen ? 'Cantine scolaire' : 'Frais de scolarité / inscription'))}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-transform: capitalize;">${escapeHtml(p.payment_method)}</td>
+                    <td style="padding: 7px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: 800; color: #047857;">${escapeHtml(formatCurrency(p.amount))}</td>
+                  </tr>
+                `,
+                  )
+                  .join('')}
+                <tr style="background: #f0fdf4; font-weight: bold; border-top: 2px solid #0f766e;">
+                  <td colspan="5" style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: right;">TOTAL DES VERSEMENTS EFFECTUÉS :</td>
+                  <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-size: 12px; color: #047857;">${escapeHtml(formatCurrency(totalPaid))}</td>
+                </tr>
+              </tbody>
+            </table>
+            `
+        }
+      </div>
+
+      <!-- Signatures -->
+      <div style="margin-top: 35px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">Le Responsable Financier / Parent</p>
+        </div>
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">La Comptabilité / La Caisse</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
+
+export function buildClassSupplyListHtml({
+  school,
+  className,
+  academicYearName = '2026-2027',
+  items,
+}: {
+  school: School;
+  className: string;
+  academicYearName?: string;
+  items: {
+    item_name: string;
+    category: string;
+    quantity: number;
+    unit_price: number;
+    is_mandatory: boolean;
+    notes?: string;
+  }[];
+}) {
+  const title = `Liste des fournitures - ${className}`;
+  const totalBudget = items.reduce((sum, item) => sum + (Number(item.quantity) * Number(item.unit_price)), 0);
+  const mandatoryCount = items.filter(i => i.is_mandatory).length;
+
+  const categoryLabels: Record<string, string> = {
+    manuel: '📚 Manuels & Livres au programme',
+    cahier: '📓 Cahiers',
+    papeterie: '✏️ Papeterie & Écriture',
+    geometrie: '📐 Matériel géométrique & Dessin',
+    uniforme: '👔 Tenues & Accessoires',
+    autre: '📦 Autres fournitures',
+  };
+
+  // Group items by category
+  const grouped: Record<string, typeof items> = {};
+  items.forEach(it => {
+    const cat = it.category || 'autre';
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(it);
+  });
+
+  return wrapDocumentWithHeader(
+    school,
+    `LISTE OFFICIELLE DES FOURNITURES & MANUELS SCOLAIRES`,
+    `
+    <div style="font-family: system-ui, -apple-system, sans-serif; color: #1e293b; padding: 10px;">
+      
+      <!-- Top banner -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #2563eb; padding-bottom: 10px; margin-bottom: 15px;">
+        <div>
+          <h2 style="margin: 0; font-size: 19px; color: #1e3a8a; text-transform: uppercase; font-weight: 900;">
+            CLASSE : ${escapeHtml(className.toUpperCase())}
+          </h2>
+          <p style="margin: 3px 0 0 0; font-size: 12px; color: #64748b;">
+            Année Académique : <strong>${escapeHtml(academicYearName)}</strong>
+          </p>
+        </div>
+        <div style="text-align: right; background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 10px; padding: 8px 14px;">
+          <p style="margin: 0; font-size: 10px; font-weight: bold; color: #1e40af; text-transform: uppercase;">Budget Estimatif Total</p>
+          <p style="margin: 2px 0 0 0; font-size: 16px; font-weight: 900; color: #1e3a8a; font-family: monospace;">
+            ${escapeHtml(formatCurrency(totalBudget))}
+          </p>
+          <p style="margin: 2px 0 0 0; font-size: 9.5px; color: #64748b;">
+            ${items.length} articles (${mandatoryCount} obligatoires)
+          </p>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 15px; font-size: 11px; color: #475569; background: #f8fafc; border-left: 4px solid #2563eb; padding: 8px 12px; border-radius: 0 8px 8px 0;">
+        <strong>Chers Parents :</strong> Prière de vous conformer rigoureusement aux titres et éditions indiqués ci-dessous pour assurer un bon suivi pédagogique de l'élève dès le premier jour de la rentrée des classes.
+      </div>
+
+      <!-- Categories & Items Table -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 20px;">
+        <thead>
+          <tr style="background: #1e3a8a; color: white; text-align: left;">
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 35px; text-align: center;">N°</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a;">Désignation du Manuel / Fourniture</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 140px;">Catégorie</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 55px; text-align: center;">Qté</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 95px; text-align: right;">Prix Indicatif</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 105px; text-align: right;">Total Ligne</th>
+            <th style="padding: 7px 10px; border: 1px solid #1e3a8a; width: 85px; text-align: center;">Caractère</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            items.length === 0
+              ? `<tr><td colspan="7" style="padding: 20px; text-align: center; color: #94a3b8; font-style: italic;">Aucune fourniture n'a encore été configurée pour cette classe.</td></tr>`
+              : Object.keys(grouped)
+                  .map(cat => {
+                    const catItems = grouped[cat];
+                    const catTitle = categoryLabels[cat] || cat.toUpperCase();
+                    return `
+                      <tr style="background: #f1f5f9; font-weight: 800; color: #1e293b;">
+                        <td colspan="7" style="padding: 6px 10px; border: 1px solid #cbd5e1; font-size: 10.5px; letter-spacing: 0.04em;">
+                          ${escapeHtml(catTitle)}
+                        </td>
+                      </tr>
+                      ${catItems
+                        .map((it, idx) => {
+                          const totalLine = Number(it.quantity) * Number(it.unit_price);
+                          return `
+                          <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#fcfcfd'};">
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: bold; color: #64748b;">${idx + 1}</td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1;">
+                              <strong style="color: #0f172a;">${escapeHtml(it.item_name)}</strong>
+                              ${it.notes ? `<div style="font-size: 9.5px; color: #64748b; margin-top: 1px;">ℹ️ ${escapeHtml(it.notes)}</div>` : ''}
+                            </td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; color: #475569; font-size: 10px;">
+                              ${escapeHtml(categoryLabels[it.category] || it.category)}
+                            </td>
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: 800; color: #1e3a8a;">
+                              ${it.quantity}
+                            </td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace;">
+                              ${it.unit_price > 0 ? formatCurrency(it.unit_price) : '-'}
+                            </td>
+                            <td style="padding: 6px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-weight: bold; color: #0f172a;">
+                              ${totalLine > 0 ? formatCurrency(totalLine) : '-'}
+                            </td>
+                            <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">
+                              <span style="font-size: 9px; font-weight: 800; padding: 2px 6px; border-radius: 4px; background: ${it.is_mandatory ? '#fee2e2' : '#f1f5f9'}; color: ${it.is_mandatory ? '#991b1b' : '#475569'}; text-transform: uppercase;">
+                                ${it.is_mandatory ? 'Obligatoire' : 'Facultatif'}
+                              </span>
+                            </td>
+                          </tr>
+                        `;
+                        })
+                        .join('')}
+                    `;
+                  })
+                  .join('')
+          }
+          <tr style="background: #e0f2fe; font-weight: bold; border-top: 2px solid #1e3a8a;">
+            <td colspan="5" style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: right; font-size: 11.5px;">BUDGET ESTIMATIF TOTAL :</td>
+            <td style="padding: 8px 10px; border: 1px solid #cbd5e1; text-align: right; font-family: monospace; font-size: 12px; color: #1e3a8a;">${formatCurrency(totalBudget)}</td>
+            <td style="padding: 8px 10px; border: 1px solid #cbd5e1;"></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Signatures -->
+      <div style="margin-top: 35px; display: flex; justify-content: space-between; font-size: 11px; font-weight: bold;">
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">L'Enseignant / Le Titulaire</p>
+        </div>
+        <div style="text-align: center; width: 220px;">
+          <p style="margin: 0 0 50px 0; text-decoration: underline;">La Direction des Études</p>
+        </div>
+      </div>
+    </div>
+    `,
+  );
+}
+
+
