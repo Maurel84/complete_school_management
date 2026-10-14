@@ -146,50 +146,41 @@ export default function FinanceDashboard({
     return Object.entries(map).map(([name, amount]) => ({ name, amount }));
   }, [payments, canteenPayments]);
 
-  // Identify overdue student accounts (students in arrears)
+  // Identify overdue student accounts (students in arrears or with unpaid balance)
   const studentsInArrears = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
-    // Group payments by student
-    const studentPaymentsMap: Record<string, number> = {};
-    payments.forEach(p => {
-      studentPaymentsMap[p.student_id] = (studentPaymentsMap[p.student_id] || 0) + Number(p.amount);
-    });
-
-    // Group installments by student
-    const studentInstallmentsMap: Record<string, { totalExpected: number; totalDueToday: number }> = {};
-    studentInstallments.forEach(inst => {
-      if (!studentInstallmentsMap[inst.student_id]) {
-        studentInstallmentsMap[inst.student_id] = { totalExpected: 0, totalDueToday: 0 };
-      }
-      studentInstallmentsMap[inst.student_id].totalExpected += Number(inst.amount);
-      if (inst.due_date <= today) {
-        studentInstallmentsMap[inst.student_id].totalDueToday += Number(inst.amount);
-      }
-    });
-
     const list: any[] = [];
-    students.forEach(student => {
-      const paid = studentPaymentsMap[student.id] || 0;
-      const instData = studentInstallmentsMap[student.id];
-      if (!instData) return;
+    students.forEach((student, index) => {
+      const sf = studentFinances[index];
+      if (!sf) return;
 
-      const remaining = Math.max(0, instData.totalExpected - paid);
-      const isLate = paid < instData.totalDueToday;
-      const delayAmount = isLate ? instData.totalDueToday - paid : 0;
+      const hasOverdueInstallment = sf.delayAmount > 0;
+      const hasDebt = sf.remaining > 0;
 
-      if (remaining > 0 && isLate) {
+      if (hasOverdueInstallment || hasDebt) {
         list.push({
           ...student,
-          paid,
-          totalExpected: instData.totalExpected,
-          remaining,
-          delayAmount,
+          paid: sf.totalPaid,
+          paidTuition: sf.paidTuition,
+          paidCanteen: sf.paidCanteen,
+          totalExpected: sf.totalExpected,
+          remaining: sf.remaining,
+          delayAmount: sf.delayAmount > 0 ? sf.delayAmount : sf.remaining,
+          isOverdueInstallment: hasOverdueInstallment,
+          status: sf.status,
         });
       }
     });
 
-    return list.sort((a, b) => b.delayAmount - a.delayAmount).slice(0, 5);
-  }, [students, payments, studentInstallments]);
+    // Sort by largest overdue installment amount first, then largest remaining debt
+    return list
+      .sort((a, b) => {
+        if (b.isOverdueInstallment !== a.isOverdueInstallment) {
+          return b.isOverdueInstallment ? 1 : -1;
+        }
+        return (b.delayAmount || b.remaining) - (a.delayAmount || a.remaining);
+      })
+      .slice(0, 6);
+  }, [students, studentFinances]);
 
   return (
     <div className="space-y-6">
@@ -375,9 +366,16 @@ export default function FinanceDashboard({
 
         <div className="surface-card p-6 flex flex-col justify-between">
           <div>
-            <h3 className="text-sm font-semibold text-red-700 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <AlertTriangle size={16} /> Retards de versements majeurs
-            </h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-semibold text-red-700 uppercase tracking-wider flex items-center gap-2">
+                <AlertTriangle size={16} /> Retards de versements majeurs
+              </h3>
+              {studentsInArrears.length > 0 && (
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-red-100 text-red-800">
+                  {studentsInArrears.length} élève(s) prioritaire(s)
+                </span>
+              )}
+            </div>
             {studentsInArrears.length === 0 ? (
               <div className="py-14 text-center text-sm text-slate-500 bg-emerald-50/20 border border-dashed border-emerald-100 rounded-2xl">
                 🟢 Aucun élève en retard sur ses tranches exigibles !
@@ -387,21 +385,23 @@ export default function FinanceDashboard({
                 {studentsInArrears.map(s => (
                   <div
                     key={s.id}
-                    className="flex items-center justify-between p-3 rounded-2xl bg-red-50/30 border border-red-100 text-xs"
+                    className="flex items-center justify-between p-3 rounded-2xl bg-red-50/40 border border-red-100 text-xs hover:bg-red-50/70 transition"
                   >
                     <div>
-                      <p className="font-semibold text-slate-800">
+                      <p className="font-semibold text-slate-900 text-sm">
                         {s.first_name} {s.last_name}
                       </p>
                       <p className="text-slate-500 mt-1">
-                        Classe : {s.class?.name || '-'} • Payé : {formatCurrency(s.paid)}
+                        Classe : <span className="font-medium text-slate-700">{s.class?.name || '-'}</span> • Payé : <span className="text-emerald-700 font-semibold">{formatCurrency(s.paid)}</span> sur {formatCurrency(s.totalExpected)}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold text-red-700 text-sm">
                         -{formatCurrency(s.delayAmount)}
                       </p>
-                      <p className="text-slate-400 mt-1">Tranche due</p>
+                      <p className="text-red-500 text-[11px] font-medium mt-0.5">
+                        {s.isOverdueInstallment ? 'Tranche échue en retard' : 'Reste à solder'}
+                      </p>
                     </div>
                   </div>
                 ))}
