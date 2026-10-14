@@ -1,7 +1,7 @@
 import Modal from '../../../components/common/Modal';
 import Badge from '../../../components/common/Badge';
 import { formatDate, formatCurrency } from '../../../lib/utils';
-import { Download, Link2, Printer, CreditCard, Utensils, FileText } from 'lucide-react';
+import { Download, Link2, Printer, CreditCard, Utensils, FileText, Edit, Trash2 } from 'lucide-react';
 import type { AcademicYear, Class, School, Student } from '../../../types';
 
 interface StudentDetailModalProps {
@@ -16,6 +16,9 @@ interface StudentDetailModalProps {
   onMakePayment?: (student: any, type: 'tuition' | 'canteen') => void;
   onPrintStatement?: (student: any) => void;
   onPrintReceipt?: (payment: any, isCanteen: boolean) => void;
+  onEditPayment?: (payment: any, isCanteen: boolean) => void;
+  onDeletePayment?: (payment: any, isCanteen: boolean) => void;
+  isGeneralAdmin?: boolean;
   academicYear: AcademicYear | null;
   school: School | null;
 }
@@ -46,6 +49,9 @@ export default function StudentDetailModal({
   onMakePayment,
   onPrintStatement,
   onPrintReceipt,
+  onEditPayment,
+  onDeletePayment,
+  isGeneralAdmin,
   academicYear,
   school,
 }: StudentDetailModalProps) {
@@ -237,7 +243,7 @@ export default function StudentDetailModal({
                             <span className="text-slate-400 ml-2">{pay.payment_date ? formatDate(pay.payment_date) : '-'}</span>
                             <span className="text-slate-500 ml-2 italic">({pay.payment_method})</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-bold text-emerald-700">+{formatCurrency(pay.amount)}</span>
                             {onPrintReceipt && (
                               <button
@@ -247,6 +253,26 @@ export default function StudentDetailModal({
                                 title="Imprimer le reçu officiel"
                               >
                                 <Printer size={14} />
+                              </button>
+                            )}
+                            {isGeneralAdmin && onEditPayment && (
+                              <button
+                                type="button"
+                                onClick={() => onEditPayment(pay, false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition border border-transparent hover:border-amber-200"
+                                title="Modifier ce versement (Correction)"
+                              >
+                                <Edit size={14} />
+                              </button>
+                            )}
+                            {isGeneralAdmin && onDeletePayment && (
+                              <button
+                                type="button"
+                                onClick={() => onDeletePayment(pay, false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition border border-transparent hover:border-red-200"
+                                title="Supprimer ce versement erroné"
+                              >
+                                <Trash2 size={14} />
                               </button>
                             )}
                           </div>
@@ -262,7 +288,7 @@ export default function StudentDetailModal({
                             <span className="text-slate-400 ml-2">{cp.payment_date ? formatDate(cp.payment_date) : '-'}</span>
                             <span className="text-slate-500 ml-2 italic">({cp.payment_method})</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span className="font-bold text-teal-700">+{formatCurrency(cp.amount)}</span>
                             {onPrintReceipt && (
                               <button
@@ -272,6 +298,26 @@ export default function StudentDetailModal({
                                 title="Imprimer le reçu cantine"
                               >
                                 <Printer size={14} />
+                              </button>
+                            )}
+                            {isGeneralAdmin && onEditPayment && (
+                              <button
+                                type="button"
+                                onClick={() => onEditPayment(cp, true)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 transition border border-transparent hover:border-amber-200"
+                                title="Modifier ce paiement de cantine"
+                              >
+                                <Edit size={14} />
+                              </button>
+                            )}
+                            {isGeneralAdmin && onDeletePayment && (
+                              <button
+                                type="button"
+                                onClick={() => onDeletePayment(cp, true)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition border border-transparent hover:border-red-200"
+                                title="Supprimer ce versement cantine erroné"
+                              >
+                                <Trash2 size={14} />
                               </button>
                             )}
                           </div>

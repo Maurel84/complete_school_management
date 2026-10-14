@@ -44,6 +44,8 @@ import StudentDetailModal from './components/StudentDetailModal';
 import FamilyModal from './components/FamilyModal';
 import AuditDuplicatesModal from './components/AuditDuplicatesModal';
 import PaymentFormModal from '../finance/components/PaymentFormModal';
+import Modal from '../../components/common/Modal';
+import FormField from '../../components/common/FormField';
 
 type StudentListItem = Student & { class?: Pick<Class, 'id' | 'name'>; family_count: number };
 
@@ -64,6 +66,17 @@ export default function StudentsPage() {
   const [paymentType, setPaymentType] = useState<'tuition' | 'canteen'>('tuition');
   const [savingPayment, setSavingPayment] = useState(false);
 
+  // Admin correction modal state
+  const [editPaymentModalOpen, setEditPaymentModalOpen] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<any | null>(null);
+  const [editingIsCanteen, setEditingIsCanteen] = useState<boolean>(false);
+  const [editPaymentAmount, setEditPaymentAmount] = useState<number>(0);
+  const [editPaymentMethod, setEditPaymentMethod] = useState<string>('cash');
+  const [editPaymentDate, setEditPaymentDate] = useState<string>('');
+  const [editPaymentNotes, setEditPaymentNotes] = useState<string>('');
+  const [savingEditPayment, setSavingEditPayment] = useState<boolean>(false);
+
+  const isGeneralAdmin = isSuperAdmin || isAdmin;
   const canManageStudents = isSuperAdmin || isAdmin || isDirector || isSupervisor;
 
   // Custom Hooks with TanStack Query
@@ -535,6 +548,81 @@ export default function StudentsPage() {
     openPrintPreview(html);
   }
 
+  // Admin Payment Correction Handlers
+  function openEditPayment(payment: any, isCanteen: boolean) {
+    setEditingPayment(payment);
+    setEditingIsCanteen(isCanteen);
+    setEditPaymentAmount(Number(payment.amount) || 0);
+    setEditPaymentMethod(payment.payment_method || 'cash');
+    setEditPaymentDate(payment.payment_date || new Date().toISOString().split('T')[0]);
+    setEditPaymentNotes(payment.notes || '');
+    setEditPaymentModalOpen(true);
+  }
+
+  async function handleSaveEditedPayment() {
+    if (!editingPayment) return;
+    if (editPaymentAmount <= 0) {
+      alert('Veuillez saisir un montant valide supérieur à 0.');
+      return;
+    }
+
+    setSavingEditPayment(true);
+    try {
+      const table = editingIsCanteen ? 'canteen_payments' : 'payments';
+      const { error } = await supabase
+        .from(table)
+        .update({
+          amount: editPaymentAmount,
+          payment_method: editPaymentMethod,
+          payment_date: editPaymentDate,
+          notes: editPaymentNotes.trim() || null,
+        })
+        .eq('id', editingPayment.id);
+
+      if (error) throw error;
+
+      alert('✅ Versement rectifié avec succès ! Le total et les restes de l\'élève sont mis à jour.');
+      setEditPaymentModalOpen(false);
+      setEditingPayment(null);
+      void studentsQuery.refetch();
+    } catch (err: any) {
+      alert(`Erreur lors de la modification : ${err.message}`);
+    } finally {
+      setSavingEditPayment(false);
+    }
+  }
+
+  async function handleDeletePayment(payment: any, isCanteen: boolean) {
+    if (!isGeneralAdmin) {
+      alert("Seul l'administrateur général a le droit de supprimer une ligne de versement.");
+      return;
+    }
+
+    const typeLabel = isCanteen ? 'de cantine' : 'de scolarité';
+    const confirmMsg = `⚠️ ATTENTION ACTION IRRÉVERSIBLE (ADMINISTRATEUR) :\n\nVoulez-vous vraiment supprimer le versement ${typeLabel} N° ${payment.receipt_number} d'un montant de ${formatCurrency(payment.amount)} ?\n\nCette action va annuler l'encaissement et recalculer immédiatement le solde et les restes à payer de l'élève.`;
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+      if (isCanteen) {
+        await supabase.from('receipts').delete().eq('canteen_payment_id', payment.id);
+        const { error } = await supabase.from('canteen_payments').delete().eq('id', payment.id);
+        if (error) throw error;
+      } else {
+        await supabase.from('receipts').delete().eq('payment_id', payment.id);
+        await supabase.from('payment_details').delete().eq('payment_id', payment.id);
+        await supabase.from('cash_transactions').delete().eq('payment_id', payment.id);
+        const { error } = await supabase.from('payments').delete().eq('id', payment.id);
+        if (error) throw error;
+      }
+
+      alert('🗑️ Versement supprimé avec succès. Les soldes et totaux ont été recalculés.');
+      void studentsQuery.refetch();
+    } catch (err: any) {
+      alert(`Erreur lors de la suppression : ${err.message}`);
+    }
+  }
+
   const columns: Column<StudentListItem>[] = [
     {
       key: 'identity',
@@ -825,6 +913,9 @@ export default function StudentsPage() {
           }}
           onPrintStatement={handlePrintStatement}
           onPrintReceipt={handlePrintReceipt}
+          onEditPayment={openEditPayment}
+          onDeletePayment={handleDeletePayment}
+          isGeneralAdmin={isGeneralAdmin}
           academicYear={academicYear}
           school={school}
         />
@@ -851,6 +942,82 @@ export default function StudentsPage() {
           saving={savingPayment}
         />
       )}
+
+      {/* Modal Rectification Versement Admin */}
+      <Modal
+        isOpen={editPaymentModalOpen}
+        onClose={() => setEditPaymentModalOpen(false)}
+        title={`Rectification du versement N° ${editingPayment?.receipt_number || ''}`}
+        size="md"
+        actions={
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setEditPaymentModalOpen(false)}
+              className="rounded-2xl px-4 py-2 text-sm text-slate-600 transition hover:bg-slate-100"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleSaveEditedPayment}
+              disabled={savingEditPayment}
+              className="rounded-2xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700 disabled:opacity-50"
+            >
+              {savingEditPayment ? 'Enregistrement...' : 'Enregistrer la correction'}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+            ⚠️ <strong>Modification Administrateur :</strong> Vous rectifiez directement la ligne de paiement. Le total encaissé et les restes à payer de l'élève seront immédiatement recalculés.
+          </div>
+
+          <FormField label="Montant du versement (FCFA)" required>
+            <input
+              type="number"
+              value={editPaymentAmount}
+              onChange={e => setEditPaymentAmount(Number(e.target.value))}
+              min={1}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-900 focus:outline-none focus:border-slate-900"
+            />
+          </FormField>
+
+          <div className="grid grid-cols-2 gap-3">
+            <FormField label="Date du versement" required>
+              <input
+                type="date"
+                value={editPaymentDate}
+                onChange={e => setEditPaymentDate(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
+              />
+            </FormField>
+
+            <FormField label="Mode de règlement">
+              <select
+                value={editPaymentMethod}
+                onChange={e => setEditPaymentMethod(e.target.value)}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
+              >
+                {PAYMENT_METHODS.map(m => (
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          </div>
+
+          <FormField label="Observation / Motif de correction">
+            <textarea
+              value={editPaymentNotes}
+              onChange={e => setEditPaymentNotes(e.target.value)}
+              rows={3}
+              placeholder="Ex: Correction montant saisi en doublon..."
+              className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:border-slate-900"
+            />
+          </FormField>
+        </div>
+      </Modal>
 
       {selectedStudent && (
         <FamilyModal
