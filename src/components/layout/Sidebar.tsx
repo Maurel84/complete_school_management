@@ -27,7 +27,7 @@ const navItems = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard, roles: ['super_admin', 'admin', 'director', 'accountant', 'cashier', 'supervisor', 'teacher'] },
   { label: 'Élèves', path: '/students', icon: GraduationCap, roles: ['super_admin', 'admin', 'director', 'supervisor', 'teacher', 'accountant', 'cashier'] },
   { label: 'Parents', path: '/parents', icon: Users, roles: ['super_admin', 'admin', 'director', 'supervisor'] },
-  { label: 'Classes', path: '/classes', icon: School, roles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'] },
+  { label: 'Classes', path: '/classes', icon: School, roles: ['super_admin', 'admin', 'director', 'supervisor'] },
   { label: 'Fournitures & Livres', path: '/supplies', icon: BookOpen, roles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'] },
   { label: 'Finances', path: '/finance', icon: DollarSign, roles: ['super_admin', 'admin', 'director', 'accountant', 'cashier'] },
   { label: 'Caisse', path: '/cash', icon: Wallet, roles: ['super_admin', 'admin', 'director', 'cashier', 'accountant'] },
@@ -83,7 +83,14 @@ export default function Sidebar() {
     ? parentItems
     : role === 'student'
       ? studentItems
-      : navItems.filter(item => !item.roles || item.roles.includes(role || ''));
+      : navItems
+          .filter(item => !item.roles || item.roles.includes(role || ''))
+          .map(item => {
+            if (role === 'teacher' && item.path === '/students') {
+              return { ...item, label: 'Mes Élèves' };
+            }
+            return item;
+          });
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/';

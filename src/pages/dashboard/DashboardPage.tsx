@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { useApp } from '../../contexts/AppContext';
@@ -8,7 +9,8 @@ import { formatCurrency } from '../../lib/utils';
 import { resolveStudentFinance } from '../../lib/financePlanResolver';
 import {
   GraduationCap, Users, BookOpen, DollarSign, Wallet,
-  AlertTriangle, TrendingUp, ArrowUpRight, ArrowDownRight
+  AlertTriangle, TrendingUp, ArrowUpRight, ArrowDownRight,
+  CalendarCheck, ClipboardList, MessageSquare, Printer, CheckCircle2, Mail, Sparkles
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -18,7 +20,23 @@ import {
 const COLORS = ['#2563eb', '#0d9488', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'];
 
 export default function DashboardPage() {
-  const { profile } = useAuth();
+  const navigate = useNavigate();
+  const { profile, isTeacher, role } = useAuth();
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+
+  const [teacherClass, setTeacherClass] = useState<any>(null);
+  const [teacherStudents, setTeacherStudents] = useState<any[]>([]);
+  const [teacherAttendanceStats, setTeacherAttendanceStats] = useState({
+    recorded: false,
+    present: 0,
+    absent: 0,
+    late: 0,
+    total: 0,
+    rate: 100,
+  });
+  const [teacherAbsentsToday, setTeacherAbsentsToday] = useState<any[]>([]);
+  const [teacherRecentGrades, setTeacherRecentGrades] = useState<any[]>([]);
+
   const { school, academicYear } = useApp();
   const [stats, setStats] = useState({
     totalStudents: 0,
@@ -56,6 +74,104 @@ export default function DashboardPage() {
   async function fetchDashboardData() {
     setLoading(true);
     const schoolId = school!.id;
+
+    if (isTeacherUser) {
+      try {
+        const { data: tRec } = await supabase
+          .from('teachers')
+          .select('*')
+          .or(`user_id.eq.${profile?.id},email.eq.${profile?.email}`)
+          .maybeSingle();
+
+        let myClass: any = null;
+        if (tRec) {
+          const { data: cData } = await supabase
+            .from('classes')
+            .select('*, level:levels(*)')
+            .eq('school_id', schoolId)
+            .eq('teacher_id', tRec.id);
+          if (cData && cData.length > 0) {
+            myClass = cData[0];
+          }
+        }
+
+        if (!myClass) {
+          const { data: anyClass } = await supabase
+            .from('classes')
+            .select('*, level:levels(*)')
+            .eq('school_id', schoolId)
+            .limit(1);
+          if (anyClass && anyClass.length > 0) {
+            myClass = anyClass[0];
+          }
+        }
+
+        setTeacherClass(myClass);
+
+        if (myClass) {
+          const { data: sData } = await supabase
+            .from('students')
+            .select('*, parents:student_parents(parent:parents(*))')
+            .eq('school_id', schoolId)
+            .eq('class_id', myClass.id)
+            .eq('status', 'active')
+            .order('last_name');
+
+          const classStudentsList = sData || [];
+          setTeacherStudents(classStudentsList);
+
+          const todayStr = new Date().toISOString().split('T')[0];
+          const { data: attData } = await supabase
+            .from('attendance')
+            .select('*, student:students(*)')
+            .eq('school_id', schoolId)
+            .eq('class_id', myClass.id)
+            .eq('date', todayStr);
+
+          let pres = 0;
+          let abs = 0;
+          let lte = 0;
+          const absents: any[] = [];
+          (attData || []).forEach(a => {
+            if (a.status === 'present') pres++;
+            else if (a.status === 'absent') {
+              abs++;
+              absents.push(a);
+            } else if (a.status === 'late') {
+              lte++;
+              absents.push(a);
+            }
+          });
+
+          setTeacherAttendanceStats({
+            recorded: (attData || []).length > 0,
+            present: pres,
+            absent: abs,
+            late: lte,
+            total: classStudentsList.length,
+            rate: classStudentsList.length > 0
+              ? Math.round(((pres + lte * 0.5) / classStudentsList.length) * 100)
+              : 100,
+          });
+          setTeacherAbsentsToday(absents);
+
+          const { data: gData } = await supabase
+            .from('grades')
+            .select('*, subject:subjects(*), student:students(first_name, last_name)')
+            .eq('school_id', schoolId)
+            .eq('class_id', myClass.id)
+            .order('evaluation_date', { ascending: false })
+            .limit(10);
+
+          setTeacherRecentGrades(gData || []);
+        }
+      } catch (err) {
+        console.error('Teacher dashboard loading error:', err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const [
       studentsRes,
@@ -287,6 +403,311 @@ export default function DashboardPage() {
         title="Configuration incomplète"
         description="Le compte est connecté, mais aucun profil établissement exploitable n'a été chargé. Vérifiez les tables roles, schools, profiles et academic_years dans Supabase."
       />
+    );
+  }
+
+  // Dedicated Teacher Dashboard (100% focused on teacher's class, ZERO financial data)
+  if (isTeacherUser) {
+    const boysCount = teacherStudents.filter(s => s.sex === 'M').length;
+    const girlsCount = teacherStudents.filter(s => s.sex === 'F').length;
+
+    return (
+      <div className="space-y-6">
+        {/* Teacher Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-emerald-500/10 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200 uppercase tracking-wider">
+                Espace Pédagogique
+              </span>
+              <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-200">
+                {teacherClass ? teacherClass.name : 'Classe assignée'}
+              </span>
+            </div>
+            <h1 className="text-2xl font-black text-slate-900 mt-2">
+              Bonjour, {profile?.first_name} {profile?.last_name} 👋
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">
+              Tableau de bord de votre classe • Année scolaire {academicYear?.name || '2026-2027'}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => navigate('/attendance')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-xs font-bold shadow-sm transition active:scale-[0.98]"
+            >
+              <CalendarCheck size={16} />
+              <span>Faire l'appel</span>
+            </button>
+            <button
+              onClick={() => navigate('/grades')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 text-xs font-bold shadow-sm transition active:scale-[0.98]"
+            >
+              <ClipboardList size={16} />
+              <span>Saisir des notes</span>
+            </button>
+            <button
+              onClick={() => navigate('/documents')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2.5 text-xs font-bold shadow-xs transition"
+            >
+              <Printer size={16} />
+              <span>Documents classe</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Attendance Status Alert Banner */}
+        {teacherAttendanceStats.recorded ? (
+          teacherAttendanceStats.absent > 0 || teacherAttendanceStats.late > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center flex-shrink-0 font-bold">
+                  <AlertTriangle size={20} />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-900">
+                    {teacherAttendanceStats.absent} élève(s) absent(s) et {teacherAttendanceStats.late} retard(s) aujourd'hui
+                  </p>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Classe : {teacherClass?.name} • Prévenez les parents directement par WhatsApp pour un suivi immédiat.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate('/attendance')}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 text-xs font-bold transition flex-shrink-0"
+              >
+                <MessageSquare size={14} />
+                <span>Alerter sur WhatsApp</span>
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 flex items-center gap-3 shadow-xs text-emerald-900">
+              <CheckCircle2 size={20} className="text-emerald-600 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-bold">Tous les élèves de votre classe sont présents aujourd'hui !</p>
+                <p className="text-xs text-emerald-700 mt-0.5">Appel validé avec 100% de présence.</p>
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center flex-shrink-0 font-bold">
+                <CalendarCheck size={20} />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-blue-900">
+                  L'appel du jour n'a pas encore été enregistré
+                </p>
+                <p className="text-xs text-blue-700 mt-0.5">
+                  Effectuez le pointage de votre classe ({teacherClass?.name || 'Titulaire'}) en quelques clics.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/attendance')}
+              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 text-xs font-bold transition flex-shrink-0"
+            >
+              <span>Pointer maintenant</span>
+            </button>
+          </div>
+        )}
+
+        {/* 4 Class KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard
+            icon={<GraduationCap size={20} />}
+            value={teacherStudents.length}
+            label={`Élèves de ${teacherClass?.name || 'ma classe'}`}
+            color="blue"
+            subLabel={`${boysCount} Garçons • ${girlsCount} Filles`}
+          />
+          <StatCard
+            icon={<CalendarCheck size={20} />}
+            value={`${teacherAttendanceStats.rate}%`}
+            label="Présence aujourd'hui"
+            color="green"
+            subLabel={`${teacherAttendanceStats.present} présent(s) • ${teacherAttendanceStats.absent} absent(s)`}
+          />
+          <StatCard
+            icon={<ClipboardList size={20} />}
+            value={teacherRecentGrades.length}
+            label="Évaluations récentes"
+            color="teal"
+            subLabel="Notes saisies ce trimestre"
+          />
+          <StatCard
+            icon={<Users size={20} />}
+            value={teacherStudents.length}
+            label="Contacts familles"
+            color="slate"
+            subLabel="Parents joignables"
+          />
+        </div>
+
+        {/* Quick Actions Shortcuts Banner */}
+        <div className="surface-card p-5 bg-gradient-to-r from-slate-900 to-indigo-950 text-white rounded-3xl shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">Accès Direct</span>
+              <h3 className="text-base font-extrabold text-white mt-0.5">Outils Rapides pour votre Classe</h3>
+            </div>
+            <span className="text-xs text-slate-300 font-semibold">{teacherClass?.name}</span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <button
+              onClick={() => navigate('/attendance')}
+              className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 transition text-left flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-2">
+                <CalendarCheck size={16} />
+              </div>
+              <p className="text-xs font-bold text-white">Feuille d'Appel</p>
+              <p className="text-[10px] text-slate-300 mt-0.5">Pointer les présences</p>
+            </button>
+
+            <button
+              onClick={() => navigate('/grades')}
+              className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 transition text-left flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center mb-2">
+                <ClipboardList size={16} />
+              </div>
+              <p className="text-xs font-bold text-white">Carnet de Notes</p>
+              <p className="text-[10px] text-slate-300 mt-0.5">Devoirs & Compositions</p>
+            </button>
+
+            <button
+              onClick={() => navigate('/messages')}
+              className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 transition text-left flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center mb-2">
+                <Mail size={16} />
+              </div>
+              <p className="text-xs font-bold text-white">Messages Familles</p>
+              <p className="text-[10px] text-slate-300 mt-0.5">Diffusions & Échanges</p>
+            </button>
+
+            <button
+              onClick={() => navigate('/documents')}
+              className="p-3.5 rounded-2xl bg-white/10 hover:bg-white/15 border border-white/10 transition text-left flex flex-col justify-between"
+            >
+              <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-2">
+                <Printer size={16} />
+              </div>
+              <p className="text-xs font-bold text-white">Documents Classe</p>
+              <p className="text-[10px] text-slate-300 mt-0.5">Cartes, fiches & bulletins</p>
+            </button>
+          </div>
+        </div>
+
+        {/* Class Students Roster Table (Zero Financial Data) */}
+        <div className="surface-card p-6 bg-white rounded-3xl border border-slate-200 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+            <div>
+              <h3 className="text-base font-extrabold text-slate-900">
+                Trombinoscope & Liste des Élèves • {teacherClass?.name || 'Ma classe'}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {teacherStudents.length} élèves inscrits actifs • Filiation et contacts d'urgence
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/students')}
+              className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1"
+            >
+              <span>Voir la liste complète</span>
+              <ArrowUpRight size={14} />
+            </button>
+          </div>
+
+          {teacherStudents.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                    <th className="p-3">Élève</th>
+                    <th className="p-3">Matricule</th>
+                    <th className="p-3">Sexe</th>
+                    <th className="p-3">Date de Naissance</th>
+                    <th className="p-3">Parent Référent</th>
+                    <th className="p-3 text-right">Contact WhatsApp</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teacherStudents.map(student => {
+                    const primaryParent = student.parents?.[0]?.parent;
+                    const parentPhone = primaryParent?.phone || student.parent_phone || '';
+
+                    return (
+                      <tr key={student.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
+                        <td className="p-3 font-bold text-slate-900 flex items-center gap-2.5">
+                          {student.photo_url ? (
+                            <img
+                              src={student.photo_url}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover border border-slate-200"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 font-bold flex items-center justify-center text-[11px]">
+                              {student.first_name[0]}{student.last_name[0]}
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-extrabold text-slate-900 uppercase leading-tight">{student.last_name}</p>
+                            <p className="font-medium text-slate-600 leading-tight">{student.first_name}</p>
+                          </div>
+                        </td>
+                        <td className="p-3 font-mono font-bold text-slate-700">{student.matricule}</td>
+                        <td className="p-3">
+                          <span
+                            className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                              student.sex === 'F' ? 'bg-pink-50 text-pink-700' : 'bg-blue-50 text-blue-700'
+                            }`}
+                          >
+                            {student.sex === 'F' ? 'Fille' : 'Garçon'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-600">
+                          {student.date_of_birth
+                            ? new Date(student.date_of_birth).toLocaleDateString('fr-FR')
+                            : '-'}
+                        </td>
+                        <td className="p-3 text-slate-700">
+                          {primaryParent ? `${primaryParent.first_name} ${primaryParent.last_name}` : 'Non renseigné'}
+                        </td>
+                        <td className="p-3 text-right">
+                          {parentPhone ? (
+                            <a
+                              href={`https://wa.me/${parentPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour, je suis l'enseignant(e) de ${student.first_name} au ${school?.name}.`)}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold hover:bg-emerald-100 transition text-[11px]"
+                            >
+                              <MessageSquare size={12} />
+                              <span>{parentPhone}</span>
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 italic">Aucun numéro</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              <GraduationCap size={40} className="mx-auto mb-2 text-slate-300" />
+              <p className="text-sm">Aucun élève trouvé dans cette classe pour le moment.</p>
+            </div>
+          )}
+        </div>
+      </div>
     );
   }
 

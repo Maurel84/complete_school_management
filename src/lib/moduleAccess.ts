@@ -59,7 +59,7 @@ export const APP_MODULES: AppModule[] = [
     path: '/classes',
     description: 'Classes de la Petite Section au CM2.',
     category: 'Scolarite',
-    defaultRoles: ['super_admin', 'admin', 'director', 'teacher', 'supervisor'],
+    defaultRoles: ['super_admin', 'admin', 'director', 'supervisor'],
   },
   {
     key: 'supplies',
@@ -186,7 +186,20 @@ export function getAllowedModuleKeys(profile: Profile | null, role: UserRole | n
   if (role === 'super_admin') return ALL_MODULE_KEYS;
 
   const explicitAccess = normalizeModuleAccess(profile.module_access);
-  const baseAccess = explicitAccess.length > 0 ? explicitAccess : getDefaultModuleKeys(role);
+  let baseAccess = explicitAccess.length > 0 ? explicitAccess : getDefaultModuleKeys(role);
+
+  // Strict role isolation: Teachers and Parents must NEVER access administrative or financial modules
+  if (role === 'teacher') {
+    baseAccess = baseAccess.filter(k =>
+      !['finance', 'cash', 'accounting', 'classes', 'hr', 'teachers', 'settings', 'users', 'parents'].includes(k)
+    );
+  }
+  if (role === 'parent') {
+    baseAccess = baseAccess.filter(k =>
+      !['finance', 'cash', 'accounting', 'classes', 'hr', 'teachers', 'settings', 'users'].includes(k)
+    );
+  }
+
   const requiredAccess: ModuleKey[] = role === 'admin' ? ['dashboard', 'users', 'settings'] : ['dashboard'];
 
   return Array.from(new Set([...requiredAccess, ...baseAccess]));

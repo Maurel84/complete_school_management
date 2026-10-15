@@ -107,7 +107,7 @@ export default function StudentsPage() {
     isAccountant ||
     isTeacher ||
     profile?.account_type === 'staff';
-  const canManageStudents = isStaff;
+  const canManageStudents = isStaff && !isTeacher;
 
   const actorRole = (Array.isArray(profile?.role) ? profile?.role[0]?.name : (profile?.role as any)?.name) || 'staff';
   const actorName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || profile?.email || 'Utilisateur';
@@ -123,6 +123,27 @@ export default function StudentsPage() {
 
   const { data: classes = [] } = useClasses(school?.id);
   const { data: parents = [] } = useParents(school?.id);
+
+  // Auto-detect teacher titular class
+  useEffect(() => {
+    async function loadTeacherClass() {
+      if (isTeacher && profile && classes.length > 0) {
+        const { data: teacherRec } = await supabase
+          .from('teachers')
+          .select('id')
+          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
+          .maybeSingle();
+
+        if (teacherRec) {
+          const matchClass = classes.find(c => c.teacher_id === teacherRec.id);
+          if (matchClass) {
+            setClassFilter(matchClass.id);
+          }
+        }
+      }
+    }
+    void loadTeacherClass();
+  }, [isTeacher, profile, classes]);
 
   // Financial system integration
   const {
@@ -1009,14 +1030,15 @@ export default function StudentsPage() {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="display-font text-2xl font-semibold text-slate-900">Population scolaire</h2>
+          <h2 className="display-font text-2xl font-semibold text-slate-900">{isTeacher ? 'Mes Élèves' : 'Population scolaire'}</h2>
           <p className="mt-1 text-sm text-slate-500">
-            {activeCount} élève(s) actif(s) sur {totalCount} au total
-            {inactiveCount > 0 && ` (${inactiveCount} archivé / inactif)`}
+            {isTeacher
+              ? `Élèves de votre classe (${filteredStudents.length} actif(s))`
+              : `${activeCount} élève(s) actif(s) sur ${totalCount} au total${inactiveCount > 0 ? ` (${inactiveCount} archivé / inactif)` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {isGeneralAdmin && (
+          {!isTeacher && isGeneralAdmin && (
             <button
               onClick={() => setAuditLogsOpen(true)}
               className="inline-flex items-center gap-2 rounded-2xl bg-indigo-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-900 shadow-2xs border border-indigo-800/50"
@@ -1026,22 +1048,24 @@ export default function StudentsPage() {
               <span>Journal d'Audit</span>
             </button>
           )}
-          <button
-            onClick={() => setAuditModalOpen(true)}
-            className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition border shadow-2xs ${
-              duplicatesAnalysis.totalCount > 0
-                ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
-                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            <CopyCheck size={16} className={duplicatesAnalysis.totalCount > 0 ? 'text-amber-600' : 'text-slate-500'} />
-            Audit Doublons
-            {duplicatesAnalysis.totalCount > 0 && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-600 text-white animate-pulse">
-                {duplicatesAnalysis.totalCount}
-              </span>
-            )}
-          </button>
+          {!isTeacher && (
+            <button
+              onClick={() => setAuditModalOpen(true)}
+              className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition border shadow-2xs ${
+                duplicatesAnalysis.totalCount > 0
+                  ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              <CopyCheck size={16} className={duplicatesAnalysis.totalCount > 0 ? 'text-amber-600' : 'text-slate-500'} />
+              Audit Doublons
+              {duplicatesAnalysis.totalCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-600 text-white animate-pulse">
+                  {duplicatesAnalysis.totalCount}
+                </span>
+              )}
+            </button>
+          )}
           {canManageStudents && (
             <button
               onClick={openCreate}
@@ -1126,20 +1150,26 @@ export default function StudentsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <select
-            value={classFilter}
-            onChange={(e) => setClassFilter(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-emerald-500 focus:bg-white"
-          >
-            <option value="">Toutes les classes ({classes.length})</option>
-            {classes.map((cls) => (
-              <option key={cls.id} value={cls.id}>
-                {cls.name}
-              </option>
-            ))}
-          </select>
+          {isTeacher ? (
+            <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
+              Classe : {classes.find((c) => c.id === classFilter)?.name || 'Ma classe'}
+            </span>
+          ) : (
+            <select
+              value={classFilter}
+              onChange={(e) => setClassFilter(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-emerald-500 focus:bg-white"
+            >
+              <option value="">Toutes les classes ({classes.length})</option>
+              {classes.map((cls) => (
+                <option key={cls.id} value={cls.id}>
+                  {cls.name}
+                </option>
+              ))}
+            </select>
+          )}
 
-          {(statusFilter !== 'all' || classFilter) && (
+          {!isTeacher && (statusFilter !== 'all' || classFilter) && (
             <button
               onClick={() => {
                 setStatusFilter('all');
@@ -1215,7 +1245,7 @@ export default function StudentsPage() {
           student={currentSelectedStudent}
           familyLinks={familyLinks}
           loading={familyLinksQuery.isLoading}
-          canManageStudents={canManageStudents}
+          canManageStudents={!isTeacher && canManageStudents}
           onManageFamilyClick={() => {
             setDetailOpen(false);
             setFamilyModalOpen(true);
@@ -1233,7 +1263,7 @@ export default function StudentsPage() {
           onUpdateMatricule={async () => {
             await studentsQuery.refetch();
           }}
-          isGeneralAdmin={canManageStudents}
+          isGeneralAdmin={!isTeacher && canManageStudents}
           academicYear={academicYear}
           school={school}
         />

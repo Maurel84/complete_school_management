@@ -52,7 +52,7 @@ const moduleIcons: Record<ModuleKey, typeof LayoutDashboard> = {
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut, allowedModules, isDemoAccount } = useAuth();
+  const { profile, signOut, allowedModules, isDemoAccount, role, isTeacher } = useAuth();
   const { school, academicYear, academicYears, setAcademicYear, sidebarOpen, setSidebarOpen } = useApp();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
@@ -60,6 +60,7 @@ export default function Header() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const yearMenuRef = useRef<HTMLDivElement>(null);
   const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
+  const isTeacherUser = isTeacher || role === 'teacher' || profileRole?.name === 'teacher' || profileRole === 'teacher';
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -218,6 +219,7 @@ export default function Header() {
           {items.map(item => {
             const Icon = moduleIcons[item.key];
             const active = isActive(item.path);
+            const label = (item.key === 'students' && isTeacherUser) ? 'Mes Élèves' : item.label;
 
             return (
               <button
@@ -230,7 +232,7 @@ export default function Header() {
                 }`}
               >
                 <Icon size={15} className={active ? 'text-emerald-400' : 'text-slate-500'} />
-                {item.label}
+                {label}
               </button>
             );
           })}
@@ -241,6 +243,7 @@ export default function Header() {
             {items.map(item => {
               const Icon = moduleIcons[item.key];
               const active = isActive(item.path);
+              const label = (item.key === 'students' && isTeacherUser) ? 'Mes Élèves' : item.label;
 
               return (
                 <button
@@ -256,7 +259,7 @@ export default function Header() {
                   }`}
                 >
                   <Icon size={18} />
-                  {item.label}
+                  {label}
                 </button>
               );
             })}
