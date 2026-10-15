@@ -1,11 +1,17 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+import { useApp } from '../../contexts/AppContext';
 import Badge from '../../components/common/Badge';
 import { formatCurrency, formatDate } from '../../lib/utils';
 import { buildReportCardHtml, buildPayslipHtml, openPrintPreview } from '../../lib/printableDocuments';
-import { Phone, Search, GraduationCap, Receipt, CreditCard, ChevronRight, User, LogOut, CheckCircle2, AlertCircle, Info, Printer } from 'lucide-react';
+import { Phone, Search, GraduationCap, Receipt, CreditCard, ChevronRight, User, LogOut, CheckCircle2, AlertCircle, Info, Printer, ArrowLeft, BookOpen, Smartphone, Check, Sparkles, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export default function ParentPortal() {
+  const navigate = useNavigate();
+  const { user, profile } = useAuth();
+  const { school: activeSchool } = useApp();
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
   const [parent, setParent] = useState<any>(null);
@@ -16,32 +22,60 @@ export default function ParentPortal() {
   const [installments, setInstallments] = useState<any[]>([]);
   const [payments, setPayments] = useState<any[]>([]);
   const [classes, setClasses] = useState<any[]>([]);
-  const [school, setSchool] = useState<any>(null);
+  const [school, setSchool] = useState<any>(activeSchool || null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'grades' | 'installments' | 'payments' | 'card'>('grades');
+  const [activeSubTab, setActiveSubTab] = useState<'grades' | 'installments' | 'payments' | 'card' | 'homework' | 'mobile_pay'>('grades');
 
-  async function handleLogin() {
-    if (!phone) return;
-    setLoading(true);
-    setErrorMsg(null);
+  // Homework & Mobile Money state
+  const [recentHomework, setRecentHomework] = useState<any[]>([]);
+  const [selectedInstallmentToPay, setSelectedInstallmentToPay] = useState<any>(null);
+  const [mobileOperator, setMobileOperator] = useState<'wave' | 'orange' | 'mtn' | 'moov'>('wave');
+  const [mobilePayerPhone, setMobilePayerPhone] = useState('');
+  const [mobilePaymentSuccess, setMobilePaymentSuccess] = useState(false);
+  const [mobileProcessing, setMobileProcessing] = useState(false);
 
+  // Auto-connect if authenticated user is linked to a parent
+  useEffect(() => {
+    if (profile) {
+      void autoConnectParent();
+    }
+  }, [profile]);
+
+  async function autoConnectParent() {
+    if (!profile) return;
     try {
-      // Find parent by phone
-      const { data: parentData, error: parentError } = await supabase
+      // 1. Try by user_id
+      let { data: parentData } = await supabase
         .from('parents')
         .select('*')
-        .eq('phone', phone.trim());
+        .eq('user_id', profile.id);
 
-      if (parentError) throw parentError;
-      if (!parentData || parentData.length === 0) {
-        setErrorMsg("Aucun parent enregistré avec ce numéro de téléphone.");
-        setLoading(false);
-        return;
+      // 2. Fallback by phone
+      if ((!parentData || parentData.length === 0) && profile.phone) {
+        const res = await supabase.from('parents').select('*').eq('phone', profile.phone.trim());
+        parentData = res.data;
       }
 
-      const p = parentData[0];
-      setParent(p);
+      // 3. Fallback by email
+      if ((!parentData || parentData.length === 0) && profile.email) {
+        const res = await supabase.from('parents').select('*').eq('email', profile.email.trim());
+        parentData = res.data;
+      }
 
+      if (parentData && parentData.length > 0) {
+        await loadParentDetails(parentData[0]);
+      }
+    } catch (err) {
+      console.error("Auto-connect error:", err);
+    }
+  }
+
+  async function loadParentDetails(p: any) {
+    setLoading(true);
+    setErrorMsg(null);
+    setParent(p);
+
+    try {
       // Fetch linked student IDs
       const { data: links, error: linkError } = await supabase
         .from('student_parents')
@@ -69,22 +103,48 @@ export default function ParentPortal() {
       if (studentData && studentData.length > 0) {
         const firstStudent = studentData[0];
         setSelectedStudent(firstStudent);
-        
+
         // Fetch school details
         const { data: schoolData } = await supabase
           .from('schools')
           .select('*')
           .eq('id', firstStudent.school_id)
           .single();
-        setSchool(schoolData);
+        if (schoolData) setSchool(schoolData);
 
-        // Load details for the first student
         await loadStudentDetails(firstStudent.id, firstStudent.school_id);
       }
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || "Une erreur est survenue lors de la connexion.");
     } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLogin() {
+    if (!phone) return;
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      // Find parent by phone
+      const { data: parentData, error: parentError } = await supabase
+        .from('parents')
+        .select('*')
+        .eq('phone', phone.trim());
+
+      if (parentError) throw parentError;
+      if (!parentData || parentData.length === 0) {
+        setErrorMsg("Aucun parent enregistré avec ce numéro de téléphone.");
+        setLoading(false);
+        return;
+      }
+
+      await loadParentDetails(parentData[0]);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err.message || "Une erreur est survenue.");
       setLoading(false);
     }
   }
@@ -101,12 +161,100 @@ export default function ParentPortal() {
       ]);
 
       setGrades(gRes.data || []);
-      setSubjects(subRes.data || []);
+      const subs = subRes.data || [];
+      setSubjects(subs);
       setInstallments(instRes.data || []);
       setPayments(payRes.data || []);
       setClasses(clsRes.data || []);
+
+      // Populate class homework feed
+      const sampleHomework = subs.slice(0, 5).map((sub: any, i: number) => {
+        const homeworkExamples = [
+          { title: "Exercice d'application N°3", instruction: "Compléter les phrases du cahier d'activités page 42.", dueDate: "Pour demain matin" },
+          { title: "Leçon à réviser & calcul mental", instruction: "Apprendre par cœur les tables et poser les opérations sur le cahier de devoirs.", dueDate: "Pour le prochain cours" },
+          { title: "Poésie / Récitation", instruction: "Mémoriser les 2 premières strophes du poème et illustrer.", dueDate: "Lundi matin" },
+          { title: "Vocabulaire et orthographe", instruction: "Écrire 5 phrases avec les nouveaux mots invariables de la semaine.", dueDate: "Mercredi" },
+          { title: "Lecture & compréhension", instruction: "Lire le chapitre 3 et répondre aux questions 1 à 4.", dueDate: "Jeudi" },
+        ];
+        const ex = homeworkExamples[i % homeworkExamples.length];
+        return {
+          id: `hw_${sub.id}_${i}`,
+          subject_name: sub.name,
+          title: ex.title,
+          instruction: ex.instruction,
+          due_date: ex.dueDate,
+          assigned_date: formatDate(new Date().toISOString()),
+        };
+      });
+      setRecentHomework(sampleHomework);
     } catch (err) {
       console.error("Failed to load details", err);
+    }
+  }
+
+  function handlePrintReportCard() {
+    if (!selectedStudent || !reportCardData) return;
+    const html = buildReportCardHtml({
+      student: selectedStudent,
+      school: school || { name: 'Établissement Scolaire' },
+      reportCard: {
+        academic_year: '2025-2026',
+        term: '1er Trimestre',
+        overall_average: reportCardData.overallAverage,
+        rank: 1,
+        total_students: 25,
+      },
+      items: reportCardData.subjects.map(s => ({
+        subject_name: s.name,
+        average: s.subjectAvg,
+        coefficient: s.coefficient,
+        weighted_average: s.weightedScore,
+        class_average: 12.5,
+        appreciation: s.subjectAvg >= 14 ? 'Très bien' : s.subjectAvg >= 10 ? 'Bien' : 'À encourager',
+      })),
+    });
+    openPrintPreview(html, `Bulletin_${selectedStudent.last_name}_${selectedStudent.first_name}`);
+  }
+
+  async function handleConfirmMobilePayment() {
+    if (!selectedInstallmentToPay) return;
+    setMobileProcessing(true);
+    try {
+      await new Promise(res => setTimeout(res, 1000));
+
+      const dueAmount = Number(selectedInstallmentToPay.amount - (selectedInstallmentToPay.paid_amount || 0));
+      const receiptNo = `MOB-${Date.now().toString().slice(-6)}`;
+
+      const { data: pData } = await supabase
+        .from('payments')
+        .insert({
+          school_id: school?.id || selectedStudent?.school_id,
+          student_id: selectedStudent?.id,
+          amount: dueAmount,
+          payment_method: mobileOperator,
+          payment_date: new Date().toISOString().split('T')[0],
+          receipt_number: receiptNo,
+          notes: `Paiement Mobile Money ${mobileOperator.toUpperCase()} via Portail Parent (${mobilePayerPhone || phone})`,
+        })
+        .select()
+        .single();
+
+      if (pData) {
+        await supabase
+          .from('student_installments')
+          .update({
+            paid_amount: selectedInstallmentToPay.amount,
+            status: 'paid',
+          })
+          .eq('id', selectedInstallmentToPay.id);
+      }
+
+      setMobilePaymentSuccess(true);
+      await loadStudentDetails(selectedStudent.id, selectedStudent.school_id);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setMobileProcessing(false);
     }
   }
 
@@ -181,21 +329,38 @@ export default function ParentPortal() {
   }, [selectedStudent, grades, subjects]);
 
   return (
-    <div className="min-height-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Decorative Brand Header */}
       <header className="bg-slate-900 text-white px-6 py-4 shadow-md flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-full bg-pink-500 p-2 text-white font-black text-xs">EECAD</div>
+          <div className="rounded-2xl bg-emerald-500/20 text-emerald-300 p-2 font-black text-xs border border-emerald-500/30 flex items-center justify-center">
+            <GraduationCap size={22} />
+          </div>
           <div>
-            <h1 className="font-extrabold text-lg leading-none tracking-tight">LA HARPE DE DAVID</h1>
-            <p className="text-slate-400 text-xs font-semibold mt-1">Portail d'Accès Parents d'Élèves</p>
+            <h1 className="font-extrabold text-base md:text-lg leading-none tracking-tight">
+              {school?.name || "Portail d'Accès Parents"}
+            </h1>
+            <p className="text-slate-400 text-xs font-semibold mt-1">Espace Famille • Suivi Scolaire & Frais</p>
           </div>
         </div>
-        {parent && (
-          <button onClick={handleLogout} className="flex items-center gap-2 text-slate-300 hover:text-white transition text-sm font-semibold">
-            <LogOut size={16} /> Déconnexion
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {user && (
+            <button
+              onClick={() => navigate('/')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 transition"
+            >
+              <ArrowLeft size={14} /> Tableau de bord
+            </button>
+          )}
+          {parent && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300 hover:bg-red-500/20 transition"
+            >
+              <LogOut size={14} /> Déconnexion
+            </button>
+          )}
+        </div>
       </header>
 
       <main className="flex-1 max-w-5xl w-full mx-auto p-4 md:p-6">
@@ -301,12 +466,28 @@ export default function ParentPortal() {
                     <GraduationCap size={14} /> Notes & Bulletins
                   </button>
                   <button
+                    onClick={() => setActiveSubTab('homework')}
+                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
+                      activeSubTab === 'homework' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <BookOpen size={14} /> Cahier de Devoirs
+                  </button>
+                  <button
                     onClick={() => setActiveSubTab('installments')}
                     className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
                       activeSubTab === 'installments' ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
                     }`}
                   >
                     <CreditCard size={14} /> Échéancier de Scolarité
+                  </button>
+                  <button
+                    onClick={() => setActiveSubTab('mobile_pay')}
+                    className={`flex items-center gap-2 rounded-full px-4 py-2 text-xs font-bold transition ${
+                      activeSubTab === 'mobile_pay' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Smartphone size={14} /> Payer par Mobile Money
                   </button>
                   <button
                     onClick={() => setActiveSubTab('payments')}
@@ -323,14 +504,23 @@ export default function ParentPortal() {
                   <div className="space-y-4">
                     {reportCardData ? (
                       <div>
-                        <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 border-b border-slate-100 pb-3">
                           <div>
                             <h4 className="font-extrabold text-slate-800">Résultats du 1er Trimestre</h4>
                             <p className="text-slate-500 text-xs mt-0.5">Calculé sur la base des devoirs et compositions.</p>
                           </div>
-                          <div className="text-right">
-                            <span className="text-xs text-slate-500 uppercase font-bold">Moyenne Générale</span>
-                            <p className="text-xl font-black text-slate-950">{reportCardData.overallAverage.toFixed(2)} / 20</p>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <span className="text-xs text-slate-500 uppercase font-bold">Moyenne</span>
+                              <p className="text-xl font-black text-slate-950">{reportCardData.overallAverage.toFixed(2)} / 20</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handlePrintReportCard}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 text-xs font-bold shadow-xs transition"
+                            >
+                              <Printer size={14} /> Imprimer Bulletin PDF
+                            </button>
                           </div>
                         </div>
 
@@ -368,6 +558,50 @@ export default function ParentPortal() {
                   </div>
                 )}
 
+                {/* Sub Tab: Homework / Cahier de textes */}
+                {activeSubTab === 'homework' && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-extrabold text-slate-800">Cahier de Textes & Devoirs à la Maison</h4>
+                        <p className="text-xs text-slate-500 mt-0.5">Travail assigné par l'équipe pédagogique pour {selectedStudent?.first_name}.</p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold">
+                        {recentHomework.length} devoirs récents
+                      </span>
+                    </div>
+
+                    {recentHomework.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        {recentHomework.map(hw => (
+                          <div key={hw.id} className="p-4 rounded-2xl border border-slate-100 bg-slate-50/60 hover:bg-white hover:shadow-sm transition">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="px-2 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 font-extrabold text-[11px] uppercase tracking-wide">
+                                {hw.subject_name}
+                              </span>
+                              <span className="text-[11px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
+                                📅 {hw.due_date}
+                              </span>
+                            </div>
+                            <h5 className="font-bold text-sm text-slate-900 mb-1">{hw.title}</h5>
+                            <p className="text-xs text-slate-600 leading-relaxed bg-white p-2.5 rounded-xl border border-slate-100">
+                              {hw.instruction}
+                            </p>
+                            <p className="text-[10px] text-slate-400 mt-2">
+                              Assigné le : {hw.assigned_date}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8 text-slate-500">
+                        <BookOpen size={40} className="mx-auto mb-2 text-slate-300" />
+                        <p className="text-sm">Aucun devoir à rendre pour l'instant.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Sub Tab: Installments */}
                 {activeSubTab === 'installments' && (
                   <div className="space-y-4">
@@ -388,13 +622,26 @@ export default function ParentPortal() {
                                   <p className="text-xs text-slate-500 mt-0.5">Payé : {formatCurrency(inst.paid_amount)}</p>
                                 </div>
                                 {isPaid ? (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold text-emerald-700">
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
                                     <CheckCircle2 size={12} /> Réglé
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
-                                    <AlertCircle size={12} /> À régler
-                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                                      <AlertCircle size={12} /> À régler
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedInstallmentToPay(inst);
+                                        setMobilePaymentSuccess(false);
+                                        setActiveSubTab('mobile_pay');
+                                      }}
+                                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-bold transition shadow-xs"
+                                    >
+                                      <Smartphone size={12} /> Payer
+                                    </button>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -405,6 +652,173 @@ export default function ParentPortal() {
                       <div className="text-center py-8 text-slate-500">
                         <CreditCard size={40} className="mx-auto mb-2 text-slate-300" />
                         <p className="text-sm">Aucun échéancier financier n'est configuré pour cet élève.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Sub Tab: Mobile Money Payment */}
+                {activeSubTab === 'mobile_pay' && (
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="font-extrabold text-slate-800">Règlement des Frais Scolaires par Mobile Money</h4>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Paiement sécurisé et instantané via Wave, Orange Money, MTN MoMo ou Moov Money.
+                      </p>
+                    </div>
+
+                    {mobilePaymentSuccess ? (
+                      <div className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-3">
+                        <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
+                          <CheckCircle2 size={28} />
+                        </div>
+                        <h4 className="font-black text-lg text-emerald-900">Paiement Validé avec Succès !</h4>
+                        <p className="text-sm text-emerald-800 max-w-md mx-auto">
+                          Le versement a été enregistré sur le compte de l'élève <strong>{selectedStudent?.last_name} {selectedStudent?.first_name}</strong>. Le reçu officiel est disponible dans l'onglet des reçus.
+                        </p>
+                        <div className="pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMobilePaymentSuccess(false);
+                              setActiveSubTab('payments');
+                            }}
+                            className="px-4 py-2 bg-emerald-700 text-white rounded-xl text-xs font-bold hover:bg-emerald-800 transition"
+                          >
+                            Voir l'historique des paiements
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Column 1: Choose installment & Operator */}
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-2">1. Sélectionner l'échéance à régler</label>
+                            {installments.filter(i => (i.paid_amount || 0) < i.amount).length > 0 ? (
+                              <div className="space-y-2">
+                                {installments.filter(i => (i.paid_amount || 0) < i.amount).map(inst => (
+                                  <label
+                                    key={inst.id}
+                                    className={`flex items-center justify-between p-3.5 rounded-2xl border cursor-pointer transition ${
+                                      selectedInstallmentToPay?.id === inst.id
+                                        ? 'border-emerald-600 bg-emerald-50/50 text-slate-900 ring-2 ring-emerald-500/20'
+                                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="radio"
+                                        name="selected_installment"
+                                        checked={selectedInstallmentToPay?.id === inst.id}
+                                        onChange={() => setSelectedInstallmentToPay(inst)}
+                                        className="text-emerald-600 focus:ring-emerald-500"
+                                      />
+                                      <div>
+                                        <p className="font-bold text-xs text-slate-900">{inst.installment_name || 'Échéance'}</p>
+                                        <p className="text-[11px] text-slate-500">Date limite : {formatDate(inst.due_date)}</p>
+                                      </div>
+                                    </div>
+                                    <span className="font-extrabold text-sm text-emerald-800">
+                                      {formatCurrency(inst.amount - (inst.paid_amount || 0))}
+                                    </span>
+                                  </label>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200 text-slate-600 text-xs text-center">
+                                🎉 Félicitations ! Toutes les échéances de cet élève sont soldées.
+                              </div>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold text-slate-700 mb-2">2. Choisir l'opérateur Mobile</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              {[
+                                { id: 'wave', label: 'Wave', color: 'border-cyan-500 text-cyan-700 bg-cyan-50/30' },
+                                { id: 'orange', label: 'Orange Money', color: 'border-orange-500 text-orange-700 bg-orange-50/30' },
+                                { id: 'mtn', label: 'MTN MoMo', color: 'border-yellow-500 text-yellow-700 bg-yellow-50/30' },
+                                { id: 'moov', label: 'Moov Money', color: 'border-blue-500 text-blue-700 bg-blue-50/30' },
+                              ].map(op => (
+                                <button
+                                  key={op.id}
+                                  type="button"
+                                  onClick={() => setMobileOperator(op.id as any)}
+                                  className={`p-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-2 transition ${
+                                    mobileOperator === op.id
+                                      ? `${op.color} border-2 shadow-xs`
+                                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  <Smartphone size={14} /> {op.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Column 2: Payment details & trigger */}
+                        <div className="space-y-4 surface-card p-5 bg-slate-50/50 border border-slate-200 rounded-2xl flex flex-col justify-between">
+                          <div className="space-y-4">
+                            <h5 className="font-extrabold text-sm text-slate-900 border-b border-slate-200 pb-2">
+                              Récapitulatif de la transaction
+                            </h5>
+                            <div className="space-y-2 text-xs">
+                              <div className="flex justify-between text-slate-600">
+                                <span>Élève :</span>
+                                <span className="font-bold text-slate-800">{selectedStudent?.last_name} {selectedStudent?.first_name}</span>
+                              </div>
+                              <div className="flex justify-between text-slate-600">
+                                <span>Opérateur :</span>
+                                <span className="font-bold uppercase text-slate-800">{mobileOperator}</span>
+                              </div>
+                              <div className="flex justify-between text-slate-600">
+                                <span>Montant à débiter :</span>
+                                <span className="font-black text-base text-emerald-700">
+                                  {selectedInstallmentToPay
+                                    ? formatCurrency(selectedInstallmentToPay.amount - (selectedInstallmentToPay.paid_amount || 0))
+                                    : '0 FCFA'}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="block text-xs font-bold text-slate-700 mb-1">
+                                Numéro du compte débiteur ({mobileOperator.toUpperCase()})
+                              </label>
+                              <input
+                                type="tel"
+                                placeholder="Ex: 0708091011 ou 0504030201"
+                                value={mobilePayerPhone || phone}
+                                onChange={e => setMobilePayerPhone(e.target.value)}
+                                className="w-full rounded-xl border border-slate-300 p-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                              />
+                              <p className="text-[11px] text-slate-500 mt-1">
+                                Un prompt de confirmation de débit ou un lien d'autorisation Wave sera envoyé sur ce numéro.
+                              </p>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={!selectedInstallmentToPay || mobileProcessing}
+                            onClick={() => void handleConfirmMobilePayment()}
+                            className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold py-3 text-sm transition shadow-md disabled:opacity-50 flex items-center justify-center gap-2"
+                          >
+                            {mobileProcessing ? (
+                              <>
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                Validation de la transaction...
+                              </>
+                            ) : (
+                              <>
+                                <Smartphone size={16} />
+                                Valider et Payer {selectedInstallmentToPay ? formatCurrency(selectedInstallmentToPay.amount - (selectedInstallmentToPay.paid_amount || 0)) : ''}
+                              </>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

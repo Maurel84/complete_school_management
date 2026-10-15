@@ -43,3 +43,18 @@ export const supabase = createClient(
   supabaseUrl || 'https://invalid.supabase.local',
   supabaseAnonKey || 'invalid-anon-key',
 );
+
+export function createUnpersistedAuthClient() {
+  return createClient(
+    supabaseUrl || 'https://invalid.supabase.local',
+    supabaseAnonKey || 'invalid-anon-key',
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    },
+  );
+}
+

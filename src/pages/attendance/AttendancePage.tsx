@@ -25,6 +25,11 @@ import {
   Send,
   Printer,
   Search,
+  MessageSquare,
+  Copy,
+  ExternalLink,
+  Sparkles,
+  Check,
 } from 'lucide-react';
 
 interface AttendanceRowState {
@@ -37,7 +42,7 @@ interface AttendanceRowState {
 
 export default function AttendancePage() {
   const { school } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher, profile } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
   const canManage = isSuperAdmin || isAdmin || isDirector || isSupervisor || isTeacher;
 
@@ -55,6 +60,11 @@ export default function AttendancePage() {
   const [sheetRows, setSheetRows] = useState<Record<string, AttendanceRowState>>({});
   const [savingSheet, setSavingSheet] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+
+  // WhatsApp Alert Modal state
+  const [whatsappModalOpen, setWhatsappModalOpen] = useState(false);
+  const [absentStudentsList, setAbsentStudentsList] = useState<any[]>([]);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // History Filters
   const [historyClassFilter, setHistoryClassFilter] = useState('');
@@ -106,7 +116,25 @@ export default function AttendancePage() {
       setStudents((stuRes.data as unknown as Student[]) || []);
       setClasses((clsRes.data as Class[]) || []);
 
-      if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
+      let autoSelectedClassId = '';
+      if (isTeacher && profile && clsRes.data) {
+        const { data: teacherRec } = await supabase
+          .from('teachers')
+          .select('id')
+          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
+          .maybeSingle();
+
+        if (teacherRec) {
+          const teacherClass = clsRes.data.find(c => c.teacher_id === teacherRec.id);
+          if (teacherClass) {
+            autoSelectedClassId = teacherClass.id;
+          }
+        }
+      }
+
+      if (autoSelectedClassId) {
+        setSelectedClass(autoSelectedClassId);
+      } else if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
         setSelectedClass(clsRes.data[0].id);
       }
     } catch (e) {
@@ -206,13 +234,88 @@ export default function AttendancePage() {
       const { error } = await supabase.from('attendance').upsert(upsertList);
       if (error) throw error;
 
-      setSaveSuccessNotice(`✅ Feuille d'appel enregistrée avec succès pour le ${formatDate(selectedDate)} !`);
+      // Prepare absents and lates for WhatsApp alerts
+      const absentsAndLates = classStudents
+        .filter(st => {
+          const r = sheetRows[st.id];
+          return r && (r.status === 'absent' || r.status === 'late');
+        })
+        .map(st => {
+          const r = sheetRows[st.id];
+          const sp = (st as any).student_parents || [];
+          const parentObj = sp[0]?.parent;
+          const phone = parentObj?.phone || st.phone || '';
+          const parentName = parentObj ? `${parentObj.first_name || ''} ${parentObj.last_name || ''}`.trim() : 'Parent';
+          const className = classes.find(c => c.id === selectedClass)?.name || '';
+          return {
+            student: st,
+            status: r.status,
+            reason: r.reason,
+            parentName,
+            phone,
+            className,
+          };
+        });
+
+      if (absentsAndLates.length > 0) {
+        setAbsentStudentsList(absentsAndLates);
+        setWhatsappModalOpen(true);
+        setSaveSuccessNotice(`✅ Appel enregistré ! ${absentsAndLates.length} notification(s) d'absence/retard prêtes à être envoyées par WhatsApp.`);
+      } else {
+        setSaveSuccessNotice(`✅ Feuille d'appel enregistrée avec succès pour le ${formatDate(selectedDate)} (100% de présence) !`);
+      }
       void fetchData();
     } catch (err: any) {
       alert(`Erreur d'enregistrement : ${err.message}`);
     } finally {
       setSavingSheet(false);
     }
+  }
+
+  function openWhatsappModal() {
+    const list = classStudents
+      .filter(st => {
+        const r = sheetRows[st.id];
+        return r && (r.status === 'absent' || r.status === 'late');
+      })
+      .map(st => {
+        const r = sheetRows[st.id];
+        const sp = (st as any).student_parents || [];
+        const parentObj = sp[0]?.parent;
+        const phone = parentObj?.phone || st.phone || '';
+        const parentName = parentObj ? `${parentObj.first_name || ''} ${parentObj.last_name || ''}`.trim() : 'Parent';
+        const className = classes.find(c => c.id === selectedClass)?.name || '';
+        return {
+          student: st,
+          status: r?.status || 'absent',
+          reason: r?.reason || '',
+          parentName,
+          phone,
+          className,
+        };
+      });
+    setAbsentStudentsList(list);
+    setWhatsappModalOpen(true);
+  }
+
+  function getWhatsappUrl(item: any) {
+    let cleanPhone = (item.phone || '').replace(/[^0-9]/g, '');
+    if (cleanPhone.length === 10 && (cleanPhone.startsWith('07') || cleanPhone.startsWith('05') || cleanPhone.startsWith('01'))) {
+      cleanPhone = '225' + cleanPhone;
+    }
+    const schoolName = school?.name || "l'école";
+    const statusLabel = item.status === 'absent' ? 'absent(e)' : 'en retard';
+    const text = `Bonjour M./Mme ${item.parentName}, nous vous informons que votre enfant ${item.student.first_name} ${item.student.last_name} a été noté(e) ${statusLabel} ce jour (${formatDate(selectedDate)}) en classe de ${item.className} à ${schoolName}.${item.reason ? ` Motif : ${item.reason}.` : ''} En cas de justification, merci de contacter la vie scolaire au ${school?.phone || 'la direction'}. Cordialement.`;
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  }
+
+  function copyMessage(item: any) {
+    const schoolName = school?.name || "l'école";
+    const statusLabel = item.status === 'absent' ? 'absent(e)' : 'en retard';
+    const text = `Bonjour M./Mme ${item.parentName}, nous vous informons que votre enfant ${item.student.first_name} ${item.student.last_name} a été noté(e) ${statusLabel} ce jour (${formatDate(selectedDate)}) en classe de ${item.className} à ${schoolName}.${item.reason ? ` Motif : ${item.reason}.` : ''} En cas de justification, merci de contacter la vie scolaire au ${school?.phone || 'la direction'}. Cordialement.`;
+    navigator.clipboard.writeText(text);
+    setCopiedId(item.student.id);
+    setTimeout(() => setCopiedId(null), 2500);
   }
 
   // Statistics for current sheet
@@ -433,6 +536,33 @@ export default function AttendancePage() {
                 <p className="text-xs text-blue-700 font-semibold uppercase">Assiduité</p>
                 <p className="text-2xl font-bold text-blue-800 mt-1">{sheetStats.rate}%</p>
               </div>
+            </div>
+          )}
+
+          {/* WhatsApp Alert Action Banner */}
+          {selectedClass && classStudents.length > 0 && sheetStats.absent + sheetStats.late > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-blue-50 p-4 shadow-2xs">
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-xs">
+                  <MessageSquare size={18} />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    {sheetStats.absent + sheetStats.late} élève(s) non présent(s) sur cette séance
+                  </p>
+                  <p className="text-xs text-slate-600">
+                    Alertez instantanément les parents sur WhatsApp en 1 clic pour un suivi proactif
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={openWhatsappModal}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-xs transition"
+              >
+                <MessageSquare size={15} />
+                <span>Envoyer alertes WhatsApp ({sheetStats.absent + sheetStats.late})</span>
+              </button>
             </div>
           )}
 
@@ -912,6 +1042,115 @@ export default function AttendancePage() {
               Informer le parent / tuteur légal
             </span>
           </label>
+        </div>
+      </Modal>
+
+      {/* WhatsApp Absence Notification Modal */}
+      <Modal
+        isOpen={whatsappModalOpen}
+        onClose={() => setWhatsappModalOpen(false)}
+        title="📲 Notification des Absences & Retards aux Parents"
+        size="lg"
+        actions={
+          <button
+            onClick={() => setWhatsappModalOpen(false)}
+            className="btn-premium-primary"
+          >
+            Fermer
+          </button>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <p className="text-xs font-bold text-emerald-900 flex items-center gap-2">
+              <Sparkles size={16} className="text-emerald-600" />
+              <span>Alerte instantanée des familles via WhatsApp</span>
+            </p>
+            <p className="mt-1 text-xs text-emerald-700 leading-relaxed">
+              Pour chaque élève non présent, vous pouvez ouvrir directement une discussion WhatsApp avec le parent ou copier le message personnalisé d'information.
+            </p>
+          </div>
+
+          {absentStudentsList.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-sm">
+              Aucun élève absent ou en retard n'a été sélectionné.
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+              {absentStudentsList.map(item => {
+                const isCopied = copiedId === item.student.id;
+                const whatsappUrl = getWhatsappUrl(item);
+                const hasPhone = Boolean(item.phone);
+
+                return (
+                  <div
+                    key={item.student.id}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-2xs hover:border-slate-300 transition"
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">
+                            {item.student.first_name} {item.student.last_name}
+                          </span>
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              item.status === 'absent'
+                                ? 'bg-rose-100 text-rose-700'
+                                : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {item.status === 'absent' ? 'Absent(e)' : 'En retard'}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Parent référent : <strong className="text-slate-700">{item.parentName}</strong>
+                          {item.phone ? ` • 📞 ${item.phone}` : ' • ⚠️ Aucun numéro enregistré'}
+                        </p>
+                        {item.reason && (
+                          <p className="mt-1 text-xs italic text-slate-600">
+                            Motif : {item.reason}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => copyMessage(item)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition"
+                          title="Copier le message d'absence"
+                        >
+                          {isCopied ? <Check size={14} className="text-emerald-600" /> : <Copy size={14} />}
+                          <span>{isCopied ? 'Copié !' : 'Copier'}</span>
+                        </button>
+
+                        {hasPhone ? (
+                          <a
+                            href={whatsappUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] px-3.5 py-2 text-xs font-bold text-white shadow-xs transition"
+                          >
+                            <MessageSquare size={14} />
+                            <span>WhatsApp</span>
+                            <ExternalLink size={12} className="opacity-70" />
+                          </a>
+                        ) : (
+                          <button
+                            disabled
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-slate-100 px-3 py-2 text-xs font-medium text-slate-400 cursor-not-allowed"
+                          >
+                            Pas de numéro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

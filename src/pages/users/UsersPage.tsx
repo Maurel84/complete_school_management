@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from '../../lib/supabase';
+import { supabase, createUnpersistedAuthClient } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import DataTable from '../../components/common/DataTable';
@@ -20,6 +20,8 @@ import {
   ShieldCheck,
   UserCog,
   Users,
+  UserPlus,
+  Sparkles,
 } from 'lucide-react';
 
 type UserRow = Profile & { role?: Role };
@@ -63,6 +65,10 @@ export default function UsersPage() {
   const { isAdmin, isSuperAdmin, profile } = useAuth();
   const [users, setUsers] = useState<UserRow[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [teachersList, setTeachersList] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [parentsList, setParentsList] = useState<any[]>([]);
+  const [selectedPersonLink, setSelectedPersonLink] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -81,18 +87,75 @@ export default function UsersPage() {
   async function fetchData() {
     if (!school) return;
     setLoading(true);
-    const [profileRes, roleRes] = await Promise.all([
+    const [profileRes, roleRes, teachersRes, staffRes, parentsRes] = await Promise.all([
       supabase
         .from('profiles')
         .select('*, role:roles(*)')
         .eq('school_id', school.id)
         .order('last_name', { ascending: true }),
       supabase.from('roles').select('*').order('display_name'),
+      supabase.from('teachers').select('*').eq('school_id', school.id).order('last_name'),
+      supabase.from('staff').select('*').eq('school_id', school.id).order('last_name'),
+      supabase.from('parents').select('*').eq('school_id', school.id).order('last_name'),
     ]);
 
     setUsers(((profileRes.data as UserRow[]) || []).map(normalizeUserRow));
     setRoles((roleRes.data as Role[]) || []);
+    setTeachersList(teachersRes.data || []);
+    setStaffList(staffRes.data || []);
+    setParentsList(parentsRes.data || []);
     setLoading(false);
+  }
+
+  function handleSelectPersonLink(key: string) {
+    setSelectedPersonLink(key);
+    if (!key) return;
+
+    if (key.startsWith('teacher_')) {
+      const id = key.replace('teacher_', '');
+      const t = teachersList.find(item => item.id === id);
+      if (t) {
+        setForm(cur => ({
+          ...cur,
+          first_name: t.first_name || '',
+          last_name: t.last_name || '',
+          email: t.email || cur.email,
+          phone: t.phone || cur.phone,
+          role_name: 'teacher',
+          module_access: getDefaultModuleKeys('teacher'),
+        }));
+      }
+    } else if (key.startsWith('staff_')) {
+      const id = key.replace('staff_', '');
+      const s = staffList.find(item => item.id === id);
+      if (s) {
+        const isCompta = (s.position || '').toLowerCase().includes('compt') || (s.department || '').toLowerCase().includes('compt');
+        const targetRole: UserRole = isCompta ? 'accountant' : 'admin';
+        setForm(cur => ({
+          ...cur,
+          first_name: s.first_name || '',
+          last_name: s.last_name || '',
+          email: s.email || cur.email,
+          phone: s.phone || cur.phone,
+          role_name: targetRole,
+          module_access: getDefaultModuleKeys(targetRole),
+        }));
+      }
+    } else if (key.startsWith('parent_')) {
+      const id = key.replace('parent_', '');
+      const p = parentsList.find(item => item.id === id);
+      if (p) {
+        setForm(cur => ({
+          ...cur,
+          first_name: p.first_name || '',
+          last_name: p.last_name || '',
+          email: p.email || cur.email,
+          phone: p.phone || cur.phone,
+          role_name: 'parent',
+          module_access: getDefaultModuleKeys('parent'),
+        }));
+      }
+    }
   }
 
   const roleOptions = useMemo(
@@ -114,6 +177,7 @@ export default function UsersPage() {
       role_name: nextRole,
       module_access: getDefaultModuleKeys(nextRole),
     });
+    setSelectedPersonLink('');
   }
 
   function setRole(roleName: UserRole) {
@@ -140,6 +204,7 @@ export default function UsersPage() {
 
   function openCreate() {
     setNotice(null);
+    setSelectedPersonLink('');
     resetForm();
     setCreateOpen(true);
   }
@@ -169,16 +234,108 @@ export default function UsersPage() {
     setNotice(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('admin-create-user', {
-        body: {
-          ...form,
-          school_id: school.id,
-          module_access: form.module_access,
+      const email = form.email.trim().toLowerCase();
+      const password = form.password;
+      const firstName = form.first_name.trim();
+      const lastName = form.last_name.trim();
+      const phone = form.phone.trim();
+
+      if (!email || !password || !firstName || !lastName) {
+        throw new Error('Veuillez renseigner le prénom, le nom, un email valide et un mot de passe.');
+      }
+
+      if (password.length < 6) {
+        throw new Error('Le mot de passe doit comporter au moins 6 caractères.');
+      }
+
+      // 1. Client-side Auth sign-up via unpersisted client (keeps active admin session intact)
+      const authClient = createUnpersistedAuthClient();
+      const { data: signUpData, error: signUpError } = await authClient.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            first_name: firstName,
+            last_name: lastName,
+            phone,
+            school_id: school.id,
+            role: form.role_name,
+          },
         },
       });
 
-      if (error) {
-        throw error;
+      if (signUpError) {
+        if (signUpError.message?.toLowerCase().includes('already registered')) {
+          throw new Error(`Un compte avec l'adresse email ${email} existe déjà.`);
+        }
+        throw signUpError;
+      }
+
+      const createdUserId = signUpData.user?.id;
+      if (!createdUserId) {
+        throw new Error("L'identifiant du nouvel utilisateur n'a pas pu être obtenu.");
+      }
+
+      // 2. Upsert profile with chosen role and permissions
+      const roleId = roles.find(role => role.name === form.role_name)?.id;
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: createdUserId,
+        school_id: school.id,
+        role_id: roleId,
+        email,
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        account_type: form.account_type || 'staff',
+        module_access: form.module_access,
+        active: form.active,
+        updated_at: new Date().toISOString(),
+      });
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      // 3. Link with existing teacher, staff, or parent record
+      if (selectedPersonLink) {
+        if (selectedPersonLink.startsWith('teacher_')) {
+          const tId = selectedPersonLink.replace('teacher_', '');
+          await supabase.from('teachers').update({ user_id: createdUserId, email }).eq('id', tId);
+        } else if (selectedPersonLink.startsWith('staff_')) {
+          const sId = selectedPersonLink.replace('staff_', '');
+          await supabase.from('staff').update({ user_id: createdUserId, email }).eq('id', sId);
+        } else if (selectedPersonLink.startsWith('parent_')) {
+          const pId = selectedPersonLink.replace('parent_', '');
+          await supabase.from('parents').update({ user_id: createdUserId, email }).eq('id', pId);
+        }
+      } else {
+        // Automatic matching if manual creation was used
+        if (form.role_name === 'teacher') {
+          const match = teachersList.find(t =>
+            (t.email && t.email.toLowerCase() === email) ||
+            ((t.last_name || '').toLowerCase() === lastName.toLowerCase() && (t.first_name || '').toLowerCase() === firstName.toLowerCase())
+          );
+          if (match) {
+            await supabase.from('teachers').update({ user_id: createdUserId, email }).eq('id', match.id);
+          }
+        } else if (form.role_name === 'admin' || form.role_name === 'accountant') {
+          const match = staffList.find(s =>
+            (s.email && s.email.toLowerCase() === email) ||
+            ((s.last_name || '').toLowerCase() === lastName.toLowerCase() && (s.first_name || '').toLowerCase() === firstName.toLowerCase())
+          );
+          if (match) {
+            await supabase.from('staff').update({ user_id: createdUserId, email }).eq('id', match.id);
+          }
+        } else if (form.role_name === 'parent') {
+          const match = parentsList.find(p =>
+            (p.email && p.email.toLowerCase() === email) ||
+            (p.phone && p.phone === phone) ||
+            ((p.last_name || '').toLowerCase() === lastName.toLowerCase() && (p.first_name || '').toLowerCase() === firstName.toLowerCase())
+          );
+          if (match) {
+            await supabase.from('parents').update({ user_id: createdUserId, email }).eq('id', match.id);
+          }
+        }
       }
 
       setSaving(false);
@@ -187,24 +344,6 @@ export default function UsersPage() {
       await fetchData();
     } catch (e: any) {
       let msg = e.message || "Le compte n'a pas pu être créé.";
-      
-      // Try to parse the HTTP response body if it's a FunctionsHttpError
-      if (e.context && typeof e.context.json === 'function') {
-        try {
-          const body = await e.context.json();
-          if (body && body.error) {
-            msg = body.error;
-          }
-        } catch (_) {}
-      }
-
-      if (
-        msg.includes("Failed to send a request to the Edge Function") ||
-        msg.includes("Failed to fetch") ||
-        msg.includes("edge function")
-      ) {
-        msg = "Erreur : La fonction Edge 'admin-create-user' n'est pas déployée en production. Pour la déployer et permettre la création de comptes, veuillez exécuter la commande suivante dans votre terminal local : \n\n supabase functions deploy admin-create-user --project-ref <id_projet_supabase>";
-      }
       setNotice(msg);
       setSaving(false);
     }
@@ -367,6 +506,11 @@ export default function UsersPage() {
         saving={saving}
         notice={notice}
         mode="create"
+        teachersList={teachersList}
+        staffList={staffList}
+        parentsList={parentsList}
+        selectedPersonLink={selectedPersonLink}
+        onSelectPersonLink={handleSelectPersonLink}
         onClose={() => setCreateOpen(false)}
         onChange={setForm}
         onRoleChange={setRole}
@@ -402,6 +546,11 @@ interface UserModalProps {
   saving: boolean;
   notice: string | null;
   mode: 'create' | 'edit';
+  teachersList?: any[];
+  staffList?: any[];
+  parentsList?: any[];
+  selectedPersonLink?: string;
+  onSelectPersonLink?: (key: string) => void;
   onClose: () => void;
   onChange: (form: UserForm) => void;
   onRoleChange: (roleName: UserRole) => void;
@@ -418,6 +567,11 @@ function UserModal({
   saving,
   notice,
   mode,
+  teachersList,
+  staffList,
+  parentsList,
+  selectedPersonLink,
+  onSelectPersonLink,
   onClose,
   onChange,
   onRoleChange,
@@ -446,9 +600,57 @@ function UserModal({
           <div className="rounded-2xl border border-red-200 bg-red-50/50 p-5 text-sm text-red-800 flex flex-col gap-2.5 shadow-sm">
             <div className="flex items-center gap-2 font-bold text-red-700">
               <ShieldAlert size={16} />
-              <span>Erreur lors de la création de compte</span>
+              <span>Information / Erreur</span>
             </div>
             <p className="whitespace-pre-wrap font-medium leading-relaxed font-sans text-xs bg-white/60 p-3 rounded-xl border border-red-100">{notice}</p>
+          </div>
+        )}
+
+        {mode === 'create' && (
+          <div className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/70 via-indigo-50/30 to-white p-4 shadow-sm">
+            <div className="flex items-center gap-2 font-bold text-blue-900 text-sm">
+              <UserPlus size={16} className="text-blue-600" />
+              <span>Lier à une fiche existante (Optionnel & Recommandé)</span>
+            </div>
+            <p className="mt-1 text-xs text-blue-700 leading-relaxed">
+              Sélectionnez un enseignant, personnel ou parent pour pré-remplir instantanément ses informations et lui octroyer ses droits d'accès.
+            </p>
+            <div className="mt-3">
+              <select
+                value={selectedPersonLink || ''}
+                onChange={e => onSelectPersonLink?.(e.target.value)}
+                className="w-full rounded-xl border border-blue-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-800 shadow-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+              >
+                <option value="">-- Création manuelle libre (aucun pré-remplissage) --</option>
+                {teachersList && teachersList.length > 0 && (
+                  <optgroup label="👨‍🏫 Enseignants de l'établissement">
+                    {teachersList.map(t => (
+                      <option key={`teacher_${t.id}`} value={`teacher_${t.id}`}>
+                        {t.first_name} {t.last_name} {t.specialty ? `• ${t.specialty}` : ''} {t.matricule ? `[${t.matricule}]` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {staffList && staffList.length > 0 && (
+                  <optgroup label="💼 Personnel administratif">
+                    {staffList.map(s => (
+                      <option key={`staff_${s.id}`} value={`staff_${s.id}`}>
+                        {s.first_name} {s.last_name} {s.position ? `• ${s.position}` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {parentsList && parentsList.length > 0 && (
+                  <optgroup label="👪 Parents d'élèves">
+                    {parentsList.map(p => (
+                      <option key={`parent_${p.id}`} value={`parent_${p.id}`}>
+                        {p.first_name} {p.last_name} {p.phone ? `(${p.phone})` : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
           </div>
         )}
 

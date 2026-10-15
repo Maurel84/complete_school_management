@@ -75,7 +75,7 @@ export const APP_MODULES: AppModule[] = [
     path: '/finance',
     description: 'Frais, paiements, recus et comptes familles.',
     category: 'Finance',
-    defaultRoles: ['super_admin', 'admin', 'director', 'accountant', 'cashier', 'parent'],
+    defaultRoles: ['super_admin', 'admin', 'director', 'accountant', 'cashier'],
   },
   {
     key: 'cash',

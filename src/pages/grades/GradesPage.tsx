@@ -34,7 +34,7 @@ interface StudentGradeInput {
 
 export default function GradesPage() {
   const { school, academicYear } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isTeacher } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isTeacher, profile } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
   const canManage = isSuperAdmin || isAdmin || isDirector || isTeacher;
 
@@ -102,7 +102,25 @@ export default function GradesPage() {
       setStudents((stuRes.data as Student[]) || []);
       setClasses((clsRes.data as Class[]) || []);
 
-      if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
+      let autoSelectedClassId = '';
+      if (isTeacher && profile && clsRes.data) {
+        const { data: teacherRec } = await supabase
+          .from('teachers')
+          .select('id')
+          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
+          .maybeSingle();
+
+        if (teacherRec) {
+          const teacherClass = clsRes.data.find(c => c.teacher_id === teacherRec.id);
+          if (teacherClass) {
+            autoSelectedClassId = teacherClass.id;
+          }
+        }
+      }
+
+      if (autoSelectedClassId) {
+        setSelectedClass(autoSelectedClassId);
+      } else if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
         setSelectedClass(clsRes.data[0].id);
       }
       if (subRes.data && subRes.data.length > 0 && !selectedSubject) {

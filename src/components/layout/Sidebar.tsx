@@ -45,7 +45,7 @@ const navItems = [
 const parentItems = [
   { label: 'Tableau de bord', path: '/', icon: LayoutDashboard },
   { label: 'Mes enfants', path: '/students', icon: GraduationCap },
-  { label: 'Paiements', path: '/finance', icon: DollarSign },
+  { label: 'Portail Famille & Frais', path: '/parent-portal', icon: DollarSign },
   { label: 'Notes', path: '/grades', icon: ClipboardList },
   { label: 'Absences', path: '/attendance', icon: CalendarCheck },
   { label: 'Messages', path: '/messages', icon: Mail },
