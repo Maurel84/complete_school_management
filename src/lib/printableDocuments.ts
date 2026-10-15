@@ -15,6 +15,14 @@ interface PrintableStudent {
   last_name: string;
   matricule: string;
   photo_url?: string;
+  date_of_birth?: string;
+  birth_date?: string;
+  birth_place?: string;
+  sex?: string;
+  nationality?: string;
+  blood_group?: string;
+  parent_name?: string;
+  parent_phone?: string;
 }
 
 interface PaymentReceiptTemplateInput {
@@ -71,6 +79,8 @@ function printableShell(title: string, body: string) {
       font-family: Inter, "Segoe UI", sans-serif;
       color: #14253d;
       background: #eef3f8;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
     }
     .page {
       min-height: 100vh;
@@ -420,6 +430,60 @@ export interface StudentCardTemplateInput {
   primaryGuardianPhone?: string;
 }
 
+export function getIvoryCoastCoatOfArmsSvg({ size = 30, opacity = 1 }: { size?: number; opacity?: number } = {}) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" style="opacity:${opacity}; display:inline-block; vertical-align:middle; flex-shrink:0;">
+    <!-- Sun rays (Soleil levant d'or) -->
+    <g stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round">
+      <path d="M60 22 L60 14"/>
+      <path d="M51 24 L45 18"/>
+      <path d="M69 24 L75 18"/>
+      <path d="M44 29 L37 26"/>
+      <path d="M76 29 L83 26"/>
+      <path d="M40 37 L32 37"/>
+      <path d="M80 37 L88 37"/>
+    </g>
+    <!-- Sun disc -->
+    <circle cx="60" cy="38" r="9" fill="#F59E0B"/>
+
+    <!-- Palm Trees flanking the shield (Deux palmiers) -->
+    <g stroke="#059669" fill="none" stroke-width="2" stroke-linecap="round">
+      <path d="M35 94 C33 75 31 55 42 42" stroke="#B45309" stroke-width="2.5"/>
+      <path d="M42 42 C32 36 22 42 16 52"/>
+      <path d="M42 42 C30 32 20 34 14 42"/>
+      <path d="M42 42 C34 26 24 26 18 32"/>
+      <path d="M42 42 C38 22 30 20 25 24"/>
+      <path d="M42 42 C44 20 38 18 34 20"/>
+      <path d="M85 94 C87 75 89 55 78 42" stroke="#B45309" stroke-width="2.5"/>
+      <path d="M78 42 C88 36 98 42 104 52"/>
+      <path d="M78 42 C90 32 100 34 106 42"/>
+      <path d="M78 42 C86 26 96 26 102 32"/>
+      <path d="M78 42 C82 22 90 20 95 24"/>
+      <path d="M78 42 C76 20 82 18 86 20"/>
+    </g>
+
+    <!-- Shield (Écusson vert émeraude bordé d'or) -->
+    <path d="M38 38 H82 C82 70 73 85 60 92 C47 85 38 70 38 38 Z" fill="#008751" stroke="#F59E0B" stroke-width="2.5"/>
+
+    <!-- Elephant Head (Tête d'éléphant d'argent) -->
+    <g fill="#FFFFFF">
+      <ellipse cx="60" cy="53" rx="14" ry="12"/>
+      <path d="M48 47 C41 43 37 51 41 62 C44 68 49 68 51 64 Z" fill="#E2E8F0"/>
+      <path d="M72 47 C79 43 83 51 79 62 C76 68 71 68 69 64 Z" fill="#E2E8F0"/>
+      <path d="M57 58 C56 67 55 75 60 77 C65 79 67 75 66 72 C65 70 62 70 61 72 C60 73 59 71 59 65 C59 61 61 58 61 58 Z" fill="#FFFFFF"/>
+      <circle cx="53" cy="52" r="1.5" fill="#1E293B"/>
+      <circle cx="67" cy="52" r="1.5" fill="#1E293B"/>
+      <path d="M52 63 C48 67 45 71 43 73 C46 72 51 67 54 64 Z" fill="#FEF08A"/>
+      <path d="M68 63 C72 67 75 71 77 73 C74 72 69 67 66 64 Z" fill="#FEF08A"/>
+    </g>
+
+    <!-- Lower Ribbon (Bandeau républicain officiel) -->
+    <path d="M20 95 C40 91 80 91 100 95 L96 103 C78 99 42 99 24 103 Z" fill="#F59E0B" stroke="#D97706" stroke-width="0.8"/>
+    <path d="M20 95 L14 99 L24 103 Z" fill="#D97706"/>
+    <path d="M100 95 L106 99 L96 103 Z" fill="#D97706"/>
+    <text x="60" y="99.5" font-size="4.2" font-family="Arial, sans-serif" font-weight="900" fill="#78350F" text-anchor="middle" letter-spacing="0.4">RÉPUBLIQUE DE CÔTE D'IVOIRE</text>
+  </svg>`;
+}
+
 export function buildStudentCardHtml({
   school,
   student,
@@ -432,131 +496,208 @@ export function buildStudentCardHtml({
   const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || 'Non renseigné';
   const dobStr = (student as any).date_of_birth || (student as any).birth_date;
   const dobFormatted = dobStr ? new Date(dobStr).toLocaleDateString('fr-FR') : 'Non renseignée';
+  const birthPlaceStr = (student as any).birth_place || '';
+  const nationalityStr = (student as any).nationality || 'Ivoirienne';
+  const sexStr = (student as any).sex === 'F' ? 'Féminin' : 'Masculin';
+  const coatOfArmsHeader = getIvoryCoastCoatOfArmsSvg({ size: 26 });
+  const coatOfArmsWatermark = getIvoryCoastCoatOfArmsSvg({ size: 145, opacity: 0.08 });
+  const tricolorRibbon = `<div style="width:100%; height:3px; background:linear-gradient(90deg, #FF7900 0%, #FF7900 33.33%, #FFFFFF 33.33%, #FFFFFF 66.66%, #008751 66.66%, #008751 100%); flex-shrink:0;"></div>`;
 
   return printableShell(
-    `Carte scolaire ${student.matricule}`,
+    `Carte scolaire officielle - ${student.first_name} ${student.last_name}`,
     `
     <div class="page" style="display:flex; align-items:center; justify-content:center; padding: 20px;">
       <section class="sheet" style="max-width: 320mm; padding: 20px; background: transparent; box-shadow: none;">
         
-        <div style="display:flex; flex-wrap:wrap; gap:20mm; justify-content:center; align-items:center;">
+        <div style="display:flex; flex-wrap:wrap; gap:16mm; justify-content:center; align-items:center;">
           
           <!-- RECTO (FACE AVANT) -->
           <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:10px; font-weight:800; color:#64748b; uppercase; tracking:0.1em;">RECTO (FACE AVANT)</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:10px; font-weight:900; color:#1e293b; letter-spacing:0.08em; text-transform:uppercase;">RECTO (FACE AVANT)</span>
+              <span style="font-size:9px; background:#eff6ff; color:#1d4ed8; padding:1px 6px; border-radius:999px; font-weight:800; border:1px solid #bfdbfe;">86 × 54 mm (CR80)</span>
+            </div>
             
-            <div style="width: 86mm; height: 54mm; border-radius: 14px; overflow: hidden; position: relative; box-shadow: 0 14px 40px rgba(15,23,42,0.22); background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 50%, #d97706 100%); color: white; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,0.4);">
-              <!-- Background Radial Pattern -->
-              <div style="position:absolute; inset:0; background: radial-gradient(circle at top right, rgba(255,255,255,0.25), transparent 45%), radial-gradient(circle at bottom left, rgba(245,158,11,0.3), transparent 35%);"></div>
+            <div style="width: 86mm; height: 54mm; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 16px 40px rgba(15,23,42,0.25); background: linear-gradient(135deg, #0b1f3a 0%, #153e75 50%, #0d5c3a 100%); color: white; box-sizing: border-box; border: 1.5px solid rgba(255,255,255,0.45); display: flex; flex-direction: column; justify-content: space-between; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
               
-              <div style="position:relative; z-index:1; height:100%; padding:10px 12px; display:flex; flex-direction:column; justify-content:space-between; box-sizing:border-box;">
-                
-                <!-- Top Header: Logo & School Name -->
-                <div style="display:flex; align-items:center; justify-content:space-between; border-bottom: 1px solid rgba(255,255,255,0.25); padding-bottom: 5px;">
-                  <div style="display:flex; align-items:center; gap:6px; min-width:0;">
-                    ${
-                      school.logo_url
-                        ? `<div style="width:24px; height:24px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; padding:1px; flex-shrink:0;">
-                            <img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />
-                          </div>`
-                        : `<div style="width:24px; height:24px; border-radius:50%; background:rgba(255,255,255,0.25); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:9px;">★</div>`
-                    }
-                    <div style="min-width:0;">
-                      <p style="margin:0; font-size:5.5px; letter-spacing:0.12em; text-transform:uppercase; font-weight:800; color:#fef08a;">CARTE ÉLÈVE OFFICIELLE</p>
-                      <p style="margin:1px 0 0; font-size:8px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff;">${escapeHtml(school.name)}</p>
-                    </div>
+              <!-- Top Tricolor Flag Ribbon -->
+              ${tricolorRibbon}
+
+              <!-- Background Security Watermark Coat of Arms -->
+              <div style="position:absolute; top:54%; left:50%; transform:translate(-50%, -50%); pointer-events:none; z-index:0;">
+                ${coatOfArmsWatermark}
+              </div>
+
+              <!-- Top Header: Ministry & School Branding -->
+              <div style="display:flex; align-items:center; justify-content:space-between; gap:5px; border-bottom:1px solid rgba(255,255,255,0.22); padding: 3px 7px; position:relative; z-index:1; background:rgba(11,31,58,0.55);">
+                <!-- Left: School logo or crest -->
+                <div style="display:flex; align-items:center; gap:5px; min-width:0;">
+                  ${
+                    school.logo_url
+                      ? `<div style="width:22px; height:22px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; padding:1px; flex-shrink:0; box-shadow:0 1px 4px rgba(0,0,0,0.3);">
+                          <img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; border-radius:50%; object-fit:cover;" />
+                        </div>`
+                      : `<div style="width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.2); border:1px solid rgba(255,255,255,0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:10px;">🏫</div>`
+                  }
+                  <div style="min-width:0; line-height:1.05;">
+                    <p style="margin:0; font-size:4.8px; letter-spacing:0.12em; text-transform:uppercase; font-weight:800; color:#fef08a;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+                    <p style="margin:0.5px 0 0; font-size:4px; font-weight:700; color:#93c5fd; letter-spacing:0.04em; text-transform:uppercase;">MINISTÈRE DE L'ÉDUCATION NATIONALE • MENA</p>
+                    <p style="margin:1px 0 0; font-size:7px; font-weight:900; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff; max-width:44mm; text-transform:uppercase;">${escapeHtml(school.name)}</p>
                   </div>
-                  <span style="padding:2px 6px; border-radius:999px; background:rgba(255,255,255,0.25); font-size:6px; font-weight:800; white-space:nowrap; border:1px solid rgba(255,255,255,0.3);">${escapeHtml(academicYearName)}</span>
                 </div>
 
-                <!-- Body: Student Name + Photo -->
-                <div style="display:flex; items-center; justify-content:space-between; gap:8px; margin: 3px 0;">
-                  <div style="min-width:0; flex:1;">
-                    <p style="margin:0; font-size:5.5px; text-transform:uppercase; opacity:0.85; letter-spacing:0.08em;">Nom & Prénoms</p>
-                    <p style="margin:2px 0 0; font-size:11px; line-height:1.15; font-weight:900; color:#ffffff; font-family: system-ui, sans-serif;">
-                      ${escapeHtml(student.last_name.toUpperCase())}<br />
-                      <span style="font-weight:700; color:#f8fafc;">${escapeHtml(student.first_name)}</span>
-                    </p>
-                    
-                    <div style="display:flex; align-items:center; gap:5px; margin-top:5px;">
-                      <span style="padding:2px 6px; border-radius:4px; background:#ffffff; color:#1e3a8a; font-size:7px; font-weight:900; text-transform:uppercase;">${escapeHtml(className || 'CLASSE')}</span>
-                      <span style="font-size:7px; font-weight:800; font-family:monospace; color:#fef08a;">${escapeHtml(student.matricule)}</span>
-                    </div>
-                  </div>
+                <!-- Right: Coat of Arms + Year Badge -->
+                <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+                  ${coatOfArmsHeader}
+                  <span style="padding:1.5px 5px; border-radius:999px; background:rgba(0,135,81,0.85); border:1px solid #f59e0b; color:#ffffff; font-size:5.5px; font-weight:900; white-space:nowrap; box-shadow:0 1px 3px rgba(0,0,0,0.2);">${escapeHtml(academicYearName)}</span>
+                </div>
+              </div>
 
-                  <!-- Photo Box -->
-                  <div style="flex-shrink:0;">
+              <!-- Main Body: Considerably Enlarged Photo + Student Identity -->
+              <div style="display:flex; align-items:center; gap:7px; padding:3px 7px; flex:1; position:relative; z-index:1;">
+                
+                <!-- CONSIDERABLY ENLARGED PHOTO FRAME (25.5mm x 32mm) -->
+                <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center;">
+                  <div style="width:25.5mm; height:32mm; border-radius:7px; overflow:hidden; border:2px solid #ffffff; box-shadow:0 3px 10px rgba(0,0,0,0.38); background:#0f172a; position:relative;">
                     ${
                       student.photo_url
-                        ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:50px; height:56px; border-radius:10px; object-fit:cover; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.25);" />`
-                        : `<div style="width:50px; height:56px; border-radius:10px; background:rgba(255,255,255,0.2); border:1.5px dashed rgba(255,255,255,0.5); font-size:7px; font-weight:800; display:flex; align-items:center; justify-content:center; color:white;">PHOTO</div>`
+                        ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:100%; height:100%; object-fit:cover; display:block;" />`
+                        : `<div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(180deg, #1e293b 0%, #0f172a 100%); color:#94a3b8;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.7;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            <span style="font-size:5.5px; font-weight:800; color:#e2e8f0; margin-top:3px; letter-spacing:0.06em; text-transform:uppercase;">PHOTO</span>
+                          </div>`
                     }
                   </div>
+                  <span style="margin-top:1.5px; font-size:4.8px; font-weight:900; background:#008751; color:#ffffff; padding:1px 4px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">ÉLÈVE RÉGULIER</span>
                 </div>
 
-                <!-- Bottom Footer: Validity Date -->
-                <div style="display:flex; align-items:center; justify-content:space-between; border-top:1px solid rgba(255,255,255,0.2); padding-top:3px; font-size:6px;">
-                  <span style="opacity:0.9;">Matricule: <strong style="color:#ffffff;">${escapeHtml(student.matricule)}</strong></span>
-                  <span style="color:#fef08a; font-weight:800;">Valable jusqu'au 30 Juin 2027</span>
+                <!-- STUDENT INFORMATION & CREDENTIALS -->
+                <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2.5px;">
+                  
+                  <!-- Title chip -->
+                  <div style="display:flex; align-items:center; gap:4px;">
+                    <span style="background:rgba(255,121,0,0.95); color:#ffffff; padding:1px 5px; border-radius:3px; font-size:4.8px; font-weight:900; text-transform:uppercase; letter-spacing:0.06em;">CARTE SCOLAIRE OFFICIELLE</span>
+                  </div>
+
+                  <!-- Big Prominent Student Name -->
+                  <div>
+                    <div style="font-size:10.5px; font-weight:900; line-height:1.1; color:#ffffff; text-transform:uppercase; letter-spacing:0.02em; font-family:system-ui, sans-serif;">
+                      ${escapeHtml(student.last_name)}
+                    </div>
+                    <div style="font-size:9.5px; font-weight:700; line-height:1.15; color:#fef08a; font-family:system-ui, sans-serif; margin-top:0.5px;">
+                      ${escapeHtml(student.first_name)}
+                    </div>
+                  </div>
+
+                  <!-- Class & National Matricule Badges -->
+                  <div style="display:flex; align-items:center; gap:4px; margin-top:1px;">
+                    <span style="background:#ffffff; color:#0f172a; padding:1.5px 5px; border-radius:3.5px; font-size:7px; font-weight:900; text-transform:uppercase; box-shadow:0 1px 3px rgba(0,0,0,0.25);">
+                      ${escapeHtml(className || 'CLASSE')}
+                    </span>
+                    <span style="background:rgba(15,23,42,0.7); border:1px solid #f59e0b; color:#fef08a; padding:1.5px 5px; border-radius:3.5px; font-size:7px; font-weight:900; font-family:monospace; letter-spacing:0.06em;">
+                      ${escapeHtml(student.matricule)}
+                    </span>
+                  </div>
+
+                  <!-- Civil Details -->
+                  <div style="font-size:5.8px; line-height:1.25; color:#e2e8f0; margin-top:1px;">
+                    <div>Né(e) le : <strong style="color:#ffffff;">${escapeHtml(dobFormatted)}</strong>${birthPlaceStr ? ` à ${escapeHtml(birthPlaceStr)}` : ''}</div>
+                    <div style="color:#cbd5e1; margin-top:0.5px;">Sexe : <strong style="color:#ffffff;">${escapeHtml(sexStr)}</strong> • Nat. : <strong style="color:#ffffff;">${escapeHtml(nationalityStr)}</strong></div>
+                  </div>
+
                 </div>
 
               </div>
+
+              <!-- Bottom Footer: Motto & Validity -->
+              <div style="padding: 2px 7px 3px; border-top:1px solid rgba(255,255,255,0.22); display:flex; align-items:center; justify-content:space-between; font-size:5.2px; position:relative; z-index:1; background:rgba(11,31,58,0.5);">
+                <span style="opacity:0.95; color:#fef08a; font-style:italic; font-weight:600;">Union • Discipline • Travail</span>
+                <span style="color:#ffffff; font-weight:800; background:rgba(0,0,0,0.35); padding:1px 5px; border-radius:3px;">Valable jusqu'au 31 Juillet 2027</span>
+              </div>
+
+              <!-- Bottom Tricolor Flag Ribbon -->
+              ${tricolorRibbon}
+
             </div>
           </div>
 
           <!-- VERSO (FACE ARRIÈRE) -->
           <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <span style="font-size:10px; font-weight:800; color:#64748b; uppercase; tracking:0.1em;">VERSO (FACE ARRIÈRE)</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:10px; font-weight:900; color:#1e293b; letter-spacing:0.08em; text-transform:uppercase;">VERSO (FACE ARRIÈRE)</span>
+              <span style="font-size:9px; background:#f0fdf4; color:#166534; padding:1px 6px; border-radius:999px; font-weight:800; border:1px solid #bbf7d0;">CONTRÔLE & SÉCURITÉ</span>
+            </div>
 
-            <div style="width: 86mm; height: 54mm; border-radius: 14px; overflow: hidden; position: relative; box-shadow: 0 14px 40px rgba(15,23,42,0.18); background: #ffffff; color: #1e293b; box-sizing: border-box; border: 1.5px solid #cbd5e1; display:flex; flex-direction:column; justify-content:space-between; padding:10px 12px;">
+            <div style="width: 86mm; height: 54mm; border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 16px 40px rgba(15,23,42,0.18); background: #ffffff; color: #1e293b; box-sizing: border-box; border: 1.5px solid #cbd5e1; display: flex; flex-direction: column; justify-content: space-between; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
+
+              <!-- Top Tricolor Flag Ribbon -->
+              ${tricolorRibbon}
+
+              <!-- Background Security Watermark Coat of Arms -->
+              <div style="position:absolute; top:54%; left:50%; transform:translate(-50%, -50%); pointer-events:none; z-index:0;">
+                ${coatOfArmsWatermark}
+              </div>
 
               <!-- Header Banner -->
-              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom: 2px solid #2563eb; padding-bottom: 4px;">
+              <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:2px solid #008751; padding:3px 8px; position:relative; z-index:1; background:#f8fafc;">
                 <div>
-                  <p style="margin:0; font-size:6px; font-weight:800; color:#2563eb; text-transform:uppercase; letter-spacing:0.1em;">Renseignements Complémentaires</p>
-                  <p style="margin:1px 0 0; font-size:8px; font-weight:800; color:#0f172a;">${escapeHtml(school.name)}</p>
+                  <p style="margin:0; font-size:5px; font-weight:800; color:#008751; text-transform:uppercase; letter-spacing:0.1em;">RÉPUBLIQUE DE CÔTE D'IVOIRE • CARTE SCOLAIRE</p>
+                  <p style="margin:0.5px 0 0; font-size:7.5px; font-weight:900; color:#0f172a; text-transform:uppercase;">${escapeHtml(school.name)}</p>
                 </div>
-                <span style="font-size:6px; font-weight:800; background:#eff6ff; color:#1d4ed8; padding:2px 6px; border-radius:4px; border:1px solid #bfdbfe;">VERSO</span>
+                <span style="font-size:5.5px; font-weight:900; background:#f0fdf4; color:#166534; padding:2px 6px; border-radius:4px; border:1px solid #bbf7d0;">VERSO OFFICIEL</span>
               </div>
 
-              <!-- Content Grid -->
-              <div style="display:grid; grid-template-columns: 1fr 1fr; gap:5px; margin:3px 0; font-size:7px;">
-                <div style="background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
-                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Né(e) le</span>
-                  <strong style="color:#0f172a; font-size:7px;">${escapeHtml(dobFormatted)}</strong>
-                </div>
-                <div style="background:#f8fafc; padding:4px 6px; border-radius:6px; border:1px solid #e2e8f0;">
-                  <span style="color:#64748b; font-size:5.5px; text-transform:uppercase; display:block;">Sexe / Nationalité</span>
-                  <strong style="color:#0f172a; font-size:7px;">${(student as any).sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
-                </div>
+              <!-- Content Grid: Left Contacts / Right QR & Signature -->
+              <div style="display:grid; grid-template-columns: 1.65fr 1fr; gap:6px; padding:3px 8px; flex:1; position:relative; z-index:1; align-items:center;">
                 
-                <!-- PARENT / TUTEUR LÉGAL & CONTACT -->
-                <div style="grid-column: span 2; background:#eff6ff; padding:5px 8px; border-radius:6px; border:1px solid #bfdbfe;">
-                  <span style="color:#1d4ed8; font-size:6px; font-weight:800; text-transform:uppercase; display:block; letter-spacing:0.05em;">Parent / Tuteur Légal & Contact</span>
-                  <strong style="color:#0f172a; font-size:8px; display:block; margin-top:1px;">
-                    ${escapeHtml(guardianNameStr)}
-                  </strong>
-                  <span style="color:#2563eb; font-size:7.5px; font-weight:800; font-family:monospace; display:block; margin-top:1px;">
-                    📞 Contact: ${escapeHtml(guardianPhoneStr)}
-                  </span>
+                <!-- Left Column: Guardians & Notices -->
+                <div style="display:flex; flex-direction:column; gap:3px;">
+                  
+                  <!-- Guardian & Emergency Contact -->
+                  <div style="background:#f0fdf4; padding:3.5px 6px; border-radius:5px; border:1px solid #bbf7d0;">
+                    <span style="color:#166534; font-size:5px; font-weight:800; text-transform:uppercase; display:block; letter-spacing:0.04em;">Parent / Tuteur Légal & Urgence</span>
+                    <strong style="color:#0f172a; font-size:7.5px; display:block; margin-top:0.5px; font-family:system-ui, sans-serif;">
+                      ${escapeHtml(guardianNameStr)}
+                    </strong>
+                    <span style="color:#c2410c; font-size:7px; font-weight:900; font-family:monospace; display:block; margin-top:0.5px;">
+                      📞 Contact : ${escapeHtml(guardianPhoneStr)}
+                    </span>
+                  </div>
+
+                  <!-- School Location & Phone -->
+                  <div style="background:#f8fafc; padding:3px 6px; border-radius:5px; border:1px solid #e2e8f0; font-size:5.2px; color:#475569;">
+                    <span style="font-weight:700; color:#1e293b;">Établissement :</span> ${escapeHtml(school.address || school.city || 'Abidjan, Côte d\'Ivoire')}<br />
+                    <span style="font-weight:700; color:#1e293b;">Téléphone :</span> ${escapeHtml(school.phone || 'Non renseigné')}
+                  </div>
+
+                  <!-- Regulatory Notice -->
+                  <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:5px; padding:2.5px 5px; font-size:4.6px; color:#64748b; line-height:1.2;">
+                    Carte strictement personnelle et obligatoire. Elle doit être présentée à toute réquisition des autorités scolaires. En cas de perte, prière la rapporter à la direction de l'établissement.
+                  </div>
+
                 </div>
+
+                <!-- Right Column: Official QR Code & Signature -->
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; height:100%; text-align:center;">
+                  <div style="background:#ffffff; padding:2px; border:1px solid #cbd5e1; border-radius:5px; box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=70x70&margin=1&data=${encodeURIComponent(`CARTE SCOLAIRE CI | Eleve: ${student.first_name} ${student.last_name} | Matr: ${student.matricule} | Classe: ${className || ''} | Etablissement: ${school.name} | Annee: ${academicYearName}`)}" alt="QR Code" style="width:42px; height:42px; display:block;" />
+                  </div>
+                  <div style="margin-top:1px;">
+                    <p style="margin:0; font-size:4.8px; font-weight:800; color:#0f172a; text-transform:uppercase;">Le Chef d'Établissement</p>
+                    <p style="margin:0; font-size:4.2px; color:#94a3b8; font-style:italic;">Signature & Cachet</p>
+                  </div>
+                </div>
+
               </div>
 
-              <!-- Notice & Validity -->
-              <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:3px 5px; text-align:center;">
-                <p style="margin:0; font-size:5.5px; color:#64748b; line-height:1.2;">
-                  Carte strictement personnelle. En cas de perte, merci de la rapporter à la direction.
-                </p>
-                <p style="margin:1px 0 0; font-size:6.5px; font-weight:900; color:#1e3a8a;">
-                  Année Scolaire 2026-2027 — Valable jusqu'au 30 Juin 2027
-                </p>
+              <!-- Bottom Footer Signatures & Bar -->
+              <div style="padding:2px 8px; border-top:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center; font-size:5px; color:#64748b; position:relative; z-index:1; background:#f8fafc;">
+                <span>Matricule : <strong style="color:#0f172a; font-family:monospace;">${escapeHtml(student.matricule)}</strong></span>
+                <span style="font-weight:700; color:#008751;">Année ${escapeHtml(academicYearName)} — République de Côte d'Ivoire</span>
               </div>
 
-              <!-- Footer Signatures -->
-              <div style="display:flex; justify-content:space-between; align-items:flex-end; font-size:5.5px; color:#64748b; border-top:1px solid #e2e8f0; padding-top:2px;">
-                <span>Matricule : <strong>${escapeHtml(student.matricule)}</strong></span>
-                <span style="font-weight:800; color:#0f172a; text-decoration:underline;">Le Directeur de l'Établissement</span>
-              </div>
+              <!-- Bottom Tricolor Flag Ribbon -->
+              ${tricolorRibbon}
 
             </div>
           </div>
