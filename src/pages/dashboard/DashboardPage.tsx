@@ -5,6 +5,7 @@ import { useApp } from '../../contexts/AppContext';
 import StatCard from '../../components/common/StatCard';
 import EmptyState from '../../components/common/EmptyState';
 import { formatCurrency } from '../../lib/utils';
+import { resolveStudentFinance } from '../../lib/financePlanResolver';
 import {
   GraduationCap, Users, BookOpen, DollarSign, Wallet,
   AlertTriangle, TrendingUp, ArrowUpRight, ArrowDownRight
@@ -55,10 +56,11 @@ export default function DashboardPage() {
   async function fetchDashboardData() {
     setLoading(true);
     const schoolId = school!.id;
-    const yearId = academicYear?.id;
 
     const [
       studentsRes,
+      studentFeesRes,
+      studentInstallmentsRes,
       teachersRes,
       parentsRes,
       paymentsRes,
@@ -67,29 +69,34 @@ export default function DashboardPage() {
       cashRes,
       plansRes,
       levelsRes,
-      classesRes
+      classesRes,
     ] = await Promise.all([
       supabase
         .from('students')
-        .select(`
-          id, sex, class_id, status,
-          student_fees(discount_amount, canteen_option, plan:payment_plans(total_amount, canteen_quarterly)),
-          payments(amount, status, payment_method),
-          canteen_payments(amount)
-        `)
+        .select('id, first_name, last_name, matricule, sex, class_id, status')
+        .eq('school_id', schoolId),
+      supabase
+        .from('student_fees')
+        .select('*, plan:payment_plans(*)')
+        .eq('school_id', schoolId),
+      supabase
+        .from('student_installments')
+        .select('*')
         .eq('school_id', schoolId),
       supabase.from('teachers').select('id').eq('school_id', schoolId).eq('status', 'active'),
       supabase.from('parents').select('id').eq('school_id', schoolId),
-      supabase.from('payments').select('id, amount, payment_date, status, payment_method, student_id').eq('school_id', schoolId),
-      supabase.from('canteen_payments').select('id, amount, payment_date').eq('school_id', schoolId),
-      supabase.from('expenses').select('amount, expense_date, payment_method').eq('school_id', schoolId).eq('status', 'validated'),
-      supabase.from('cash_transactions').select('type, amount, validated').eq('school_id', schoolId).eq('validated', true),
+      supabase.from('payments').select('id, amount, payment_date, status, payment_method, student_id, receipt_number').eq('school_id', schoolId),
+      supabase.from('canteen_payments').select('id, amount, payment_date, student_id, receipt_number').eq('school_id', schoolId),
+      supabase.from('expenses').select('amount, expense_date, payment_method, status').eq('school_id', schoolId),
+      supabase.from('cash_transactions').select('type, amount, validated').eq('school_id', schoolId),
       supabase.from('payment_plans').select('*, levels:payment_plan_levels(level_id)').eq('school_id', schoolId),
       supabase.from('levels').select('id, name').eq('school_id', schoolId),
       supabase.from('classes').select('id, level_id, name').eq('school_id', schoolId),
     ]);
 
     const allStudents = studentsRes.data || [];
+    const studentFees = studentFeesRes.data || [];
+    const studentInstallments = studentInstallmentsRes.data || [];
     const activeStudents = allStudents.filter(s => s.status === 'active');
     const inactiveStudents = allStudents.filter(s => s.status !== 'active');
     const totalStudents = allStudents.length;
@@ -109,79 +116,88 @@ export default function DashboardPage() {
     const totalTeachers = (teachersRes.data || []).length;
     const totalParents = (parentsRes.data || []).length;
 
-    // Financial calculations per student
-    let totalExpectedFees = 0;
-    let totalPaidTuition = 0;
-    let totalPaidCanteen = 0;
+    // Index payments by student for accurate, high-performance financial resolution
+    const paymentsByStudent: Record<string, any[]> = {};
+    payments.forEach((p: any) => {
+      if (!paymentsByStudent[p.student_id]) paymentsByStudent[p.student_id] = [];
+      paymentsByStudent[p.student_id].push(p);
+    });
 
+    const canteenByStudent: Record<string, any[]> = {};
+    canteenPayments.forEach((cp: any) => {
+      if (!canteenByStudent[cp.student_id]) canteenByStudent[cp.student_id] = [];
+      canteenByStudent[cp.student_id].push(cp);
+    });
+
+    let totalExpectedFees = 0;
+    let totalUnpaid = 0;
     let paidStudentsCount = 0;
     let partialStudentsCount = 0;
     let unpaidStudentsCount = 0;
 
-    activeStudents.forEach((s: any) => {
-      // 1. Get plan link or fallback to level default plan
-      const planLink = Array.isArray(s.student_fees) ? s.student_fees[0] : s.student_fees;
-      let expected = 0;
+    activeStudents.forEach((student: any) => {
+      const studentPayments = paymentsByStudent[student.id] || [];
+      const studentCanteenPayments = canteenByStudent[student.id] || [];
 
-      if (planLink && planLink.plan) {
-        const basePlanAmount = Number(planLink.plan.total_amount || 0);
-        const discount = Number(planLink.discount_amount || 0);
-        const canteenOption = planLink.canteen_option || 'none';
-        const canteenRate = canteenOption === 'none' ? 0 : Number(planLink.plan.canteen_quarterly || 0) * 3;
-        expected = Math.max(0, basePlanAmount - discount) + canteenRate;
-      } else {
-        // Fallback to class level plan
-        const studentClass = classes.find(c => c.id === s.class_id);
-        if (studentClass) {
-          const matchedPlan = plans.find(p => p.levels?.some((l: any) => l.level_id === studentClass.level_id));
-          if (matchedPlan) {
-            expected = Number(matchedPlan.total_amount || 0);
-          }
-        }
-      }
+      // Resolve student finance with class/level fallback matching the rest of the application
+      const fin = resolveStudentFinance({
+        student,
+        plans,
+        studentFees,
+        studentInstallments,
+        tuitionPayments: studentPayments,
+        canteenPayments: studentCanteenPayments,
+        classes,
+      });
 
-      totalExpectedFees += expected;
+      totalExpectedFees += fin.totalExpected;
+      totalUnpaid += fin.remaining;
 
-      // 2. Student payments
-      const paidTuition = (s.payments || [])
-        .filter((p: any) => p.status === 'paid')
-        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
-      const paidCanteen = (s.canteen_payments || [])
-        .reduce((sum: number, cp: any) => sum + Number(cp.amount), 0);
-
-      const studentPaid = paidTuition + paidCanteen;
-      totalPaidTuition += paidTuition;
-      totalPaidCanteen += paidCanteen;
-
-      // 3. Student standing
-      if (expected > 0 && studentPaid >= expected) {
+      if (fin.status === 'paid') {
         paidStudentsCount++;
-      } else if (studentPaid > 0) {
+      } else if (fin.status === 'partial') {
         partialStudentsCount++;
       } else {
         unpaidStudentsCount++;
       }
     });
 
-    const totalPayments = totalPaidTuition + totalPaidCanteen;
-    const totalUnpaid = Math.max(0, totalExpectedFees - totalPayments);
-    const totalExpenses = expenses.reduce((s, e) => s + Number(e.amount), 0);
+    // Actual collected sums from payments table and canteen_payments table
+    const totalPaidTuition = payments
+      .filter((p: any) => p.status === 'paid' || !p.status)
+      .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
 
+    const totalPaidCanteen = canteenPayments
+      .reduce((sum: number, cp: any) => sum + Number(cp.amount || 0), 0);
+
+    const totalPayments = totalPaidTuition + totalPaidCanteen;
+
+    // Recovery rate based on realistic total expected fees across the student body
     const recoveryRate = totalExpectedFees > 0 ? Math.round((totalPayments / totalExpectedFees) * 100) : 0;
     const studentsWithPayment = paidStudentsCount + partialStudentsCount;
     const studentsWithoutPayment = unpaidStudentsCount;
-    const studentPaymentRate = totalStudents > 0 ? Math.round((studentsWithPayment / totalStudents) * 100) : 0;
+    const studentPaymentRate = totalActiveStudents > 0 ? Math.round((studentsWithPayment / totalActiveStudents) * 100) : 0;
 
-    // Cash Balance
-    const cashIn = cashTx.filter(t => t.type === 'in').reduce((s, t) => s + Number(t.amount), 0);
-    const cashOut = cashTx.filter(t => t.type === 'out').reduce((s, t) => s + Number(t.amount), 0);
+    // Expenses: all registered expenses for the establishment (validated, approved, paid or untagged)
+    const totalExpenses = expenses
+      .filter((e: any) => !e.status || e.status === 'validated' || e.status === 'approved' || e.status === 'paid')
+      .reduce((s: number, e: any) => s + Number(e.amount || 0), 0);
+
+    // Cash Balance: from cash register transactions
+    const cashIn = cashTx.filter((t: any) => t.type === 'in').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
+    const cashOut = cashTx.filter((t: any) => t.type === 'out').reduce((s: number, t: any) => s + Number(t.amount || 0), 0);
     let cashBalance = cashIn - cashOut;
 
-    // Fallback if cash_transactions table isn't populated yet by till sessions
-    if (cashTx.length === 0) {
+    // Fallback if no cash register movements recorded yet:
+    // Take cash payments (tuition + canteen) minus expenses
+    if (cashIn === 0 && cashOut === 0) {
       const cashPayments = payments
-        .filter(p => p.status === 'paid' && (!p.payment_method || p.payment_method === 'Cash' || p.payment_method === 'Espèces'))
-        .reduce((s, p) => s + Number(p.amount), 0) + totalPaidCanteen;
+        .filter((p: any) => {
+          if (p.status === 'cancelled') return false;
+          const method = (p.payment_method || '').toLowerCase().trim();
+          return !method || method === 'cash' || method === 'especes' || method === 'espèces';
+        })
+        .reduce((s: number, p: any) => s + Number(p.amount || 0), 0) + totalPaidCanteen;
       cashBalance = Math.max(0, cashPayments - totalExpenses);
     }
 
@@ -210,14 +226,14 @@ export default function DashboardPage() {
     // Payments by month (Tuition + Canteen)
     const monthMap: Record<string, number> = {};
     const allValidatedPayments = [
-      ...payments.filter(p => p.status === 'paid'),
+      ...payments.filter((p: any) => p.status === 'paid' || !p.status),
       ...canteenPayments
     ];
     allValidatedPayments.forEach((p: any) => {
       const dateVal = p.payment_date || p.created_at;
       if (!dateVal) return;
       const month = new Date(dateVal).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
-      monthMap[month] = (monthMap[month] || 0) + Number(p.amount);
+      monthMap[month] = (monthMap[month] || 0) + Number(p.amount || 0);
     });
     setPaymentByMonth(Object.entries(monthMap).map(([name, montant]) => ({ name, montant })));
 
@@ -231,7 +247,7 @@ export default function DashboardPage() {
 
     // Payment status distribution
     setPaymentStatus([
-      { name: 'Payé', value: paidStudentsCount },
+      { name: 'Soldé', value: paidStudentsCount },
       { name: 'Partiel', value: partialStudentsCount },
       { name: 'Impayé', value: unpaidStudentsCount },
     ].filter(s => s.value > 0));
@@ -239,9 +255,8 @@ export default function DashboardPage() {
     // Recent payments
     const { data: recentData } = await supabase
       .from('payments')
-      .select('*, students(first_name, last_name, matricule)')
+      .select('*, student:students(first_name, last_name, matricule)')
       .eq('school_id', schoolId)
-      .eq('status', 'paid')
       .order('created_at', { ascending: false })
       .limit(5);
     setRecentPayments(recentData || []);
@@ -445,7 +460,9 @@ export default function DashboardPage() {
               {recentPayments.map((p: any) => (
                 <div key={p.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <div>
-                    <p className="text-sm font-medium text-gray-700">{p.students?.first_name} {p.students?.last_name}</p>
+                    <p className="text-sm font-medium text-gray-700">
+                      {(p.student || p.students)?.first_name} {(p.student || p.students)?.last_name}
+                    </p>
                     <p className="text-xs text-gray-500">{p.receipt_number}</p>
                   </div>
                   <div className="text-right">
