@@ -577,61 +577,99 @@ export function buildStudentCardHtml({
               <!-- Main Body: Rectangular Photo (Left) + Student Details (Right) -->
               <div style="display:flex; align-items:flex-start; gap:7px; flex:1; position:relative; z-index:1; min-height:0;">
                 
-                <!-- Left Side: Rectangular Student Photo + Director Info -->
-                <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center;">
-                  <div style="width:26mm; height:32.5mm; border-radius:4px; overflow:hidden; border:1.5px solid #cbd5e1; box-shadow:0 1px 4px rgba(0,0,0,0.08); background:#f8fafc; position:relative;">
+                <!-- Left Side: Rectangular Student Photo -->
+                <div style="flex-shrink:0;">
+                  <div style="width:27mm; height:34mm; border-radius:4px; overflow:hidden; border:1.5px solid #cbd5e1; box-shadow:0 1px 4px rgba(0,0,0,0.08); background:#f8fafc; position:relative;">
                     ${
                       student.photo_url
                         ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:100%; height:100%; object-fit:cover; display:block;" />`
                         : `<div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%); color:#94a3b8;">
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.65;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.65;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
                             <span style="font-size:5px; font-weight:800; color:#64748b; margin-top:2px; letter-spacing:0.06em; text-transform:uppercase;">PHOTO</span>
                           </div>`
                     }
                   </div>
-
-                  <!-- Small Director Photo & Label -->
-                  <div style="display:flex; align-items:center; gap:3px; margin-top:2px; max-width:26mm;">
-                    ${
-                      directorPhotoUrl
-                        ? `<img src="${escapeHtml(directorPhotoUrl)}" alt="Directeur" style="width:13px; height:13px; border-radius:50%; object-fit:cover; border:1px solid #cbd5e1; flex-shrink:0;" />`
-                        : `<div style="width:13px; height:13px; border-radius:50%; background:#e2e8f0; display:flex; align-items:center; justify-content:center; font-size:7px; flex-shrink:0; border:1px solid #cbd5e1;">👤</div>`
-                    }
-                    <div style="line-height:1; min-width:0;">
-                      <div style="font-size:3.8px; font-weight:800; color:#64748b; text-transform:uppercase; letter-spacing:0.04em;">DIRECTEUR</div>
-                      <div style="font-size:4.8px; font-weight:900; color:#0f172a; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(resolvedDirectorName)}</div>
-                    </div>
-                  </div>
                 </div>
 
                 <!-- Right Side: Student Credentials -->
-                <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:2.5px; padding-left:1px;">
+                <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between; height:34mm; padding-left:1px;">
                   
-                  <!-- Student Last Name & First Name -->
                   <div>
-                    <div style="font-size:11px; font-weight:900; line-height:1.15; color:#0f172a; text-transform:uppercase; letter-spacing:0.025em; font-family:'Inter', sans-serif;">
+                    <!-- Student Status Pill -->
+                    <div style="margin-bottom:2px;">
+                      <span style="font-size:5.5px; font-weight:800; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; padding:1px 5px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em; display:inline-block;">
+                        ÉLÈVE ${student.gender === 'female' || (student.first_name && /elle|e$/i.test(student.first_name)) ? 'RÉGULIÈRE' : 'RÉGULIER'}
+                      </span>
+                    </div>
+
+                    <!-- Student Last Name & First Name -->
+                    <div style="font-size:11.5px; font-weight:900; line-height:1.12; color:#0f172a; text-transform:uppercase; letter-spacing:0.025em; font-family:'Inter', sans-serif;">
                       ${escapeHtml(student.last_name)}
                     </div>
-                    <div style="font-size:9.5px; font-weight:700; line-height:1.18; color:#334155; text-transform:uppercase; margin-top:1px; font-family:'Inter', sans-serif;">
+                    <div style="font-size:9.5px; font-weight:700; line-height:1.15; color:#334155; text-transform:uppercase; margin-top:1px; font-family:'Inter', sans-serif;">
                       ${escapeHtml(student.first_name)}
+                    </div>
+
+                    <!-- Class Badge -->
+                    <div style="margin-top:2.5px;">
+                      <span style="display:inline-block; font-size:7.5px; font-weight:900; color:#166534; background:#f0fdf4; border:1px solid #86efac; padding:1.5px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">
+                        ${escapeHtml(className || 'MATERNELLE GS')}
+                      </span>
+                    </div>
+
+                    <!-- Matricule Box -->
+                    <div style="margin-top:2.5px; font-size:7.5px; font-weight:700; color:#0f172a; font-family:'SF Mono', Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:3px; padding:1.5px 5px; display:inline-block;">
+                      Matricule : <strong style="font-weight:900; color:#0f172a;">${escapeHtml(student.matricule)}</strong>
+                    </div>
+
+                    <!-- Validity -->
+                    <div style="font-size:6px; font-weight:700; color:#047857; margin-top:2px;">
+                      Validité : 31/07/2027 ✔
                     </div>
                   </div>
 
-                  <!-- Class Badge -->
-                  <div style="margin-top:2px;">
-                    <span style="display:inline-block; font-size:7.5px; font-weight:900; color:#166534; background:#f0fdf4; border:1px solid #86efac; padding:1.5px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">
-                      ${escapeHtml(className || 'MATERNELLE GS')}
-                    </span>
-                  </div>
-
-                  <!-- Matricule -->
-                  <div style="font-size:7.5px; font-weight:700; color:#0f172a; font-family:'SF Mono', Consolas, monospace; margin-top:2px;">
-                    Matricule : <strong style="font-weight:900; color:#0f172a;">${escapeHtml(student.matricule)}</strong>
-                  </div>
-
-                  <!-- Validity -->
-                  <div style="font-size:5.8px; font-weight:600; color:#64748b; margin-top:1.5px;">
-                    Validité : jusqu’au 31 Juillet 2027
+                  <!-- 1D Barcode Simulation at Bottom Right -->
+                  <div style="margin-top:auto; padding-top:2px;">
+                    <svg width="100%" height="13" viewBox="0 0 140 13" style="display:block;">
+                      <rect x="0" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="3" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="5" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="10" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="13" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="16" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="19" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="24" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="28" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="30" y="0" width="2.5" height="9" fill="#0f172a"/>
+                      <rect x="34" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="37" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="42" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="45" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="49" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="52" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="57" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="60" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="64" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="67" y="0" width="2.5" height="9" fill="#0f172a"/>
+                      <rect x="71" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="74" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="79" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="82" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="86" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="89" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="94" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="97" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="101" y="0" width="2.5" height="9" fill="#0f172a"/>
+                      <rect x="105" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="108" y="0" width="3" height="9" fill="#0f172a"/>
+                      <rect x="113" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="116" y="0" width="2" height="9" fill="#0f172a"/>
+                      <rect x="120" y="0" width="1" height="9" fill="#0f172a"/>
+                      <rect x="123" y="0" width="2.5" height="9" fill="#0f172a"/>
+                      <rect x="128" y="0" width="1.5" height="9" fill="#0f172a"/>
+                      <rect x="132" y="0" width="2" height="9" fill="#0f172a"/>
+                      <text x="68" y="12.5" font-family="'SF Mono', Consolas, monospace" font-size="3.5" font-weight="700" text-anchor="middle" fill="#64748b" letter-spacing="1">${escapeHtml(student.matricule)}</text>
+                    </svg>
                   </div>
 
                 </div>
@@ -640,7 +678,7 @@ export function buildStudentCardHtml({
 
               <!-- Very Small Text at the Bottom Edge -->
               <div style="font-size:4.5px; color:#94a3b8; text-align:center; position:relative; z-index:1; padding-top:1px;">
-                Maquette SaaS – Document non officiel
+                Maquette SaaS – Document officiel d’identification scolaire
               </div>
 
             </div>
