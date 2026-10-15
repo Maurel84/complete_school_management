@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, parsePhoneNumbers, formatCombinedPhone } from '../../lib/utils';
+import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import type { Message, Profile, Student, Class, Parent } from '../../types';
 import {
   Mail,
@@ -18,6 +19,10 @@ import {
   MessageCircle,
   Save,
   Check,
+  Shield,
+  Building,
+  GraduationCap,
+  Sparkles,
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
@@ -37,16 +42,31 @@ function cleanPhone(rawPhone?: string): string {
 
 export default function MessagesPage() {
   const { school } = useApp();
-  const { profile } = useAuth();
+  const { profile, isTeacher, isParent, isAdmin, isDirector, isSuperAdmin, role } = useAuth();
+
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent' || profile?.account_type === 'parent';
+  const isAdminUser = isAdmin || isDirector || isSuperAdmin || role === 'admin' || role === 'director' || role === 'super_admin';
 
   const [messages, setMessages] = useState<(Message & { sender?: Profile })[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [teacherClass, setTeacherClass] = useState<Class | null>(null);
+  const [parentChildren, setParentChildren] = useState<Student[]>([]);
+  const [availableRecipients, setAvailableRecipients] = useState<{ id: string; label: string; roleDescription: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Tabs: 'parents' (Parent Communication Suite), 'inbox', 'sent', 'announcements'
-  const [tab, setTab] = useState<'parents' | 'inbox' | 'sent' | 'announcements'>('parents');
+  // PARENT MUST NEVER DEFAULT TO 'parents' TAB!
+  const [tab, setTab] = useState<'parents' | 'inbox' | 'sent' | 'announcements'>(isParentUser ? 'inbox' : 'parents');
+
+  // Enforce zero access for parents to the parents directory tab
+  useEffect(() => {
+    if (isParentUser && tab === 'parents') {
+      setTab('inbox');
+    }
+  }, [isParentUser, tab]);
 
   // Internal Messaging State
   const [composeOpen, setComposeOpen] = useState(false);
@@ -78,25 +98,108 @@ export default function MessagesPage() {
     setLoading(true);
     const sid = school!.id;
     try {
-      const [msgRes, stuRes, parRes, clsRes] = await Promise.all([
-        supabase
-          .from('messages')
-          .select('*, sender:profiles!messages_sender_id_fkey(*)')
-          .eq('school_id', sid)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('students')
-          .select('id, first_name, last_name, matricule, class_id, class:classes(name), student_parents(parent:parents(*))')
-          .eq('school_id', sid)
-          .order('last_name'),
-        supabase.from('parents').select('*').eq('school_id', sid).order('last_name'),
-        supabase.from('classes').select('*').eq('school_id', sid).order('name'),
+      // 1. Fetch messages
+      const msgPromise = supabase
+        .from('messages')
+        .select('*, sender:profiles!messages_sender_id_fkey(*)')
+        .eq('school_id', sid)
+        .order('created_at', { ascending: false });
+
+      // 2. Fetch classes
+      const clsPromise = supabase
+        .from('classes')
+        .select('*')
+        .eq('school_id', sid)
+        .order('name');
+
+      // 3. Fetch staff and teachers
+      const staffPromise = supabase
+        .from('profiles')
+        .select('id, first_name, last_name, email, role:roles(name)');
+
+      const teachersPromise = supabase
+        .from('teachers')
+        .select('id, user_id, first_name, last_name, specialty, teacher_subjects(class_id, class:classes(name))')
+        .eq('school_id', sid);
+
+      const [msgRes, clsRes, staffRes, teachRes] = await Promise.all([
+        msgPromise,
+        clsPromise,
+        staffPromise,
+        teachersPromise,
       ]);
 
+      const loadedClasses = (clsRes.data as Class[]) || [];
       setMessages((msgRes.data as any[]) || []);
-      setStudents(stuRes.data || []);
-      setParents((parRes.data as Parent[]) || []);
-      setClasses((clsRes.data as Class[]) || []);
+      setClasses(loadedClasses);
+
+      // Build recipients list
+      const staffList = (staffRes.data || []) as any[];
+      const teachList = (teachRes.data || []) as any[];
+      const recList: { id: string; label: string; roleDescription: string }[] = [];
+
+      // Direction / Admin
+      staffList.forEach(s => {
+        const rName = s.role?.name || '';
+        if (['admin', 'director', 'super_admin', 'supervisor'].includes(rName)) {
+          recList.push({
+            id: s.id,
+            label: `${s.first_name || ''} ${s.last_name || ''}`.trim() || 'Direction & Secrétariat',
+            roleDescription: rName === 'director' ? 'Direction de l’école' : rName === 'supervisor' ? 'Vie Scolaire' : 'Administration',
+          });
+        }
+      });
+
+      // Teachers
+      teachList.forEach(t => {
+        const userProfile = staffList.find(s => s.id === t.user_id || (t.email && s.email === t.email));
+        const targetId = userProfile ? userProfile.id : t.id;
+        const assignedClass = t.teacher_subjects?.[0]?.class?.name || t.specialty || 'Enseignant';
+        recList.push({
+          id: targetId,
+          label: `M./Mme ${t.last_name} ${t.first_name}`,
+          roleDescription: `Enseignant (${assignedClass})`,
+        });
+      });
+
+      setAvailableRecipients(recList);
+
+      // 4. Role specific data loading
+      if (isParentUser) {
+        const { children: pChildren } = await resolveParentChildren(sid, profile);
+        setParentChildren(pChildren);
+        setStudents(pChildren);
+        setParents([]); // Zero external parents loaded for parents!
+      } else if (isTeacherUser) {
+        const { assignedClass } = await resolveTeacherClass(sid, profile, loadedClasses);
+        setTeacherClass(assignedClass);
+
+        if (assignedClass) {
+          const [stRes, parRes] = await Promise.all([
+            supabase
+              .from('students')
+              .select('id, first_name, last_name, matricule, class_id, class:classes(name), student_parents(parent:parents(*))')
+              .eq('school_id', sid)
+              .eq('class_id', assignedClass.id)
+              .order('last_name'),
+            supabase.from('parents').select('*').eq('school_id', sid).order('last_name'),
+          ]);
+          setStudents(stRes.data || []);
+          setParents((parRes.data as Parent[]) || []);
+        }
+      } else {
+        // Admin / Director: load full roster
+        const [stuRes, parRes] = await Promise.all([
+          supabase
+            .from('students')
+            .select('id, first_name, last_name, matricule, class_id, class:classes(name), student_parents(parent:parents(*))')
+            .eq('school_id', sid)
+            .order('last_name'),
+          supabase.from('parents').select('*').eq('school_id', sid).order('last_name'),
+        ]);
+        setStudents(stuRes.data || []);
+        setParents((parRes.data as Parent[]) || []);
+      }
     } catch (e) {
       console.error('Error fetching messaging data', e);
     } finally {
@@ -105,16 +208,39 @@ export default function MessagesPage() {
   }
 
   async function handleSendInternal() {
+    if (!form.content.trim()) return;
     setSaving(true);
-    await supabase.from('messages').insert({
-      ...form,
-      school_id: school!.id,
-      sender_id: profile!.id,
-    });
-    setSaving(false);
-    setComposeOpen(false);
-    setForm({ recipient_id: '', subject: '', content: '', is_announcement: false });
-    void fetchData();
+    try {
+      let targetRecipient = form.recipient_id;
+
+      // If parent chose "direction" or empty recipient, assign to first admin/direction profile
+      if (targetRecipient === 'direction' || (!targetRecipient && !form.is_announcement)) {
+        const adminRec = availableRecipients.find(r =>
+          r.roleDescription.toLowerCase().includes('admin') ||
+          r.roleDescription.toLowerCase().includes('direction') ||
+          r.roleDescription.toLowerCase().includes('école')
+        );
+        targetRecipient = adminRec ? adminRec.id : (availableRecipients[0]?.id || profile!.id);
+      }
+
+      await supabase.from('messages').insert({
+        school_id: school!.id,
+        sender_id: profile!.id,
+        recipient_id: form.is_announcement ? null : targetRecipient,
+        subject: form.subject.trim() || (form.is_announcement ? 'Annonce générale' : 'Message interne'),
+        content: form.content.trim(),
+        is_announcement: form.is_announcement,
+        is_read: false,
+      });
+
+      setComposeOpen(false);
+      setForm({ recipient_id: '', subject: '', content: '', is_announcement: false });
+      void fetchData();
+    } catch (err: any) {
+      alert("Erreur lors de l'envoi du message : " + err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function markAsRead(msg: Message) {
@@ -124,9 +250,19 @@ export default function MessagesPage() {
 
   // Compile list of parent contacts with linked children & classes
   const parentDirectory = useMemo(() => {
+    // STRICT DATA PRIVACY: Parents NEVER see other parents!
+    if (isParentUser) {
+      return [];
+    }
+
     const map = new Map<string, { parent: Parent; children: any[]; className: string }>();
 
     students.forEach(st => {
+      // If teacher user, lock strictly to teacher's assigned class (e.g. CP1)
+      if (isTeacherUser && teacherClass && st.class_id !== teacherClass.id) {
+        return;
+      }
+
       const parentLinks = st.student_parents || [];
       parentLinks.forEach((pl: any) => {
         const par = pl.parent;
@@ -143,18 +279,20 @@ export default function MessagesPage() {
       });
     });
 
-    parents.forEach(p => {
-      if (!map.has(p.id)) {
-        map.set(p.id, {
-          parent: p,
-          children: [],
-          className: '',
-        });
-      }
-    });
+    if (isAdminUser) {
+      parents.forEach(p => {
+        if (!map.has(p.id)) {
+          map.set(p.id, {
+            parent: p,
+            children: [],
+            className: '',
+          });
+        }
+      });
+    }
 
     return Array.from(map.values());
-  }, [students, parents]);
+  }, [students, parents, isParentUser, isTeacherUser, teacherClass, isAdminUser]);
 
   // Filter directory
   const filteredParents = useMemo(() => {
@@ -305,51 +443,73 @@ export default function MessagesPage() {
         <div>
           <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
             <MessageSquare className="text-emerald-600" size={26} />
-            Communications & Messages
+            {isParentUser
+              ? 'Messagerie Famille & Établissement'
+              : isTeacherUser
+              ? `Communications & Messages • ${teacherClass?.name || 'CP1'}`
+              : 'Communications & Messages'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Envoi de messages WhatsApp, SMS et e-mails aux parents & messagerie interne
+            {isParentUser
+              ? 'Échangez directement avec la Direction et les enseignants de vos enfants en toute confidentialité'
+              : isTeacherUser
+              ? `Messagerie interne et contact direct avec les parents de votre classe (${teacherClass?.name || 'CP1'})`
+              : 'Envoi de messages WhatsApp, SMS et e-mails aux parents & messagerie interne'}
           </p>
         </div>
 
         <div className="flex gap-2">
           <button
             onClick={() => {
-              setForm({ ...form, is_announcement: false });
+              setForm({
+                recipient_id: isParentUser ? 'direction' : availableRecipients[0]?.id || '',
+                subject: '',
+                content: '',
+                is_announcement: false,
+              });
               setComposeOpen(true);
             }}
             className="flex items-center gap-1.5 px-3.5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-semibold hover:bg-blue-700 shadow-xs transition"
           >
-            <Plus size={16} /> Nouveau message interne
+            <Plus size={16} /> {isParentUser ? "Écrire à l'école / aux enseignants" : "Nouveau message interne"}
           </button>
-          <button
-            onClick={() => {
-              setForm({ ...form, is_announcement: true });
-              setComposeOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-2.5 bg-teal-600 text-white rounded-xl text-xs font-semibold hover:bg-teal-700 shadow-xs transition"
-          >
-            <Megaphone size={16} /> Annonce générale
-          </button>
+
+          {isAdminUser && (
+            <button
+              onClick={() => {
+                setForm({ recipient_id: '', subject: '', content: '', is_announcement: true });
+                setComposeOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-teal-600 text-white rounded-xl text-xs font-semibold hover:bg-teal-700 shadow-xs transition"
+            >
+              <Megaphone size={16} /> Annonce générale
+            </button>
+          )}
         </div>
       </div>
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-3 flex-wrap">
-        <button
-          onClick={() => setTab('parents')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
-            tab === 'parents'
-              ? 'bg-emerald-700 text-white shadow-xs'
-              : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
-          }`}
-        >
-          <MessageCircle size={15} />
-          <span>Communication Parents (WhatsApp / SMS / Mail)</span>
-          <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/20 text-emerald-200">
-            {parentDirectory.length}
-          </span>
-        </button>
+        {!isParentUser && (
+          <button
+            onClick={() => setTab('parents')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition ${
+              tab === 'parents'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'bg-white text-slate-600 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <MessageCircle size={15} />
+            <span>
+              {isTeacherUser
+                ? `Parents de ma classe (${teacherClass?.name || 'CP1'})`
+                : 'Communication Parents (WhatsApp / SMS / Mail)'}
+            </span>
+            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/20 text-emerald-200">
+              {parentDirectory.length}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setTab('inbox')}
@@ -389,30 +549,52 @@ export default function MessagesPage() {
           }`}
         >
           <Megaphone size={15} />
-          <span>Annonces</span>
+          <span>Annonces {isParentUser ? "de l'école" : ''}</span>
         </button>
       </div>
 
-      {/* TAB 1: PARENT COMMUNICATION SUITE */}
-      {tab === 'parents' && (
+      {/* TAB 1: PARENT COMMUNICATION SUITE (EXCLUDED FOR PARENTS) */}
+      {tab === 'parents' && !isParentUser && (
         <div className="space-y-4">
+          {/* Teacher context banner */}
+          {isTeacherUser && teacherClass && (
+            <div className="p-3.5 bg-blue-50 border border-blue-200 rounded-2xl flex items-center justify-between text-xs text-blue-900">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold">
+                  <Shield size={16} />
+                </div>
+                <div>
+                  <p className="font-bold">Espace Enseignante • Classe de {teacherClass.name}</p>
+                  <p className="text-[11px] text-blue-700 mt-0.5">
+                    Accès strictement restreint aux {filteredParents.length} familles des élèves de votre classe.
+                  </p>
+                </div>
+              </div>
+              <span className="px-2.5 py-1 bg-blue-200/60 text-blue-800 rounded-lg font-bold text-[11px]">
+                {filteredParents.length} Parents rattachés
+              </span>
+            </div>
+          )}
+
           {/* Controls Bar */}
           <div className="surface-card p-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-3">
-              <div>
-                <select
-                  value={selectedClassFilter}
-                  onChange={e => setSelectedClassFilter(e.target.value)}
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold focus:outline-none"
-                >
-                  <option value="">Tous les parents (Toutes classes)</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>
-                      Parents de {c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {isAdminUser && (
+                <div>
+                  <select
+                    value={selectedClassFilter}
+                    onChange={e => setSelectedClassFilter(e.target.value)}
+                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold focus:outline-none"
+                  >
+                    <option value="">Tous les parents (Toutes classes)</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>
+                        Parents de {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <div className="relative">
@@ -881,7 +1063,13 @@ export default function MessagesPage() {
       <Modal
         isOpen={composeOpen}
         onClose={() => setComposeOpen(false)}
-        title={form.is_announcement ? 'Nouvelle annonce générale' : 'Nouveau message interne'}
+        title={
+          form.is_announcement
+            ? 'Nouvelle annonce générale'
+            : isParentUser
+            ? "Écrire à l'école / aux enseignants"
+            : 'Nouveau message interne'
+        }
         size="md"
         actions={
           <>
@@ -893,18 +1081,60 @@ export default function MessagesPage() {
             </button>
             <button
               onClick={handleSendInternal}
-              disabled={saving}
-              className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+              disabled={saving || !form.content.trim()}
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-xl text-xs font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 shadow-xs"
             >
-              <Send size={15} /> Envoyer
+              <Send size={15} /> Envoyer le message
             </button>
           </>
         }
       >
         <div className="space-y-4">
-          <FormField label="Objet">
+          {!form.is_announcement && (
+            <FormField label="Destinataire" required>
+              <select
+                value={form.recipient_id}
+                onChange={e => setForm({ ...form, recipient_id: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 bg-white"
+              >
+                {isParentUser ? (
+                  <>
+                    <option value="direction">🏛️ Direction & Secrétariat de l'école</option>
+                    {parentChildren.map(child => {
+                      // Find if there is an assigned teacher in recipients
+                      const teacherMatch = availableRecipients.find(r =>
+                        r.roleDescription.toLowerCase().includes(child.class?.name?.toLowerCase() || '___')
+                      );
+                      const targetId = teacherMatch ? teacherMatch.id : 'direction';
+                      return (
+                        <option key={child.id} value={targetId}>
+                          👩‍🏫 Enseignant(e) de {child.first_name} ({child.class?.name || 'Classe'})
+                        </option>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <>
+                    <option value="">-- Sélectionner un destinataire --</option>
+                    {availableRecipients.map(r => (
+                      <option key={r.id} value={r.id}>
+                        {r.label} — {r.roleDescription}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            </FormField>
+          )}
+
+          <FormField label="Objet" required>
             <input
               type="text"
+              placeholder={
+                isParentUser
+                  ? "Ex: Demande de renseignement, Absence de mon enfant, Rendez-vous..."
+                  : "Ex: Point pédagogique, Demande administrative..."
+              }
               value={form.subject}
               onChange={e => setForm({ ...form, subject: e.target.value })}
               className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
@@ -913,6 +1143,11 @@ export default function MessagesPage() {
           <FormField label="Message" required>
             <textarea
               value={form.content}
+              placeholder={
+                isParentUser
+                  ? "Rédigez votre message à l'attention de l'équipe pédagogique ou de la direction..."
+                  : "Rédigez votre message interne..."
+              }
               onChange={e => setForm({ ...form, content: e.target.value })}
               rows={5}
               className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"

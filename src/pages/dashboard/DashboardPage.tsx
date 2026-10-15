@@ -49,7 +49,7 @@ export default function DashboardPage() {
     totalPaid: number;
     totalRemaining: number;
     payments: any[];
-    byChild: Record<string, { expected: number; paid: number; remaining: number }>;
+    byChild: Record<string, { expected: number; paid: number; remaining: number; status?: string; planName?: string; schedule?: any[] }>;
   }>({
     totalExpected: 0,
     totalPaid: 0,
@@ -186,41 +186,47 @@ export default function DashboardPage() {
         setParentChildren(children);
 
         if (childrenIds.length > 0) {
-          // Fetch personal fees & payments ONLY for their own children
-          const [feesRes, payRes, canteenPayRes, gradesRes, attRes] = await Promise.all([
+          // Fetch personal fees & payments ONLY for their own children + payment plans and classes
+          const [feesRes, payRes, canteenPayRes, gradesRes, attRes, plansRes, clsRes] = await Promise.all([
             supabase.from('student_fees').select('*, fee_type:fee_types(*)').in('student_id', childrenIds),
             supabase.from('payments').select('*, receipts(*)').in('student_id', childrenIds).order('payment_date', { ascending: false }),
             supabase.from('canteen_payments').select('*').in('student_id', childrenIds),
             supabase.from('grades').select('*, subject:subjects(*), student:students(first_name, last_name)').in('student_id', childrenIds).order('date', { ascending: false }).limit(10),
             supabase.from('attendance').select('*, student:students(first_name, last_name)').in('student_id', childrenIds).order('date', { ascending: false }).limit(50),
+            supabase.from('payment_plans').select('*, levels:payment_plan_levels(*), schedule:payment_plan_schedules(*), composition:payment_plan_compositions(*)').eq('school_id', schoolId),
+            supabase.from('classes').select('*, level:levels(*)').eq('school_id', schoolId),
           ]);
 
           const allFees = feesRes.data || [];
           const allPayments = payRes.data || [];
           const allCanteen = canteenPayRes.data || [];
+          const allPlans = plansRes.data || [];
+          const allClasses = clsRes.data || [];
 
           let totalExpected = 0;
           let totalPaid = 0;
-          const byChild: Record<string, { expected: number; paid: number; remaining: number }> = {};
+          const byChild: Record<string, { expected: number; paid: number; remaining: number; status?: string; planName?: string; schedule?: any[] }> = {};
 
           children.forEach(child => {
-            const childFees = allFees.filter((f: any) => f.student_id === child.id);
-            const childPay = allPayments.filter((p: any) => p.student_id === child.id);
-            const childCanteen = allCanteen.filter((c: any) => c.student_id === child.id);
+            const childFin = resolveStudentFinance({
+              student: child,
+              plans: allPlans,
+              studentFees: allFees,
+              tuitionPayments: allPayments,
+              canteenPayments: allCanteen,
+              classes: allClasses,
+            });
 
-            const expected = childFees.reduce((sum: number, f: any) => sum + Number(f.amount || 0), 0);
-            const paidTuition = childPay.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
-            const paidCanteen = childCanteen.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
-            const totalChildPaid = paidTuition + paidCanteen;
-            const remaining = Math.max(0, expected - totalChildPaid);
-
-            totalExpected += expected;
-            totalPaid += totalChildPaid;
+            totalExpected += childFin.totalExpected;
+            totalPaid += childFin.totalPaid;
 
             byChild[child.id] = {
-              expected,
-              paid: totalChildPaid,
-              remaining,
+              expected: childFin.totalExpected,
+              paid: childFin.totalPaid,
+              remaining: childFin.remaining,
+              status: childFin.status,
+              planName: childFin.planName,
+              schedule: childFin.schedule,
             };
           });
 
@@ -1024,7 +1030,7 @@ export default function DashboardPage() {
                             +{formatCurrency(fin.paid)}
                           </td>
                           <td className="p-3 text-right font-bold">
-                            <span className={isSettled ? 'text-emerald-700' : 'text-red-700 font-black'}>
+                            <span className={isSettled ? 'text-emerald-700 font-bold' : 'text-amber-700 font-black'}>
                               {isSettled ? 'Soldé (0 FCFA)' : formatCurrency(fin.remaining)}
                             </span>
                           </td>
@@ -1033,10 +1039,12 @@ export default function DashboardPage() {
                               className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
                                 isSettled
                                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  : fin.paid > 0
+                                  ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  : 'bg-rose-50 text-rose-800 border border-rose-200'
                               }`}
                             >
-                              {isSettled ? 'À jour' : 'En attente'}
+                              {isSettled ? 'À jour' : fin.paid > 0 ? 'Partiel (En cours)' : 'En attente'}
                             </span>
                           </td>
                         </tr>
@@ -1045,6 +1053,42 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Official Receipts History for Parent */}
+              {parentFinances.payments.length > 0 && (
+                <div className="mt-5 pt-4 border-t border-slate-100">
+                  <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                    <CheckCircle2 size={14} className="text-emerald-600" />
+                    Reçus & Règlements Enregistrés pour vos Enfants ({parentFinances.payments.length})
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {parentFinances.payments.map((p: any) => {
+                      const child = parentChildren.find(c => c.id === p.student_id);
+                      const receiptNum = p.receipts?.[0]?.receipt_number || p.receipt_number || `REC-${p.id?.slice(0, 6)}`;
+                      return (
+                        <div key={p.id} className="p-3 rounded-2xl bg-slate-50/80 border border-slate-200 flex items-center justify-between text-xs">
+                          <div>
+                            <p className="font-extrabold text-slate-900">
+                              {child ? `${child.first_name} ${child.last_name}` : 'Votre enfant'}
+                            </p>
+                            <p className="text-[10px] text-slate-500 font-mono mt-0.5">
+                              N° {receiptNum} • {p.payment_date ? new Date(p.payment_date).toLocaleDateString('fr-FR') : '-'}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="font-black text-emerald-700 font-mono text-xs">
+                              +{formatCurrency(Number(p.amount || 0))}
+                            </span>
+                            <span className="block text-[10px] font-medium text-slate-500 capitalize mt-0.5">
+                              {p.payment_method === 'cash' ? 'Espèces' : p.payment_method === 'mobile_money' ? 'Mobile Money' : p.payment_method || 'Règlement'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Recent Evaluations and Contacts Grid */}
