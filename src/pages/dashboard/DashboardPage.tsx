@@ -21,6 +21,8 @@ export default function DashboardPage() {
   const { school, academicYear } = useApp();
   const [stats, setStats] = useState({
     totalStudents: 0,
+    totalActiveStudents: 0,
+    totalInactiveStudents: 0,
     totalBoys: 0,
     totalGirls: 0,
     totalTeachers: 0,
@@ -70,13 +72,12 @@ export default function DashboardPage() {
       supabase
         .from('students')
         .select(`
-          id, sex, class_id,
+          id, sex, class_id, status,
           student_fees(discount_amount, canteen_option, plan:payment_plans(total_amount, canteen_quarterly)),
           payments(amount, status, payment_method),
           canteen_payments(amount)
         `)
-        .eq('school_id', schoolId)
-        .eq('status', 'active'),
+        .eq('school_id', schoolId),
       supabase.from('teachers').select('id').eq('school_id', schoolId).eq('status', 'active'),
       supabase.from('parents').select('id').eq('school_id', schoolId),
       supabase.from('payments').select('id, amount, payment_date, status, payment_method, student_id').eq('school_id', schoolId),
@@ -88,7 +89,13 @@ export default function DashboardPage() {
       supabase.from('classes').select('id, level_id, name').eq('school_id', schoolId),
     ]);
 
-    const students = studentsRes.data || [];
+    const allStudents = studentsRes.data || [];
+    const activeStudents = allStudents.filter(s => s.status === 'active');
+    const inactiveStudents = allStudents.filter(s => s.status !== 'active');
+    const totalStudents = allStudents.length;
+    const totalActiveStudents = activeStudents.length;
+    const totalInactiveStudents = inactiveStudents.length;
+
     const payments = paymentsRes.data || [];
     const canteenPayments = canteenPaymentsRes.data || [];
     const expenses = expensesRes.data || [];
@@ -97,9 +104,8 @@ export default function DashboardPage() {
     const levels = levelsRes.data || [];
     const classes = classesRes.data || [];
 
-    const totalStudents = students.length;
-    const totalBoys = students.filter(s => s.sex === 'M').length;
-    const totalGirls = students.filter(s => s.sex === 'F').length;
+    const totalBoys = activeStudents.filter(s => s.sex === 'M').length;
+    const totalGirls = activeStudents.filter(s => s.sex === 'F').length;
     const totalTeachers = (teachersRes.data || []).length;
     const totalParents = (parentsRes.data || []).length;
 
@@ -112,7 +118,7 @@ export default function DashboardPage() {
     let partialStudentsCount = 0;
     let unpaidStudentsCount = 0;
 
-    students.forEach((s: any) => {
+    activeStudents.forEach((s: any) => {
       // 1. Get plan link or fallback to level default plan
       const planLink = Array.isArray(s.student_fees) ? s.student_fees[0] : s.student_fees;
       let expected = 0;
@@ -181,6 +187,8 @@ export default function DashboardPage() {
 
     setStats({
       totalStudents,
+      totalActiveStudents,
+      totalInactiveStudents,
       totalBoys,
       totalGirls,
       totalTeachers,
@@ -213,10 +221,10 @@ export default function DashboardPage() {
     });
     setPaymentByMonth(Object.entries(monthMap).map(([name, montant]) => ({ name, montant })));
 
-    // Students by level
+    // Students by level (active students)
     const levelStudents = levels.map(l => {
       const levelClasses = classes.filter(c => c.level_id === l.id);
-      const count = students.filter(s => levelClasses.some(c => c.id === s.class_id)).length;
+      const count = activeStudents.filter(s => levelClasses.some(c => c.id === s.class_id)).length;
       return { name: l.name, value: count };
     }).filter(l => l.value > 0);
     setStudentsByLevel(levelStudents);
@@ -342,14 +350,25 @@ export default function DashboardPage() {
 
           <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/50">
             <p className="text-xs text-slate-400">Répartition Élèves</p>
-            <p className="text-base font-bold text-amber-300 mt-1">{stats.studentsWithPayment} / {stats.totalStudents} élèves</p>
-            <p className="text-[11px] text-slate-300 mt-1">{stats.studentsWithoutPayment} n'ont rien versé</p>
+            <p className="text-base font-bold text-amber-300 mt-1">{stats.studentsWithPayment} / {stats.totalActiveStudents} élèves actifs</p>
+            <p className="text-[11px] text-slate-300 mt-1">
+              {stats.totalInactiveStudents > 0
+                ? `${stats.totalInactiveStudents} archivé(s)/transféré(s) • ${stats.studentsWithoutPayment} sans versement`
+                : `${stats.studentsWithoutPayment} n'ont rien versé`}
+            </p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={<GraduationCap size={20} />} value={stats.totalStudents} label="Élèves inscrits" color="blue" trend={{ value: 12, up: true }} />
+        <StatCard
+          icon={<GraduationCap size={20} />}
+          value={stats.totalActiveStudents}
+          label="Élèves inscrits actifs"
+          color="blue"
+          subLabel={stats.totalInactiveStudents > 0 ? `${stats.totalStudents} au total • ${stats.totalInactiveStudents} archivé` : undefined}
+          trend={stats.totalInactiveStudents > 0 ? { value: stats.totalStudents, up: true, label: `${stats.totalStudents} total` } : { value: 12, up: true }}
+        />
         <StatCard icon={<Users size={20} />} value={`${stats.totalBoys} / ${stats.totalGirls}`} label="Garçons / Filles" color="teal" />
         <StatCard icon={<BookOpen size={20} />} value={stats.totalTeachers} label="Enseignants" color="green" />
         <StatCard icon={<Users size={20} />} value={stats.totalParents} label="Parents" color="slate" />

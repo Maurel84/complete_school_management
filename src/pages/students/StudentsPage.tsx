@@ -35,6 +35,9 @@ import {
   AlertTriangle,
   CopyCheck,
   Utensils,
+  RotateCcw,
+  CheckCircle2,
+  Filter,
 } from 'lucide-react';
 import { useStudents, useStudentFamilyLinks } from '../../hooks/useStudents';
 import { useClasses } from '../../hooks/useClasses';
@@ -88,6 +91,11 @@ export default function StudentsPage() {
   const [editPaymentNotes, setEditPaymentNotes] = useState<string>('');
   const [savingEditPayment, setSavingEditPayment] = useState<boolean>(false);
 
+  // Status & Class filters
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [classFilter, setClassFilter] = useState<string>('');
+  const [reactivatingStudentId, setReactivatingStudentId] = useState<string | null>(null);
+
   const isGeneralAdmin = isSuperAdmin || isAdmin;
   // All school staff members have access to student actions (create, edit, payments, print)
   const isStaff =
@@ -110,6 +118,7 @@ export default function StudentsPage() {
     saveStudent,
     isSaving,
     archiveStudent,
+    reactivateStudent,
   } = useStudents(school?.id);
 
   const { data: classes = [] } = useClasses(school?.id);
@@ -173,6 +182,19 @@ export default function StudentsPage() {
   const students = (studentsQuery.data || []) as StudentListItem[];
   const familyLinks = familyLinksQuery.data || [];
   const loading = studentsQuery.isLoading;
+
+  const totalCount = students.length;
+  const activeCount = useMemo(() => students.filter(s => s.status === 'active').length, [students]);
+  const inactiveCount = useMemo(() => students.filter(s => s.status !== 'active').length, [students]);
+
+  const filteredStudents = useMemo(() => {
+    return students.filter(student => {
+      if (statusFilter === 'active' && student.status !== 'active') return false;
+      if (statusFilter === 'inactive' && student.status === 'active') return false;
+      if (classFilter && student.class_id !== classFilter) return false;
+      return true;
+    });
+  }, [students, statusFilter, classFilter]);
 
   const duplicatesAnalysis = useMemo(() => {
     if (!students || students.length === 0) return { byMatricule: [], byName: [], totalCount: 0 };
@@ -255,6 +277,19 @@ export default function StudentsPage() {
       await archiveStudent({ id, profile });
     } catch (error) {
       console.error('Failed to archive student', error);
+    }
+  }
+
+  async function handleReactivateStudent(id: string) {
+    if (!school || !confirm('Réactiver cet élève et le réintégrer dans les effectifs actifs ?')) return;
+    try {
+      setReactivatingStudentId(id);
+      await reactivateStudent({ id, profile });
+    } catch (error: any) {
+      console.error('Failed to reactivate student', error);
+      alert(`Erreur lors de la réactivation : ${error?.message || 'Erreur inconnue'}`);
+    } finally {
+      setReactivatingStudentId(null);
     }
   }
 
@@ -907,13 +942,24 @@ export default function StudentsPage() {
               <Edit size={16} />
             </button>
           )}
-          {canManageStudents && (
+          {canManageStudents && student.status === 'active' && (
             <button
               onClick={() => void handleDeleteStudent(student.id)}
               title="Archiver"
               className="rounded-xl p-1.5 text-red-600 transition hover:bg-red-50"
             >
               <Trash2 size={16} />
+            </button>
+          )}
+          {canManageStudents && student.status !== 'active' && (
+            <button
+              onClick={() => void handleReactivateStudent(student.id)}
+              disabled={reactivatingStudentId === student.id}
+              title="Réactiver cet élève (le réintégrer dans les effectifs actifs)"
+              className="rounded-xl px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition border border-emerald-200 flex items-center gap-1 shadow-2xs"
+            >
+              <RotateCcw size={13} className={reactivatingStudentId === student.id ? 'animate-spin' : ''} />
+              <span>Réactiver</span>
             </button>
           )}
         </div>
@@ -939,8 +985,10 @@ export default function StudentsPage() {
             <p className="text-sm font-semibold text-slate-900">Vision dossier complet</p>
             <div className="mt-4 grid grid-cols-3 gap-3 text-center">
               <div className="rounded-2xl bg-white/90 p-3">
-                <p className="text-2xl font-bold text-slate-900">{students.length}</p>
-                <p className="text-xs text-slate-500">Élèves suivis</p>
+                <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
+                <p className="text-xs text-slate-500">
+                  {inactiveCount > 0 ? `Élèves actifs (${totalCount} total)` : 'Élèves suivis'}
+                </p>
               </div>
               <div className="rounded-2xl bg-white/90 p-3">
                 <p className="text-2xl font-bold text-slate-900">
@@ -962,7 +1010,10 @@ export default function StudentsPage() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h2 className="display-font text-2xl font-semibold text-slate-900">Population scolaire</h2>
-          <p className="mt-1 text-sm text-slate-500">{students.length} élève(s) inscrit(s)</p>
+          <p className="mt-1 text-sm text-slate-500">
+            {activeCount} élève(s) actif(s) sur {totalCount} au total
+            {inactiveCount > 0 && ` (${inactiveCount} archivé / inactif)`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {isGeneralAdmin && (
@@ -1002,13 +1053,123 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {students.length === 0 && !loading ? (
+      {inactiveCount > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 text-sm">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-200/80 font-bold text-amber-900">
+              {inactiveCount}
+            </span>
+            <div>
+              <p className="font-semibold text-amber-950">
+                {inactiveCount} dossier(s) archivé(s) ou transféré(s)
+              </p>
+              <p className="text-xs text-amber-700">
+                Le tableau de bord comptabilise <strong>{activeCount} élèves actifs</strong>. Les dossiers archivés sont conservés pour l'historique financier et scolaire sans fausser les effectifs en classe.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setStatusFilter(statusFilter === 'inactive' ? 'all' : 'inactive')}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition border ${
+                statusFilter === 'inactive'
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                  : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
+              }`}
+            >
+              {statusFilter === 'inactive' ? 'Afficher tous les élèves' : 'Isoler l\'élève archivé'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Filter Tabs and Class selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-semibold text-slate-400 mr-1 flex items-center gap-1">
+            <Filter size={14} /> Filtres :
+          </span>
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition ${
+              statusFilter === 'all'
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            Tous ({totalCount})
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition flex items-center gap-1.5 ${
+              statusFilter === 'active'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
+            Actifs ({activeCount})
+          </button>
+          {inactiveCount > 0 && (
+            <button
+              onClick={() => setStatusFilter('inactive')}
+              className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition flex items-center gap-1.5 ${
+                statusFilter === 'inactive'
+                  ? 'bg-amber-600 text-white shadow-xs'
+                  : 'text-amber-800 bg-amber-50 hover:bg-amber-100'
+              }`}
+            >
+              <span className="h-2 w-2 rounded-full bg-amber-400 inline-block" />
+              Archivés / Inactifs ({inactiveCount})
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <select
+            value={classFilter}
+            onChange={(e) => setClassFilter(e.target.value)}
+            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 outline-none focus:border-emerald-500 focus:bg-white"
+          >
+            <option value="">Toutes les classes ({classes.length})</option>
+            {classes.map((cls) => (
+              <option key={cls.id} value={cls.id}>
+                {cls.name}
+              </option>
+            ))}
+          </select>
+
+          {(statusFilter !== 'all' || classFilter) && (
+            <button
+              onClick={() => {
+                setStatusFilter('all');
+                setClassFilter('');
+              }}
+              className="text-xs text-slate-500 hover:text-red-600 font-medium px-2 py-1"
+            >
+              Réinitialiser
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filteredStudents.length === 0 && !loading ? (
         <EmptyState
           icon={<GraduationCap size={40} />}
-          title="Aucun élève"
-          description="Commence par inscrire les élèves, ajouter leur photo et relier leur famille pour obtenir des dossiers complets."
+          title="Aucun élève trouvé"
+          description="Aucun élève ne correspond aux critères de filtre sélectionnés."
           action={
-            canManageStudents ? (
+            statusFilter !== 'all' || classFilter ? (
+              <button
+                onClick={() => {
+                  setStatusFilter('all');
+                  setClassFilter('');
+                }}
+                className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                Réinitialiser les filtres
+              </button>
+            ) : canManageStudents ? (
               <button
                 onClick={openCreate}
                 className="rounded-2xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
@@ -1021,7 +1182,7 @@ export default function StudentsPage() {
       ) : (
         <DataTable
           columns={columns}
-          data={students}
+          data={filteredStudents}
           searchPlaceholder="Rechercher un élève..."
           searchKeys={['matricule', 'first_name', 'last_name']}
           loading={loading}

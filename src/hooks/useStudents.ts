@@ -275,6 +275,7 @@ export function useStudents(schoolId?: string) {
       void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
       void queryClient.invalidateQueries({ queryKey: ['parents', schoolId] });
       void queryClient.invalidateQueries({ queryKey: ['student_family_links'] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard_stats'] });
     },
   });
 
@@ -299,6 +300,32 @@ export function useStudents(schoolId?: string) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard_stats'] });
+    },
+  });
+
+  const reactivateStudentMutation = useMutation({
+    mutationFn: async ({ id, profile }: { id: string; profile?: Profile | null }) => {
+      if (!schoolId) throw new Error('School ID is required');
+
+      const { error } = await supabase
+        .from('students')
+        .update({ status: 'active' })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      await recordAuditLog({
+        schoolId,
+        userId: profile?.id,
+        action: 'student_reactivated',
+        entityType: 'student',
+        entityId: id,
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard_stats'] });
     },
   });
 
@@ -338,6 +365,7 @@ export function useStudents(schoolId?: string) {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['students', schoolId] });
+      void queryClient.invalidateQueries({ queryKey: ['dashboard_stats'] });
     },
   });
 
@@ -347,6 +375,8 @@ export function useStudents(schoolId?: string) {
     isSaving: saveStudentMutation.isPending,
     archiveStudent: archiveStudentMutation.mutateAsync,
     isArchiving: archiveStudentMutation.isPending,
+    reactivateStudent: reactivateStudentMutation.mutateAsync,
+    isReactivating: reactivateStudentMutation.isPending,
     updateMatricule: updateMatriculeMutation.mutateAsync,
     isUpdatingMatricule: updateMatriculeMutation.isPending,
   };

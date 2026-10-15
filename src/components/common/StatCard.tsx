@@ -5,8 +5,9 @@ interface StatCardProps {
   icon: ReactNode;
   value: string | number;
   label: string;
-  trend?: { value: number; up: boolean };
+  trend?: { value: number; up: boolean; label?: string };
   color?: 'blue' | 'green' | 'amber' | 'red' | 'teal' | 'slate';
+  subLabel?: string;
 }
 
 const colorMap = {
@@ -42,7 +43,7 @@ const colorMap = {
   },
 };
 
-export default function StatCard({ icon, value, label, trend, color = 'blue' }: StatCardProps) {
+export default function StatCard({ icon, value, label, trend, color = 'blue', subLabel }: StatCardProps) {
   const palette = colorMap[color];
 
   return (
@@ -57,7 +58,7 @@ export default function StatCard({ icon, value, label, trend, color = 'blue' }: 
             trend.up ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
           }`}>
             {trend.up ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-            {trend.value}%
+            {trend.label ?? `${trend.value}%`}
           </div>
         )}
       </div>
@@ -65,6 +66,7 @@ export default function StatCard({ icon, value, label, trend, color = 'blue' }: 
       <div className="relative mt-5">
         <p className="display-font text-3xl font-extrabold tracking-tight text-slate-900 group-hover:text-blue-950 transition-colors">{value}</p>
         <p className="mt-1.5 text-xs font-medium text-slate-500 uppercase tracking-wider">{label}</p>
+        {subLabel && <p className="mt-1 text-[11px] font-medium text-slate-500">{subLabel}</p>}
       </div>
     </div>
   );
