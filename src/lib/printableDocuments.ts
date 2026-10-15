@@ -499,7 +499,25 @@ export function buildStudentCardHtml({
 }: StudentCardTemplateInput) {
   const guardianNameStr = primaryGuardian || (student as any).parent_name || 'Maurel AGOHI-N’GUESSAN';
   const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || '0700276689';
-  const resolvedDirectorName = directorName || (school as any).director_name || 'JEAN KRAZLIN';
+
+  let resolvedStampUrl = school.stamp_url;
+  let resolvedSignatureUrl = school.signature_url;
+  let resolvedDirectorName = directorName || (school as any).director_name;
+  let resolvedLogoUrl = school.logo_url;
+
+  if (typeof window !== 'undefined' && school.id) {
+    try {
+      const cached = localStorage.getItem(`school_branding_${school.id}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (!resolvedStampUrl && parsed.stamp_url) resolvedStampUrl = parsed.stamp_url;
+        if (!resolvedSignatureUrl && parsed.signature_url) resolvedSignatureUrl = parsed.signature_url;
+        if (!resolvedDirectorName && parsed.director_name) resolvedDirectorName = parsed.director_name;
+        if (!resolvedLogoUrl && parsed.logo_url) resolvedLogoUrl = parsed.logo_url;
+      }
+    } catch {}
+  }
+  if (!resolvedDirectorName) resolvedDirectorName = 'JEAN KRAZLIN';
 
   // Minimal dual accent line in soft national orange (#F77F00) and green (#009E60)
   const dualAccentLine = `
@@ -548,9 +566,9 @@ export function buildStudentCardHtml({
                   <!-- Center: School Logo + Name -->
                   <div style="flex:1; min-width:0; display:flex; align-items:center; justify-content:center; gap:5px; padding:0 4px;">
                     ${
-                      school.logo_url
+                      resolvedLogoUrl
                         ? `<div style="width:20px; height:20px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; flex-shrink:0; border:1px solid #cbd5e1; box-shadow:0 1px 3px rgba(0,0,0,0.08); overflow:hidden;">
-                            <img src="${escapeHtml(school.logo_url)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; object-fit:cover;" />
+                            <img src="${escapeHtml(resolvedLogoUrl)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; object-fit:cover;" />
                           </div>`
                         : `<div style="width:20px; height:20px; border-radius:50%; background:#f1f5f9; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:9px;">🏫</div>`
                     }
@@ -610,20 +628,25 @@ export function buildStudentCardHtml({
                       ${escapeHtml(student.first_name)}
                     </div>
 
+                    <!-- Date & Lieu de Naissance -->
+                    <div style="font-size:6.3px; font-weight:700; color:#334155; margin-top:2px; font-family:'Inter', sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                      Né(e) le : <strong style="color:#0f172a;">${escapeHtml(student.date_of_birth ? (formatDate(student.date_of_birth) || student.date_of_birth) : ((student as any).birth_date ? (formatDate((student as any).birth_date) || (student as any).birth_date) : '14/05/2021'))}</strong>${((student as any).place_of_birth || (student as any).birth_place) ? ` à <strong style="color:#0f172a;">${escapeHtml((student as any).place_of_birth || (student as any).birth_place)}</strong>` : ' à Abidjan'}
+                    </div>
+
                     <!-- Class Badge -->
-                    <div style="margin-top:2.5px;">
+                    <div style="margin-top:2px;">
                       <span style="display:inline-block; font-size:7.5px; font-weight:900; color:#166534; background:#f0fdf4; border:1px solid #86efac; padding:1.5px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">
                         ${escapeHtml(className || 'MATERNELLE GS')}
                       </span>
                     </div>
 
                     <!-- Matricule Box -->
-                    <div style="margin-top:2.5px; font-size:7.5px; font-weight:700; color:#0f172a; font-family:'SF Mono', Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:3px; padding:1.5px 5px; display:inline-block;">
+                    <div style="margin-top:2px; font-size:7.5px; font-weight:700; color:#0f172a; font-family:'SF Mono', Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:3px; padding:1.5px 5px; display:inline-block;">
                       Matricule : <strong style="font-weight:900; color:#0f172a;">${escapeHtml(student.matricule)}</strong>
                     </div>
 
                     <!-- Validity -->
-                    <div style="font-size:6px; font-weight:700; color:#047857; margin-top:2px;">
+                    <div style="font-size:6px; font-weight:700; color:#047857; margin-top:1.5px;">
                       Validité : 31/07/2027 ✔
                     </div>
                   </div>
@@ -748,19 +771,27 @@ export function buildStudentCardHtml({
                     </div>
                     
                     <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
-                      <!-- Circular Stamp Illustration -->
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" style="opacity:0.85; flex-shrink:0;">
-                        <circle cx="12" cy="12" r="10" stroke-dasharray="2 2"/>
-                        <path d="M12 6v12M6 12h12"/>
-                      </svg>
-                      <!-- Stylized Signature -->
-                      <span style="font-family:'Brush Script MT', 'Dancing Script', cursive, italic; font-size:11px; color:#1e40af; font-weight:700;">
-                        ${escapeHtml(resolvedDirectorName.split(' ')[0] || 'Direction')}
-                      </span>
+                      <!-- Circular Official Stamp (Uploaded or SVG fallback) -->
+                      ${
+                        resolvedStampUrl
+                          ? `<img src="${escapeHtml(resolvedStampUrl)}" alt="Cachet Officiel" style="height:26px; width:auto; max-width:32px; object-fit:contain; display:block;" />`
+                          : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" style="opacity:0.85; flex-shrink:0;">
+                              <circle cx="12" cy="12" r="10" stroke-dasharray="2 2"/>
+                              <path d="M12 6v12M6 12h12"/>
+                            </svg>`
+                      }
+                      <!-- Executive Signature (Uploaded image or Stylized text fallback) -->
+                      ${
+                        resolvedSignatureUrl
+                          ? `<img src="${escapeHtml(resolvedSignatureUrl)}" alt="Signature Direction" style="height:22px; width:auto; max-width:44px; object-fit:contain; display:block;" />`
+                          : `<span style="font-family:'Brush Script MT', 'Dancing Script', cursive, italic; font-size:11px; color:#1e40af; font-weight:700;">
+                              ${escapeHtml(resolvedDirectorName.split(' ')[0] || 'Direction')}
+                            </span>`
+                      }
                     </div>
 
                     <div style="font-size:4.2px; color:#64748b; font-style:italic;">
-                      Visa, Cachet & Signature
+                      ${escapeHtml(resolvedDirectorName)} — Visa, Cachet & Signature
                     </div>
                   </div>
 

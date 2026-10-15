@@ -11,6 +11,9 @@ export interface School {
   logo_url: string;
   facade_url?: string;
   students_uniform_url?: string;
+  stamp_url?: string;
+  signature_url?: string;
+  director_name?: string;
   motto: string;
   establishment_type: string;
   is_demo: boolean;

@@ -27,6 +27,8 @@ import {
   Upload,
   CalendarDays,
   MessageSquare,
+  FileText,
+  FileCheck,
 } from 'lucide-react';
 
 type SettingsTab = 'school' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
@@ -55,6 +57,9 @@ export default function SettingsPage() {
     logo_url: '',
     facade_url: '',
     students_uniform_url: '',
+    stamp_url: '',
+    signature_url: '',
+    director_name: 'JEAN KRAZLIN',
     establishment_type: 'maternelle_primaire',
   });
   const [levels, setLevels] = useState<LevelItem[]>([]);
@@ -66,6 +71,8 @@ export default function SettingsPage() {
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingFacade, setUploadingFacade] = useState(false);
   const [uploadingUniform, setUploadingUniform] = useState(false);
+  const [uploadingStamp, setUploadingStamp] = useState(false);
+  const [uploadingSignature, setUploadingSignature] = useState(false);
   const [schoolNotice, setSchoolNotice] = useState<string | null>(null);
   const [yearNotice, setYearNotice] = useState<string | null>(null);
 
@@ -106,6 +113,12 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!school) return;
 
+    let cachedBranding: any = {};
+    try {
+      const cachedBrandingStr = localStorage.getItem(`school_branding_${school.id}`);
+      if (cachedBrandingStr) cachedBranding = JSON.parse(cachedBrandingStr);
+    } catch {}
+
     setSchoolForm({
       name: school.name,
       address: school.address,
@@ -114,9 +127,12 @@ export default function SettingsPage() {
       phone: school.phone,
       email: school.email,
       motto: school.motto,
-      logo_url: school.logo_url,
+      logo_url: school.logo_url || cachedBranding.logo_url || '',
       facade_url: school.facade_url || '',
       students_uniform_url: school.students_uniform_url || '',
+      stamp_url: school.stamp_url || cachedBranding.stamp_url || '',
+      signature_url: school.signature_url || cachedBranding.signature_url || '',
+      director_name: school.director_name || cachedBranding.director_name || 'JEAN KRAZLIN',
       establishment_type: 'maternelle_primaire',
     });
 
@@ -177,7 +193,8 @@ export default function SettingsPage() {
   async function saveSchool() {
     if (!school) return;
     setSaving(true);
-    await supabase.from('schools').update({
+
+    const brandingPayload: any = {
       name: schoolForm.name,
       address: schoolForm.address,
       city: schoolForm.city,
@@ -189,10 +206,32 @@ export default function SettingsPage() {
       facade_url: schoolForm.facade_url,
       students_uniform_url: schoolForm.students_uniform_url,
       establishment_type: 'maternelle_primaire',
-    }).eq('id', school.id);
+    };
+    if (schoolForm.stamp_url !== undefined) brandingPayload.stamp_url = schoolForm.stamp_url;
+    if (schoolForm.signature_url !== undefined) brandingPayload.signature_url = schoolForm.signature_url;
+    if (schoolForm.director_name !== undefined) brandingPayload.director_name = schoolForm.director_name;
+
+    try {
+      localStorage.setItem(`school_branding_${school.id}`, JSON.stringify({
+        stamp_url: schoolForm.stamp_url,
+        signature_url: schoolForm.signature_url,
+        director_name: schoolForm.director_name,
+        logo_url: schoolForm.logo_url,
+      }));
+    } catch {}
+
+    try {
+      await supabase.from('schools').update(brandingPayload).eq('id', school.id);
+    } catch {
+      delete brandingPayload.stamp_url;
+      delete brandingPayload.signature_url;
+      delete brandingPayload.director_name;
+      await supabase.from('schools').update(brandingPayload).eq('id', school.id);
+    }
+
     setSaving(false);
     await refreshSchool();
-    setSchoolNotice('Informations de l’école enregistrées.');
+    setSchoolNotice('Informations de l’école et paramètres des cartes scolaires enregistrés avec succès.');
   }
 
   async function handleLogoUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -310,6 +349,122 @@ export default function SettingsPage() {
     setSchoolForm(current => ({ ...current, students_uniform_url: '' }));
     await refreshSchool();
     setSchoolNotice('Image des élèves en tenue retirée.');
+  }
+
+  async function handleStampUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!school) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingStamp(true);
+    setSchoolNotice(null);
+
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${school.id}/branding/stamp-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('school-assets').upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
+      setSchoolForm(current => ({ ...current, stamp_url: data.publicUrl }));
+
+      try {
+        localStorage.setItem(`school_branding_${school.id}`, JSON.stringify({
+          ...JSON.parse(localStorage.getItem(`school_branding_${school.id}`) || '{}'),
+          stamp_url: data.publicUrl,
+        }));
+      } catch {}
+
+      try {
+        await supabase.from('schools').update({ stamp_url: data.publicUrl }).eq('id', school.id);
+      } catch {}
+
+      await refreshSchool();
+      setSchoolNotice('Cachet officiel de l\'école mis à jour. Il apparaîtra au verso des cartes scolaires.');
+    } catch (error) {
+      setSchoolNotice("Le cachet n'a pas pu être envoyé. Vérifie le bucket Supabase school-assets.");
+    } finally {
+      setUploadingStamp(false);
+      event.target.value = '';
+    }
+  }
+
+  async function clearStamp() {
+    if (!school) return;
+    try {
+      await supabase.from('schools').update({ stamp_url: '' }).eq('id', school.id);
+    } catch {}
+    try {
+      localStorage.setItem(`school_branding_${school.id}`, JSON.stringify({
+        ...JSON.parse(localStorage.getItem(`school_branding_${school.id}`) || '{}'),
+        stamp_url: '',
+      }));
+    } catch {}
+    setSchoolForm(current => ({ ...current, stamp_url: '' }));
+    await refreshSchool();
+    setSchoolNotice('Cachet officiel retiré.');
+  }
+
+  async function handleSignatureUpload(event: ChangeEvent<HTMLInputElement>) {
+    if (!school) return;
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUploadingSignature(true);
+    setSchoolNotice(null);
+
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'png';
+      const path = `${school.id}/branding/signature-${Date.now()}.${extension}`;
+      const { error: uploadError } = await supabase.storage.from('school-assets').upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+      });
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('school-assets').getPublicUrl(path);
+      setSchoolForm(current => ({ ...current, signature_url: data.publicUrl }));
+
+      try {
+        localStorage.setItem(`school_branding_${school.id}`, JSON.stringify({
+          ...JSON.parse(localStorage.getItem(`school_branding_${school.id}`) || '{}'),
+          signature_url: data.publicUrl,
+        }));
+      } catch {}
+
+      try {
+        await supabase.from('schools').update({ signature_url: data.publicUrl }).eq('id', school.id);
+      } catch {}
+
+      await refreshSchool();
+      setSchoolNotice('Signature numérique mise à jour. Elle apparaîtra sur les cartes scolaires et certificats.');
+    } catch (error) {
+      setSchoolNotice("La signature n'a pas pu être envoyée. Vérifie le bucket Supabase school-assets.");
+    } finally {
+      setUploadingSignature(false);
+      event.target.value = '';
+    }
+  }
+
+  async function clearSignature() {
+    if (!school) return;
+    try {
+      await supabase.from('schools').update({ signature_url: '' }).eq('id', school.id);
+    } catch {}
+    try {
+      localStorage.setItem(`school_branding_${school.id}`, JSON.stringify({
+        ...JSON.parse(localStorage.getItem(`school_branding_${school.id}`) || '{}'),
+        signature_url: '',
+      }));
+    } catch {}
+    setSchoolForm(current => ({ ...current, signature_url: '' }));
+    await refreshSchool();
+    setSchoolNotice('Signature numérique retirée.');
   }
 
   async function saveSubject() {
@@ -717,6 +872,77 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+
+            {/* Dedicated Official Cards Section: Stamp & Signature */}
+            <div className="mt-8 border-t border-slate-100 pt-6">
+              <div className="flex items-center gap-2">
+                <FileCheck className="text-emerald-600" size={20} />
+                <h3 className="text-base font-bold text-slate-900">Authentification & Cartes Scolaires (Cachet & Signature)</h3>
+              </div>
+              <p className="text-xs text-slate-500 mt-1">
+                Téléversez le cachet officiel de l'école et la signature numérique du directeur pour qu'ils s'affichent automatiquement au verso des cartes d'élèves et sur les reçus officiels.
+              </p>
+
+              <div className="mt-4 grid gap-6 md:grid-cols-2">
+                {/* Stamp Card */}
+                <div className="surface-card p-5 border border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-between text-center">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">Cachet / Tampon Officiel de l'Établissement</h4>
+                    <p className="text-xs text-slate-400 mt-1">Apposé sur le visa au verso des cartes scolaires (PNG fond transparent recommandé).</p>
+                  </div>
+                  <div className="my-5">
+                    {schoolForm.stamp_url ? (
+                      <img src={schoolForm.stamp_url} alt="Cachet officiel" className="mx-auto h-24 w-24 rounded-2xl border border-slate-100 object-contain p-2 bg-slate-50 shadow-sm" />
+                    ) : (
+                      <div className="mx-auto flex h-24 w-24 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 shadow-inner">
+                        <FileCheck size={28} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-full space-y-2">
+                    <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                      <Upload size={14} />
+                      {uploadingStamp ? 'Envoi...' : 'Uploader le cachet'}
+                      <input type="file" accept="image/*" onChange={handleStampUpload} className="hidden" />
+                    </label>
+                    {schoolForm.stamp_url && (
+                      <button onClick={() => void clearStamp()} className="w-full rounded-2xl border border-slate-200 py-2 text-xs text-rose-600 font-semibold transition hover:bg-rose-50">
+                        Retirer le cachet
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Signature Card */}
+                <div className="surface-card p-5 border border-slate-200 bg-white rounded-3xl flex flex-col items-center justify-between text-center">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-800">Signature Numérique du Directeur</h4>
+                    <p className="text-xs text-slate-400 mt-1">Apposée à côté du cachet sur les cartes d'élèves et attestations (PNG transparent recommandé).</p>
+                  </div>
+                  <div className="my-5">
+                    {schoolForm.signature_url ? (
+                      <img src={schoolForm.signature_url} alt="Signature numérique" className="mx-auto h-24 w-36 rounded-2xl border border-slate-100 object-contain p-2 bg-slate-50 shadow-sm" />
+                    ) : (
+                      <div className="mx-auto flex h-24 w-36 items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 text-slate-400 shadow-inner">
+                        <FileText size={28} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-full space-y-2">
+                    <label className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-700">
+                      <Upload size={14} />
+                      {uploadingSignature ? 'Envoi...' : 'Uploader la signature'}
+                      <input type="file" accept="image/*" onChange={handleSignatureUpload} className="hidden" />
+                    </label>
+                    {schoolForm.signature_url && (
+                      <button onClick={() => void clearSignature()} className="w-full rounded-2xl border border-slate-200 py-2 text-xs text-rose-600 font-semibold transition hover:bg-rose-50">
+                        Retirer la signature
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           {schoolNotice && (
@@ -728,6 +954,9 @@ export default function SettingsPage() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <FormField label="Nom de l’école" required>
               <input type="text" value={schoolForm.name} onChange={event => setSchoolForm({ ...schoolForm, name: event.target.value })} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
+            </FormField>
+            <FormField label="Chef d'Établissement (Directeur)">
+              <input type="text" value={schoolForm.director_name} onChange={event => setSchoolForm({ ...schoolForm, director_name: event.target.value })} placeholder="Ex: JEAN KRAZLIN" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10" />
             </FormField>
             <FormField label="Cycle couvert">
               <input type="text" value="Petite Section à CM2" disabled className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500" />

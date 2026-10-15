@@ -1,6 +1,34 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#ecfdf5"/>
-  <path d="M12 25 32 15l20 10-20 10-20-10Z" fill="#047857"/>
-  <path d="M20 31v9c0 3 5.4 7 12 7s12-4 12-7v-9l-12 6-12-6Z" fill="#059669"/>
-  <path d="M50 26v14" stroke="#0f172a" stroke-width="4" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Background Shield with Soft Rounded Geometry -->
+  <rect width="128" height="128" rx="28" fill="url(#bg-gradient)" />
+  <rect x="2" y="2" width="124" height="124" rx="26" stroke="rgba(255,255,255,0.18)" stroke-width="2"/>
+  
+  <!-- Graduation Cap Top Accent -->
+  <path d="M64 26 L102 44 L64 62 L26 44 Z" fill="url(#gold-gradient)" filter="url(#drop-shadow)"/>
+  <path d="M42 52.5 V70 C42 78 51.8 84 64 84 C76.2 84 86 78 86 70 V52.5" stroke="#fef3c7" stroke-width="4.5" stroke-linecap="round" fill="none"/>
+  
+  <!-- Tassel -->
+  <path d="M96 47 V68 C96 71 94 73 91.5 73 C89 73 87 71 87 68" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="91.5" cy="74" r="2.5" fill="#f59e0b"/>
+
+  <!-- Open Book Base (Education & Mastery) -->
+  <path d="M34 88 C44 83 54 84 64 88 C74 84 84 83 94 88 V103 C84 98 74 99 64 103 C54 99 44 98 34 103 Z" fill="#ffffff" opacity="0.95"/>
+  <path d="M64 88 V103" stroke="#0f172a" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- Gradients & Filters -->
+  <defs>
+    <linearGradient id="bg-gradient" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="60%" stop-color="#064e3b"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="gold-gradient" x1="26" y1="26" x2="102" y2="62" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#fbbf24"/>
+      <stop offset="50%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <filter id="drop-shadow" x="20" y="24" width="88" height="46" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-opacity="0.25"/>
+    </filter>
+  </defs>
 </svg>
