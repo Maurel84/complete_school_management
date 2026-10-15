@@ -67,13 +67,18 @@ export default function FinanceDashboard({
     );
   }, [students, plans, studentFees, studentInstallments, payments, canteenPayments, classes]);
 
+  const activeStudents = useMemo(() => students.filter(s => s.status === 'active'), [students]);
+  const inactiveStudents = useMemo(() => students.filter(s => s.status !== 'active'), [students]);
+
   // Compute tuition calculations
   const expectedTuition = useMemo(() => {
     return studentFinances.reduce((sum, sf) => sum + sf.totalExpectedTuition, 0);
   }, [studentFinances]);
 
   const collectedTuition = useMemo(() => {
-    return payments.reduce((sum, pay) => sum + Number(pay.amount), 0);
+    return payments
+      .filter((pay: any) => pay.status !== 'cancelled')
+      .reduce((sum, pay) => sum + Number(pay.amount), 0);
   }, [payments]);
 
   // Compute canteen calculations
@@ -188,9 +193,11 @@ export default function FinanceDashboard({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           icon={<GraduationCap size={20} />}
-          value={students.length}
-          label="Élèves inscrits"
+          value={activeStudents.length}
+          label="Élèves inscrits actifs"
           color="blue"
+          subLabel={inactiveStudents.length > 0 ? `${students.length} au total • ${inactiveStudents.length} archivé` : undefined}
+          trend={inactiveStudents.length > 0 ? { value: students.length, up: true, label: `${students.length} total` } : undefined}
         />
         <StatCard
           icon={<TrendingUp size={20} />}

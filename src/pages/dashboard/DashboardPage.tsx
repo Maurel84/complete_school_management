@@ -135,7 +135,7 @@ export default function DashboardPage() {
     let partialStudentsCount = 0;
     let unpaidStudentsCount = 0;
 
-    activeStudents.forEach((student: any) => {
+    allStudents.forEach((student: any) => {
       const studentPayments = paymentsByStudent[student.id] || [];
       const studentCanteenPayments = canteenByStudent[student.id] || [];
 
@@ -153,18 +153,20 @@ export default function DashboardPage() {
       totalExpectedFees += fin.totalExpected;
       totalUnpaid += fin.remaining;
 
-      if (fin.status === 'paid') {
-        paidStudentsCount++;
-      } else if (fin.status === 'partial') {
-        partialStudentsCount++;
-      } else {
-        unpaidStudentsCount++;
+      if (student.status === 'active') {
+        if (fin.status === 'paid') {
+          paidStudentsCount++;
+        } else if (fin.status === 'partial') {
+          partialStudentsCount++;
+        } else {
+          unpaidStudentsCount++;
+        }
       }
     });
 
-    // Actual collected sums from payments table and canteen_payments table
+    // Actual collected sums from payments table and canteen_payments table (excluding cancelled)
     const totalPaidTuition = payments
-      .filter((p: any) => p.status === 'paid' || !p.status)
+      .filter((p: any) => p.status !== 'cancelled')
       .reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
 
     const totalPaidCanteen = canteenPayments
