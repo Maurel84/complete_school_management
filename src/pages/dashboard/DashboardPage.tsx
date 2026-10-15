@@ -7,10 +7,11 @@ import StatCard from '../../components/common/StatCard';
 import EmptyState from '../../components/common/EmptyState';
 import { formatCurrency } from '../../lib/utils';
 import { resolveStudentFinance } from '../../lib/financePlanResolver';
+import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import {
   GraduationCap, Users, BookOpen, DollarSign, Wallet,
   AlertTriangle, TrendingUp, ArrowUpRight, ArrowDownRight,
-  CalendarCheck, ClipboardList, MessageSquare, Printer, CheckCircle2, Mail, Sparkles
+  CalendarCheck, ClipboardList, MessageSquare, Printer, CheckCircle2, Mail, Sparkles, Phone
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -21,10 +22,13 @@ const COLORS = ['#2563eb', '#0d9488', '#f59e0b', '#ef4444', '#6366f1', '#ec4899'
 
 export default function DashboardPage() {
   const navigate = useNavigate();
-  const { profile, isTeacher, role } = useAuth();
+  const { profile, isTeacher, isParent, role } = useAuth();
   const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent' || profile?.account_type === 'parent';
 
+  // Teacher State
   const [teacherClass, setTeacherClass] = useState<any>(null);
+  const [teacherRoleLabel, setTeacherRoleLabel] = useState<string>('Enseignante Stagiaire');
   const [teacherStudents, setTeacherStudents] = useState<any[]>([]);
   const [teacherAttendanceStats, setTeacherAttendanceStats] = useState({
     recorded: false,
@@ -36,6 +40,35 @@ export default function DashboardPage() {
   });
   const [teacherAbsentsToday, setTeacherAbsentsToday] = useState<any[]>([]);
   const [teacherRecentGrades, setTeacherRecentGrades] = useState<any[]>([]);
+
+  // Parent State
+  const [parentRecord, setParentRecord] = useState<any>(null);
+  const [parentChildren, setParentChildren] = useState<any[]>([]);
+  const [parentFinances, setParentFinances] = useState<{
+    totalExpected: number;
+    totalPaid: number;
+    totalRemaining: number;
+    payments: any[];
+    byChild: Record<string, { expected: number; paid: number; remaining: number }>;
+  }>({
+    totalExpected: 0,
+    totalPaid: 0,
+    totalRemaining: 0,
+    payments: [],
+    byChild: {},
+  });
+  const [parentRecentGrades, setParentRecentGrades] = useState<any[]>([]);
+  const [parentAttendanceStats, setParentAttendanceStats] = useState<{
+    presentCount: number;
+    absentCount: number;
+    lateCount: number;
+    attendanceRate: number;
+  }>({
+    presentCount: 0,
+    absentCount: 0,
+    lateCount: 0,
+    attendanceRate: 100,
+  });
 
   const { school, academicYear } = useApp();
   const [stats, setStats] = useState({
@@ -77,43 +110,16 @@ export default function DashboardPage() {
 
     if (isTeacherUser) {
       try {
-        const { data: tRec } = await supabase
-          .from('teachers')
-          .select('*')
-          .or(`user_id.eq.${profile?.id},email.eq.${profile?.email}`)
-          .maybeSingle();
+        const { assignedClass, roleLabel } = await resolveTeacherClass(schoolId, profile);
+        setTeacherClass(assignedClass);
+        if (roleLabel) setTeacherRoleLabel(roleLabel);
 
-        let myClass: any = null;
-        if (tRec) {
-          const { data: cData } = await supabase
-            .from('classes')
-            .select('*, level:levels(*)')
-            .eq('school_id', schoolId)
-            .eq('teacher_id', tRec.id);
-          if (cData && cData.length > 0) {
-            myClass = cData[0];
-          }
-        }
-
-        if (!myClass) {
-          const { data: anyClass } = await supabase
-            .from('classes')
-            .select('*, level:levels(*)')
-            .eq('school_id', schoolId)
-            .limit(1);
-          if (anyClass && anyClass.length > 0) {
-            myClass = anyClass[0];
-          }
-        }
-
-        setTeacherClass(myClass);
-
-        if (myClass) {
+        if (assignedClass) {
           const { data: sData } = await supabase
             .from('students')
             .select('*, parents:student_parents(parent:parents(*))')
             .eq('school_id', schoolId)
-            .eq('class_id', myClass.id)
+            .eq('class_id', assignedClass.id)
             .eq('status', 'active')
             .order('last_name');
 
@@ -125,7 +131,7 @@ export default function DashboardPage() {
             .from('attendance')
             .select('*, student:students(*)')
             .eq('school_id', schoolId)
-            .eq('class_id', myClass.id)
+            .eq('class_id', assignedClass.id)
             .eq('date', todayStr);
 
           let pres = 0;
@@ -159,14 +165,95 @@ export default function DashboardPage() {
             .from('grades')
             .select('*, subject:subjects(*), student:students(first_name, last_name)')
             .eq('school_id', schoolId)
-            .eq('class_id', myClass.id)
-            .order('evaluation_date', { ascending: false })
+            .eq('class_id', assignedClass.id)
+            .order('date', { ascending: false })
             .limit(10);
 
           setTeacherRecentGrades(gData || []);
         }
       } catch (err) {
         console.error('Teacher dashboard loading error:', err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    if (isParentUser) {
+      try {
+        const { parentRecord: pRec, children, childrenIds } = await resolveParentChildren(schoolId, profile);
+        setParentRecord(pRec);
+        setParentChildren(children);
+
+        if (childrenIds.length > 0) {
+          // Fetch personal fees & payments ONLY for their own children
+          const [feesRes, payRes, canteenPayRes, gradesRes, attRes] = await Promise.all([
+            supabase.from('student_fees').select('*, fee_type:fee_types(*)').in('student_id', childrenIds),
+            supabase.from('payments').select('*, receipts(*)').in('student_id', childrenIds).order('payment_date', { ascending: false }),
+            supabase.from('canteen_payments').select('*').in('student_id', childrenIds),
+            supabase.from('grades').select('*, subject:subjects(*), student:students(first_name, last_name)').in('student_id', childrenIds).order('date', { ascending: false }).limit(10),
+            supabase.from('attendance').select('*, student:students(first_name, last_name)').in('student_id', childrenIds).order('date', { ascending: false }).limit(50),
+          ]);
+
+          const allFees = feesRes.data || [];
+          const allPayments = payRes.data || [];
+          const allCanteen = canteenPayRes.data || [];
+
+          let totalExpected = 0;
+          let totalPaid = 0;
+          const byChild: Record<string, { expected: number; paid: number; remaining: number }> = {};
+
+          children.forEach(child => {
+            const childFees = allFees.filter((f: any) => f.student_id === child.id);
+            const childPay = allPayments.filter((p: any) => p.student_id === child.id);
+            const childCanteen = allCanteen.filter((c: any) => c.student_id === child.id);
+
+            const expected = childFees.reduce((sum: number, f: any) => sum + Number(f.amount || 0), 0);
+            const paidTuition = childPay.reduce((sum: number, p: any) => sum + Number(p.amount || 0), 0);
+            const paidCanteen = childCanteen.reduce((sum: number, c: any) => sum + Number(c.amount || 0), 0);
+            const totalChildPaid = paidTuition + paidCanteen;
+            const remaining = Math.max(0, expected - totalChildPaid);
+
+            totalExpected += expected;
+            totalPaid += totalChildPaid;
+
+            byChild[child.id] = {
+              expected,
+              paid: totalChildPaid,
+              remaining,
+            };
+          });
+
+          setParentFinances({
+            totalExpected,
+            totalPaid,
+            totalRemaining: Math.max(0, totalExpected - totalPaid),
+            payments: allPayments,
+            byChild,
+          });
+
+          setParentRecentGrades(gradesRes.data || []);
+
+          const attList = attRes.data || [];
+          let pres = 0;
+          let abs = 0;
+          let lte = 0;
+          attList.forEach((a: any) => {
+            if (a.status === 'present') pres++;
+            else if (a.status === 'absent') abs++;
+            else if (a.status === 'late') lte++;
+          });
+
+          const totalAtt = pres + abs + lte;
+          setParentAttendanceStats({
+            presentCount: pres,
+            absentCount: abs,
+            lateCount: lte,
+            attendanceRate: totalAtt > 0 ? Math.round(((pres + lte * 0.5) / totalAtt) * 100) : 100,
+          });
+        }
+      } catch (err) {
+        console.error('Parent dashboard loading error:', err);
       } finally {
         setLoading(false);
       }
@@ -421,7 +508,7 @@ export default function DashboardPage() {
                 Espace Pédagogique
               </span>
               <span className="px-3 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full border border-blue-200">
-                {teacherClass ? teacherClass.name : 'Classe assignée'}
+                {teacherRoleLabel}
               </span>
             </div>
             <h1 className="text-2xl font-black text-slate-900 mt-2">
@@ -707,6 +794,361 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
+      </div>
+    );
+  }
+
+  if (isParentUser) {
+    return (
+      <div className="space-y-6">
+        {/* Parent Header Banner */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 surface-card p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-xl">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 text-xs font-bold rounded-full border border-emerald-400/30 uppercase tracking-wider">
+                Espace Famille • Portail Parent
+              </span>
+              <span className="px-3 py-1 bg-white/10 text-slate-200 text-xs font-bold rounded-full border border-white/10">
+                Accès Sécurisé
+              </span>
+            </div>
+            <h1 className="text-2xl lg:text-3xl font-black text-white mt-2.5">
+              Bonjour, {profile?.first_name} {profile?.last_name} 👋
+            </h1>
+            <p className="text-xs text-slate-300 mt-1 max-w-xl">
+              Suivi scolaire, assiduité, notes et frais de scolarité de vos enfants inscrits au {school?.name || 'Groupe Scolaire La Harpe de David'}.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => navigate('/grades')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2.5 text-xs font-bold shadow-sm transition active:scale-[0.98]"
+            >
+              <ClipboardList size={16} />
+              <span>Notes & Bulletins</span>
+            </button>
+            <button
+              onClick={() => navigate('/students')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white px-4 py-2.5 text-xs font-bold shadow-xs transition"
+            >
+              <GraduationCap size={16} />
+              <span>Dossiers Enfants</span>
+            </button>
+            <button
+              onClick={() => navigate('/supplies')}
+              className="inline-flex items-center gap-2 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white px-4 py-2.5 text-xs font-bold shadow-xs transition"
+            >
+              <BookOpen size={16} />
+              <span>Fournitures</span>
+            </button>
+          </div>
+        </div>
+
+        {/* If no children linked */}
+        {parentChildren.length === 0 ? (
+          <div className="surface-card p-8 text-center rounded-3xl border border-slate-200">
+            <div className="w-16 h-16 rounded-3xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto mb-4 font-bold">
+              <Users size={32} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-900">Bienvenue sur votre Espace Famille</h3>
+            <p className="text-sm text-slate-500 max-w-md mx-auto mt-2">
+              Votre compte parent est activé. Pour lier le dossier de votre enfant à votre espace, veuillez contacter le secrétariat de l'école en précisant son nom et sa classe.
+            </p>
+            {school?.phone && (
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <a
+                  href={`tel:${school.phone}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition"
+                >
+                  <Phone size={14} />
+                  <span>Appeler le secrétariat ({school.phone})</span>
+                </a>
+                <a
+                  href={`https://wa.me/${school.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour, je suis ${profile?.first_name} ${profile?.last_name}, parent d'élève. Je souhaite lier le dossier de mon enfant.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 transition"
+                >
+                  <MessageSquare size={14} />
+                  <span>Contacter sur WhatsApp</span>
+                </a>
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {/* Children Cards Row */}
+            <div>
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-3">
+                Vos Enfants Inscrits ({parentChildren.length})
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {parentChildren.map(child => {
+                  const fin = parentFinances.byChild[child.id] || { expected: 0, paid: 0, remaining: 0 };
+                  const isSettled = fin.remaining <= 0 && fin.expected > 0;
+
+                  return (
+                    <div
+                      key={child.id}
+                      className="surface-card p-5 rounded-3xl border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between"
+                    >
+                      <div className="flex items-start gap-3.5">
+                        {child.photo_url ? (
+                          <img
+                            src={child.photo_url}
+                            alt=""
+                            className="w-14 h-14 rounded-2xl object-cover border-2 border-emerald-500/20 shadow-xs flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-white font-black text-lg flex items-center justify-center flex-shrink-0 shadow-xs">
+                            {child.first_name[0]}{child.last_name[0]}
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-black bg-blue-50 text-blue-700 border border-blue-200">
+                            {child.class?.name || 'Classe'}
+                          </span>
+                          <h3 className="font-extrabold text-slate-900 text-base mt-1 truncate">
+                            {child.first_name} {child.last_name}
+                          </h3>
+                          <p className="text-xs font-mono text-slate-500 font-bold">{child.matricule}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Statut Scolarité</span>
+                          {fin.expected === 0 ? (
+                            <span className="font-bold text-slate-600">Tarif non défini</span>
+                          ) : isSettled ? (
+                            <span className="font-bold text-emerald-700 flex items-center gap-1">
+                              <CheckCircle2 size={13} /> Soldé
+                            </span>
+                          ) : (
+                            <span className="font-bold text-amber-700">
+                              Reste : {formatCurrency(fin.remaining)}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => navigate('/students')}
+                          className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 font-bold text-slate-700 text-xs transition"
+                        >
+                          Voir dossier
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 4 Parent StatCards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <StatCard
+                icon={<Users size={20} />}
+                value={parentChildren.length}
+                label="Enfants Inscrits"
+                color="blue"
+                subLabel={parentChildren.map(c => c.class?.name).filter(Boolean).join(' • ') || 'Dossiers actifs'}
+              />
+              <StatCard
+                icon={<DollarSign size={20} />}
+                value={formatCurrency(parentFinances.totalPaid)}
+                label="Scolarité Réglée"
+                color="green"
+                subLabel={`Sur ${formatCurrency(parentFinances.totalExpected)} attendus`}
+              />
+              <StatCard
+                icon={<Wallet size={20} />}
+                value={formatCurrency(parentFinances.totalRemaining)}
+                label="Reliquat Restant"
+                color={parentFinances.totalRemaining > 0 ? "amber" : "green"}
+                subLabel={parentFinances.totalRemaining > 0 ? "Solde de vos enfants" : "Frais entièrement soldés"}
+              />
+              <StatCard
+                icon={<CalendarCheck size={20} />}
+                value={`${parentAttendanceStats.attendanceRate}%`}
+                label="Assiduité & Présence"
+                color="teal"
+                subLabel={`${parentAttendanceStats.absentCount} absence(s) enregistrée(s)`}
+              />
+            </div>
+
+            {/* Parent Tuition Tracking Card */}
+            <div className="surface-card p-6 rounded-3xl border border-slate-200 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900">
+                    Frais de Scolarité Personnels de vos Enfants
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    État des règlements et reçus délivrés pour vos enfants
+                  </p>
+                </div>
+                <span className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+                  Année {academicYear?.name || '2026-2027'}
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                      <th className="p-3">Enfant</th>
+                      <th className="p-3">Classe</th>
+                      <th className="p-3 text-right">Frais Attendus</th>
+                      <th className="p-3 text-right">Montant Réglé</th>
+                      <th className="p-3 text-right">Reste à Payer</th>
+                      <th className="p-3 text-center">Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parentChildren.map(child => {
+                      const fin = parentFinances.byChild[child.id] || { expected: 0, paid: 0, remaining: 0 };
+                      const isSettled = fin.remaining <= 0 && fin.expected > 0;
+
+                      return (
+                        <tr key={child.id} className="border-b border-slate-100 hover:bg-slate-50/60 transition">
+                          <td className="p-3 font-bold text-slate-900">
+                            {child.first_name} {child.last_name} ({child.matricule})
+                          </td>
+                          <td className="p-3 font-semibold text-slate-700">
+                            {child.class?.name || '-'}
+                          </td>
+                          <td className="p-3 text-right font-bold text-slate-800">
+                            {formatCurrency(fin.expected)}
+                          </td>
+                          <td className="p-3 text-right font-bold text-emerald-700">
+                            +{formatCurrency(fin.paid)}
+                          </td>
+                          <td className="p-3 text-right font-bold">
+                            <span className={isSettled ? 'text-emerald-700' : 'text-red-700 font-black'}>
+                              {isSettled ? 'Soldé (0 FCFA)' : formatCurrency(fin.remaining)}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span
+                              className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
+                                isSettled
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+                              }`}
+                            >
+                              {isSettled ? 'À jour' : 'En attente'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Recent Evaluations and Contacts Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Recent Grades */}
+              <div className="surface-card p-5 rounded-3xl border border-slate-200 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-base font-extrabold text-slate-900">Dernières Notes Reçues</h3>
+                  <button
+                    onClick={() => navigate('/grades')}
+                    className="text-xs text-blue-600 font-bold hover:underline"
+                  >
+                    Voir tout le bulletin
+                  </button>
+                </div>
+
+                {parentRecentGrades.length > 0 ? (
+                  <div className="space-y-2">
+                    {parentRecentGrades.map(g => (
+                      <div
+                        key={g.id}
+                        className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900 text-xs">
+                            {g.subject?.name || 'Matière'} • {g.student?.first_name}
+                          </p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">
+                            {g.grade_type || 'Évaluation'} • {g.date ? new Date(g.date).toLocaleDateString('fr-FR') : ''}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-black ${Number(g.score) >= 10 ? 'text-emerald-700' : 'text-red-700'}`}>
+                            {g.score} / {g.max_score || 20}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-slate-400 text-xs">
+                    Aucune note publiée récemment pour vos enfants.
+                  </div>
+                )}
+              </div>
+
+              {/* Direct School Contacts */}
+              <div className="surface-card p-5 rounded-3xl border border-slate-200 shadow-sm flex flex-col justify-between">
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 mb-1">
+                    Contactez l'Établissement
+                  </h3>
+                  <p className="text-xs text-slate-500 mb-4">
+                    Le secrétariat et les enseignants sont à votre disposition pour toute question.
+                  </p>
+
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-800 text-xs">Secrétariat & Direction</p>
+                        <p className="text-[11px] text-slate-500">{school?.phone || 'Non renseigné'}</p>
+                      </div>
+                      {school?.phone && (
+                        <a
+                          href={`https://wa.me/${school.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Bonjour, je suis ${profile?.first_name} ${profile?.last_name}, parent d'élève.`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 transition"
+                        >
+                          <MessageSquare size={13} />
+                          <span>WhatsApp</span>
+                        </a>
+                      )}
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-slate-800 text-xs">Messagerie Interne</p>
+                        <p className="text-[11px] text-slate-500">Communiquez directement avec l'équipe pédagogique</p>
+                      </div>
+                      <button
+                        onClick={() => navigate('/messages')}
+                        className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs flex items-center gap-1 transition"
+                      >
+                        <Mail size={13} />
+                        <span>Écrire</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-3 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 text-xs">
+                  <p className="font-bold flex items-center gap-1">
+                    <Sparkles size={14} className="text-emerald-600" />
+                    Conseil aux Familles
+                  </p>
+                  <p className="text-[11px] text-emerald-800 mt-1">
+                    Consultez régulièrement les cahiers de texte et prévenez l'école en cas d'absence imprévue de votre enfant.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     );
   }

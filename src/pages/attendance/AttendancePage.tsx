@@ -7,6 +7,7 @@ import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
 import FormField from '../../components/common/FormField';
 import { formatDate } from '../../lib/utils';
+import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import type { Attendance, DisciplineRecord, Student, Class } from '../../types';
 import {
   CalendarCheck,
@@ -42,16 +43,19 @@ interface AttendanceRowState {
 
 export default function AttendancePage() {
   const { school } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher, profile } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher, isParent, role, profile } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
-  const canManage = isSuperAdmin || isAdmin || isDirector || isSupervisor || isTeacher;
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent' || profile?.account_type === 'parent';
+  const canManage = (isSuperAdmin || isAdmin || isDirector || isSupervisor || isTeacherUser) && !isParentUser;
 
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [discipline, setDiscipline] = useState<DisciplineRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'sheet' | 'history' | 'discipline'>('sheet');
+  const [tab, setTab] = useState<'sheet' | 'history' | 'discipline'>(isParentUser ? 'history' : 'sheet');
+  const [parentChildIds, setParentChildIds] = useState<string[]>([]);
 
   // Sheet Controls
   const [selectedClass, setSelectedClass] = useState('');
@@ -117,19 +121,14 @@ export default function AttendancePage() {
       setClasses((clsRes.data as Class[]) || []);
 
       let autoSelectedClassId = '';
-      if (isTeacher && profile && clsRes.data) {
-        const { data: teacherRec } = await supabase
-          .from('teachers')
-          .select('id')
-          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
-          .maybeSingle();
-
-        if (teacherRec) {
-          const teacherClass = clsRes.data.find(c => c.teacher_id === teacherRec.id);
-          if (teacherClass) {
-            autoSelectedClassId = teacherClass.id;
-          }
+      if (isTeacherUser && profile && clsRes.data) {
+        const { assignedClass } = await resolveTeacherClass(sid, profile, clsRes.data as Class[]);
+        if (assignedClass) {
+          autoSelectedClassId = assignedClass.id;
         }
+      } else if (isParentUser && profile) {
+        const { childrenIds } = await resolveParentChildren(sid, profile);
+        setParentChildIds(childrenIds);
       }
 
       if (autoSelectedClassId) {
@@ -391,6 +390,9 @@ export default function AttendancePage() {
   // Filtered History
   const filteredHistory = useMemo(() => {
     return attendance.filter(a => {
+      if (isParentUser && parentChildIds.length > 0 && !parentChildIds.includes(a.student_id)) {
+        return false;
+      }
       const student = (a as any).student || students.find(s => s.id === a.student_id);
       const matchClass = !historyClassFilter || student?.class_id === historyClassFilter;
       const matchStatus = historyStatusFilter === 'all' || a.status === historyStatusFilter;
@@ -398,7 +400,7 @@ export default function AttendancePage() {
       const matchSearch = !historySearch || name.includes(historySearch.toLowerCase());
       return matchClass && matchStatus && matchSearch;
     });
-  }, [attendance, students, historyClassFilter, historyStatusFilter, historySearch]);
+  }, [attendance, students, historyClassFilter, historyStatusFilter, historySearch, isParentUser, parentChildIds]);
 
   const statusLabels: Record<string, string> = { present: 'Présent', absent: 'Absent', late: 'En retard' };
 

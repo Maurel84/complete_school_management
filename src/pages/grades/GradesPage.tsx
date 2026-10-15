@@ -7,6 +7,7 @@ import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 import Badge from '../../components/common/Badge';
 import { GRADE_TYPES, formatDate } from '../../lib/utils';
+import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import type { Grade, Subject, Student, Class } from '../../types';
 import {
   Plus,
@@ -34,18 +35,21 @@ interface StudentGradeInput {
 
 export default function GradesPage() {
   const { school, academicYear } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isTeacher, profile } = useAuth();
+  const { isSuperAdmin, isAdmin, isDirector, isTeacher, isParent, role, profile } = useAuth();
   const isGeneralAdmin = isSuperAdmin || isAdmin;
-  const canManage = isSuperAdmin || isAdmin || isDirector || isTeacher;
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent' || profile?.account_type === 'parent';
+  const canManage = (isSuperAdmin || isAdmin || isDirector || isTeacherUser) && !isParentUser;
 
   const [grades, setGrades] = useState<Grade[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
+  const [parentChildIds, setParentChildIds] = useState<string[]>([]);
 
   // Tabs: 'grid' (Saisie collective par classe/matière), 'reports' (Bulletins), 'history' (Registre)
-  const [tab, setTab] = useState<'grid' | 'reports' | 'history'>('grid');
+  const [tab, setTab] = useState<'grid' | 'reports' | 'history'>(isParentUser ? 'reports' : 'grid');
 
   // Collective Grid Selectors
   const [selectedClass, setSelectedClass] = useState('');
@@ -103,19 +107,14 @@ export default function GradesPage() {
       setClasses((clsRes.data as Class[]) || []);
 
       let autoSelectedClassId = '';
-      if (isTeacher && profile && clsRes.data) {
-        const { data: teacherRec } = await supabase
-          .from('teachers')
-          .select('id')
-          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
-          .maybeSingle();
-
-        if (teacherRec) {
-          const teacherClass = clsRes.data.find(c => c.teacher_id === teacherRec.id);
-          if (teacherClass) {
-            autoSelectedClassId = teacherClass.id;
-          }
+      if (isTeacherUser && profile && clsRes.data) {
+        const { assignedClass } = await resolveTeacherClass(sid, profile, clsRes.data as Class[]);
+        if (assignedClass) {
+          autoSelectedClassId = assignedClass.id;
         }
+      } else if (isParentUser && profile) {
+        const { childrenIds } = await resolveParentChildren(sid, profile);
+        setParentChildIds(childrenIds);
       }
 
       if (autoSelectedClassId) {
@@ -328,8 +327,12 @@ export default function GradesPage() {
     });
 
     const sorted = [...list].sort((a, b) => b.overallAverage - a.overallAverage);
-    return sorted.map((rc, idx) => ({ ...rc, rank: idx + 1 }));
-  }, [selectedClass, selectedTerm, classStudents, grades, subjects]);
+    let finalCards = sorted.map((rc, idx) => ({ ...rc, rank: idx + 1 }));
+    if (isParentUser && parentChildIds.length > 0) {
+      finalCards = finalCards.filter(rc => parentChildIds.includes(rc.student.id));
+    }
+    return finalCards;
+  }, [selectedClass, selectedTerm, classStudents, grades, subjects, isParentUser, parentChildIds]);
 
   function handlePrintReportCard(row: any) {
     if (!school) return;
@@ -406,9 +409,9 @@ export default function GradesPage() {
       {/* Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
         {[
-          { key: 'grid', label: 'Grille de Saisie par Classe & Matière', icon: <Table size={16} /> },
-          { key: 'reports', label: 'Bulletins Trimestriels & Classement', icon: <Award size={16} /> },
-          { key: 'history', label: 'Registre Individuel des Notes', icon: <FileText size={16} /> },
+          ...(!isParentUser ? [{ key: 'grid', label: 'Grille de Saisie par Classe & Matière', icon: <Table size={16} /> }] : []),
+          { key: 'reports', label: isParentUser ? 'Bulletins de mes Enfants' : 'Bulletins Trimestriels & Classement', icon: <Award size={16} /> },
+          { key: 'history', label: isParentUser ? 'Registre des Notes de mes Enfants' : 'Registre Individuel des Notes', icon: <FileText size={16} /> },
         ].map(t => (
           <button
             key={t.key}
@@ -912,7 +915,7 @@ export default function GradesPage() {
                   ]
                 : []),
             ]}
-            data={grades}
+            data={isParentUser && parentChildIds.length > 0 ? grades.filter(g => parentChildIds.includes(g.student_id)) : grades}
             loading={loading}
           />
         </div>

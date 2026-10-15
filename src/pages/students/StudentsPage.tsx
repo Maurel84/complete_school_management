@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { PAYMENT_METHODS, formatCurrency } from '../../lib/utils';
+import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import DataTable from '../../components/common/DataTable';
 import type { Column } from '../../components/common/DataTable';
 import Badge from '../../components/common/Badge';
@@ -64,8 +65,13 @@ export default function StudentsPage() {
     isCashier,
     isAccountant,
     isTeacher,
+    isParent,
     profile,
+    role,
   } = useAuth();
+
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent' || profile?.account_type === 'parent';
 
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -96,6 +102,11 @@ export default function StudentsPage() {
   const [classFilter, setClassFilter] = useState<string>('');
   const [reactivatingStudentId, setReactivatingStudentId] = useState<string | null>(null);
 
+  // Role Scoped State
+  const [parentChildIds, setParentChildIds] = useState<string[]>([]);
+  const [assignedTeacherClass, setAssignedTeacherClass] = useState<Class | null>(null);
+  const [teacherRoleLabel, setTeacherRoleLabel] = useState<string>('Enseignant');
+
   const isGeneralAdmin = isSuperAdmin || isAdmin;
   // All school staff members have access to student actions (create, edit, payments, print)
   const isStaff =
@@ -107,7 +118,7 @@ export default function StudentsPage() {
     isAccountant ||
     isTeacher ||
     profile?.account_type === 'staff';
-  const canManageStudents = isStaff && !isTeacher;
+  const canManageStudents = isStaff && !isTeacherUser && !isParentUser;
 
   const actorRole = (Array.isArray(profile?.role) ? profile?.role[0]?.name : (profile?.role as any)?.name) || 'staff';
   const actorName = `${profile?.first_name || ''} ${profile?.last_name || ''}`.trim() || profile?.email || 'Utilisateur';
@@ -124,26 +135,24 @@ export default function StudentsPage() {
   const { data: classes = [] } = useClasses(school?.id);
   const { data: parents = [] } = useParents(school?.id);
 
-  // Auto-detect teacher titular class
+  // Auto-detect teacher assigned class (e.g. CP1 for stagiaire) or parent linked children
   useEffect(() => {
-    async function loadTeacherClass() {
-      if (isTeacher && profile && classes.length > 0) {
-        const { data: teacherRec } = await supabase
-          .from('teachers')
-          .select('id')
-          .or(`user_id.eq.${profile.id},email.eq.${profile.email}`)
-          .maybeSingle();
-
-        if (teacherRec) {
-          const matchClass = classes.find(c => c.teacher_id === teacherRec.id);
-          if (matchClass) {
-            setClassFilter(matchClass.id);
-          }
+    async function loadRoleScope() {
+      if (!school?.id || !profile) return;
+      if (isTeacherUser) {
+        const { assignedClass, roleLabel } = await resolveTeacherClass(school.id, profile, classes);
+        if (assignedClass) {
+          setAssignedTeacherClass(assignedClass);
+          setClassFilter(assignedClass.id);
         }
+        if (roleLabel) setTeacherRoleLabel(roleLabel);
+      } else if (isParentUser) {
+        const { childrenIds } = await resolveParentChildren(school.id, profile);
+        setParentChildIds(childrenIds);
       }
     }
-    void loadTeacherClass();
-  }, [isTeacher, profile, classes]);
+    void loadRoleScope();
+  }, [isTeacherUser, isParentUser, school?.id, profile, classes]);
 
   // Financial system integration
   const {
@@ -210,12 +219,17 @@ export default function StudentsPage() {
 
   const filteredStudents = useMemo(() => {
     return students.filter(student => {
+      if (isParentUser) {
+        if (parentChildIds.length > 0 && !parentChildIds.includes(student.id)) {
+          return false;
+        }
+      }
       if (statusFilter === 'active' && student.status !== 'active') return false;
       if (statusFilter === 'inactive' && student.status === 'active') return false;
       if (classFilter && student.class_id !== classFilter) return false;
       return true;
     });
-  }, [students, statusFilter, classFilter]);
+  }, [students, statusFilter, classFilter, isParentUser, parentChildIds]);
 
   const duplicatesAnalysis = useMemo(() => {
     if (!students || students.length === 0) return { byMatricule: [], byName: [], totalCount: 0 };
@@ -823,138 +837,172 @@ export default function StudentsPage() {
     }
   }
 
-  const columns: Column<StudentListItem>[] = [
-    {
-      key: 'identity',
-      label: 'Élève',
-      render: (student: StudentListItem) => (
-        <div className="flex items-center gap-3">
-          {student.photo_url ? (
-            <img
-              src={student.photo_url}
-              alt={`${student.first_name} ${student.last_name}`}
-              className="h-11 w-11 rounded-2xl object-cover border border-slate-200"
-            />
-          ) : (
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-sm font-bold text-emerald-700">
-              {student.first_name[0]}
-              {student.last_name[0]}
+  const columns: Column<StudentListItem>[] = useMemo(() => {
+    const cols: Column<StudentListItem>[] = [
+      {
+        key: 'identity',
+        label: isParentUser ? 'Mon Enfant' : 'Élève',
+        render: (student: StudentListItem) => (
+          <div className="flex items-center gap-3">
+            {student.photo_url ? (
+              <img
+                src={student.photo_url}
+                alt={`${student.first_name} ${student.last_name}`}
+                className="h-11 w-11 rounded-2xl object-cover border border-slate-200"
+              />
+            ) : (
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-100 text-sm font-bold text-emerald-700">
+                {student.first_name[0]}
+                {student.last_name[0]}
+              </div>
+            )}
+            <div>
+              <p className="font-semibold text-slate-900">
+                {student.first_name} {student.last_name}
+              </p>
+              <p className="text-xs text-slate-500">{student.matricule}</p>
             </div>
-          )}
-          <div>
-            <p className="font-semibold text-slate-900">
-              {student.first_name} {student.last_name}
-            </p>
-            <p className="text-xs text-slate-500">{student.matricule}</p>
           </div>
-        </div>
-      ),
-    },
-    {
-      key: 'class',
-      label: 'Classe',
-      render: (student: StudentListItem) => (
-        <span className="font-medium text-slate-800">{student.class?.name || '-'}</span>
-      ),
-    },
-    {
-      key: 'expected',
-      label: 'Scolarité Annuelle',
-      render: (student: any) => (
-        <div>
-          <span className="font-semibold text-slate-900 text-sm">
-            {formatCurrency(student.financial_expected || 0)}
+        ),
+      },
+      {
+        key: 'class',
+        label: 'Classe',
+        render: (student: StudentListItem) => (
+          <span className="font-semibold text-slate-800 bg-slate-100 px-2 py-1 rounded-lg text-xs">
+            {student.class?.name || '-'}
           </span>
-          <span className="text-[10px] text-slate-400 block">
-            {student.financial_plan_name || 'Tarif annuel'}
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: 'paid',
-      label: 'Total Payé',
-      render: (student: any) => {
-        const paid = Number(student.financial_paid || 0);
-        const canteenPaid = Number(student.financial_canteen_paid || 0);
+        ),
+      },
+    ];
 
-        return (
-          <div>
-            <span className={`text-sm font-bold ${paid > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
-              {paid > 0 ? `+${formatCurrency(paid)}` : '0 FCFA'}
-            </span>
-            {canteenPaid > 0 && (
-              <span className="text-[10px] text-teal-600 block">
-                Dont cantine : {formatCurrency(canteenPaid)}
+    // ZERO financial columns for teachers! Only admins, accountants, cashiers, and parents (for their own children)
+    if (!isTeacherUser) {
+      cols.push(
+        {
+          key: 'expected',
+          label: isParentUser ? 'Frais Scolaires' : 'Scolarité Annuelle',
+          render: (student: any) => (
+            <div>
+              <span className="font-semibold text-slate-900 text-sm">
+                {formatCurrency(student.financial_expected || 0)}
               </span>
-            )}
-            {paid > 0 && canteenPaid === 0 && (
-              <span className="text-[10px] text-emerald-600 block">
-                {(student.payments?.length || 0)} versement(s)
-              </span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      key: 'remaining',
-      label: 'Reste à Payer',
-      render: (student: any) => {
-        const remaining = Number(student.financial_remaining || 0);
-        const isSettled = remaining <= 0;
-        return (
-          <div>
-            <div className="flex items-center gap-1.5 font-semibold">
-              <span className={`inline-block w-2 h-2 rounded-full ${isSettled ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              <span className={isSettled ? 'text-emerald-700 text-xs font-bold' : 'text-red-700 text-sm font-bold'}>
-                {isSettled ? 'Soldé (0 FCFA)' : formatCurrency(remaining)}
+              <span className="text-[10px] text-slate-400 block">
+                {student.financial_plan_name || 'Tarif annuel'}
               </span>
             </div>
-            {!isSettled && (
-              <span className="text-[10px] text-red-500 block">Solde dû</span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
+          ),
+        },
+        {
+          key: 'paid',
+          label: 'Total Payé',
+          render: (student: any) => {
+            const paid = Number(student.financial_paid || 0);
+            const canteenPaid = Number(student.financial_canteen_paid || 0);
+
+            return (
+              <div>
+                <span className={`text-sm font-bold ${paid > 0 ? 'text-emerald-700' : 'text-slate-400'}`}>
+                  {paid > 0 ? `+${formatCurrency(paid)}` : '0 FCFA'}
+                </span>
+                {canteenPaid > 0 && (
+                  <span className="text-[10px] text-teal-600 block">
+                    Dont cantine : {formatCurrency(canteenPaid)}
+                  </span>
+                )}
+                {paid > 0 && canteenPaid === 0 && (
+                  <span className="text-[10px] text-emerald-600 block">
+                    {(student.payments?.length || 0)} versement(s)
+                  </span>
+                )}
+              </div>
+            );
+          },
+        },
+        {
+          key: 'remaining',
+          label: 'Reste à Payer',
+          render: (student: any) => {
+            const remaining = Number(student.financial_remaining || 0);
+            const isSettled = remaining <= 0;
+            return (
+              <div>
+                <div className="flex items-center gap-1.5 font-semibold">
+                  <span className={`inline-block w-2 h-2 rounded-full ${isSettled ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <span className={isSettled ? 'text-emerald-700 text-xs font-bold' : 'text-red-700 text-sm font-bold'}>
+                    {isSettled ? 'Soldé (0 FCFA)' : formatCurrency(remaining)}
+                  </span>
+                </div>
+                {!isSettled && (
+                  <span className="text-[10px] text-red-500 block">Solde dû</span>
+                )}
+              </div>
+            );
+          },
+        }
+      );
+    }
+
+    cols.push({
       key: 'status',
       label: 'Statut',
       render: (student: StudentListItem) => <Badge status={student.status} />,
-    },
-    {
+    });
+
+    cols.push({
       key: 'actions',
       label: 'Actions',
       render: (student: StudentListItem) => (
         <div className="flex items-center flex-wrap gap-1">
+          {/* Payment collection button: strictly administrative staff, NOT teachers, NOT parents */}
+          {!isTeacherUser && !isParentUser && canManageStudents && (
+            <button
+              onClick={() => {
+                setPaymentTargetStudent(student);
+                setPaymentType('tuition');
+                setPaymentModalOpen(true);
+              }}
+              title="Encaisser un versement pour cet élève"
+              className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition border border-emerald-200 flex items-center gap-1"
+            >
+              <CreditCard size={13} />
+              <span>Encaisser</span>
+            </button>
+          )}
+
+          {/* Statement print: Available to Admin, Staff, and Parent (not teacher) */}
+          {!isTeacherUser && (
+            <button
+              onClick={() => handlePrintStatement(student)}
+              title={isParentUser ? "Imprimer le relevé financier de mon enfant" : "Imprimer le relevé officiel de l'élève"}
+              className="rounded-xl p-1.5 text-slate-700 hover:bg-slate-100 transition border border-slate-200"
+            >
+              <FileText size={15} />
+            </button>
+          )}
+
+          {/* National Student Card button: available to all */}
           <button
             onClick={() => {
-              setPaymentTargetStudent(student);
-              setPaymentType('tuition');
-              setPaymentModalOpen(true);
+              setSelectedStudent(student);
+              void handleStudentCardAction('print');
             }}
-            title="Encaisser un versement pour cet élève"
-            className="rounded-xl px-2.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition border border-emerald-200 flex items-center gap-1"
+            title="Imprimer la carte scolaire officielle"
+            className="rounded-xl p-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition border border-emerald-200"
           >
-            <CreditCard size={13} />
-            <span>Encaisser</span>
+            <Printer size={15} />
           </button>
-          <button
-            onClick={() => handlePrintStatement(student)}
-            title="Imprimer le relevé officiel de l'élève"
-            className="rounded-xl p-1.5 text-slate-700 hover:bg-slate-100 transition border border-slate-200"
-          >
-            <FileText size={15} />
-          </button>
+
+          {/* 360 View: available to everyone */}
           <button
             onClick={() => openDetail(student)}
-            title="Voir le dossier 360°"
+            title="Voir le dossier"
             className="rounded-xl p-1.5 text-blue-600 transition hover:bg-blue-50"
           >
             <Eye size={16} />
           </button>
-          {canManageStudents && (
+
+          {canManageStudents && student.status === 'active' && (
             <button
               onClick={() => openEdit(student)}
               title="Modifier"
@@ -985,8 +1033,10 @@ export default function StudentsPage() {
           )}
         </div>
       ),
-    },
-  ];
+    });
+
+    return cols;
+  }, [isTeacherUser, isParentUser, canManageStudents, reactivatingStudentId]);
 
   return (
     <div className="space-y-6">
@@ -994,34 +1044,51 @@ export default function StudentsPage() {
         <div className="grid gap-6 p-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div>
             <h1 className="display-font text-3xl font-semibold text-slate-900">
-              Dossiers élèves & identités
+              {isParentUser
+                ? 'Mes Enfants'
+                : isTeacherUser
+                ? 'Mes Élèves'
+                : 'Dossiers élèves & identités'}
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Chaque élève dispose maintenant d'un dossier plus riche avec photo, famille rattachée,
-              carte scolaire imprimable et informations prêtes pour les documents officiels.
+              {isParentUser
+                ? 'Consultez les dossiers scolaires, cartes scolaires officielles et informations de vos enfants inscrits.'
+                : isTeacherUser
+                ? `${teacherRoleLabel} • Suivi pédagogique et effectif complet de votre classe.`
+                : 'Chaque élève dispose d\'un dossier complet avec photo, famille rattachée, carte scolaire imprimable et relevé financier.'}
             </p>
           </div>
 
           <div className="rounded-[24px] border border-emerald-100 bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-5 shadow-sm">
-            <p className="text-sm font-semibold text-slate-900">Vision dossier complet</p>
+            <p className="text-sm font-semibold text-slate-900">
+              {isParentUser ? 'Mes enfants inscrits' : isTeacherUser ? 'Effectif de ma classe' : 'Vision dossier complet'}
+            </p>
             <div className="mt-4 grid grid-cols-3 gap-3 text-center">
               <div className="rounded-2xl bg-white/90 p-3">
-                <p className="text-2xl font-bold text-slate-900">{activeCount}</p>
+                <p className="text-2xl font-bold text-slate-900">
+                  {isParentUser || isTeacherUser ? filteredStudents.length : activeCount}
+                </p>
                 <p className="text-xs text-slate-500">
-                  {inactiveCount > 0 ? `Élèves actifs (${totalCount} total)` : 'Élèves suivis'}
+                  {isParentUser ? 'Enfant(s)' : isTeacherUser ? 'Élèves actifs' : inactiveCount > 0 ? `Élèves actifs (${totalCount} total)` : 'Élèves suivis'}
                 </p>
               </div>
               <div className="rounded-2xl bg-white/90 p-3">
                 <p className="text-2xl font-bold text-slate-900">
-                  {students.filter(student => Boolean(student.photo_url)).length}
+                  {filteredStudents.filter(student => Boolean(student.photo_url)).length}
                 </p>
                 <p className="text-xs text-slate-500">Photos chargées</p>
               </div>
               <div className="rounded-2xl bg-white/90 p-3">
                 <p className="text-2xl font-bold text-slate-900">
-                  {students.reduce((sum, student) => sum + student.family_count, 0)}
+                  {isTeacherUser
+                    ? (assignedTeacherClass?.name || 'CP1')
+                    : isParentUser
+                    ? 'Famille'
+                    : students.reduce((sum, student) => sum + student.family_count, 0)}
                 </p>
-                <p className="text-xs text-slate-500">Liens famille</p>
+                <p className="text-xs text-slate-500">
+                  {isTeacherUser ? 'Classe' : isParentUser ? 'Espace Parent' : 'Liens famille'}
+                </p>
               </div>
             </div>
           </div>
@@ -1030,15 +1097,19 @@ export default function StudentsPage() {
 
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="display-font text-2xl font-semibold text-slate-900">{isTeacher ? 'Mes Élèves' : 'Population scolaire'}</h2>
+          <h2 className="display-font text-2xl font-semibold text-slate-900">
+            {isParentUser ? 'Mes Enfants' : isTeacherUser ? 'Mes Élèves' : 'Population scolaire'}
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
-            {isTeacher
+            {isParentUser
+              ? `Dossiers de vos enfants inscrits (${filteredStudents.length} enfant(s))`
+              : isTeacherUser
               ? `Élèves de votre classe (${filteredStudents.length} actif(s))`
               : `${activeCount} élève(s) actif(s) sur ${totalCount} au total${inactiveCount > 0 ? ` (${inactiveCount} archivé / inactif)` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!isTeacher && isGeneralAdmin && (
+          {!isTeacherUser && !isParentUser && isGeneralAdmin && (
             <button
               onClick={() => setAuditLogsOpen(true)}
               className="inline-flex items-center gap-2 rounded-2xl bg-indigo-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-900 shadow-2xs border border-indigo-800/50"
@@ -1048,7 +1119,7 @@ export default function StudentsPage() {
               <span>Journal d'Audit</span>
             </button>
           )}
-          {!isTeacher && (
+          {!isTeacherUser && !isParentUser && (
             <button
               onClick={() => setAuditModalOpen(true)}
               className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition border shadow-2xs ${
@@ -1077,7 +1148,7 @@ export default function StudentsPage() {
         </div>
       </div>
 
-      {inactiveCount > 0 && (
+      {!isParentUser && inactiveCount > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 text-sm">
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-200/80 font-bold text-amber-900">
@@ -1121,7 +1192,7 @@ export default function StudentsPage() {
                 : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            Tous ({totalCount})
+            Tous ({filteredStudents.length})
           </button>
           <button
             onClick={() => setStatusFilter('active')}
@@ -1132,9 +1203,9 @@ export default function StudentsPage() {
             }`}
           >
             <span className="h-2 w-2 rounded-full bg-emerald-400 inline-block" />
-            Actifs ({activeCount})
+            Actifs ({isParentUser || isTeacherUser ? filteredStudents.length : activeCount})
           </button>
-          {inactiveCount > 0 && (
+          {!isParentUser && inactiveCount > 0 && (
             <button
               onClick={() => setStatusFilter('inactive')}
               className={`rounded-xl px-3 py-1.5 text-xs font-semibold transition flex items-center gap-1.5 ${
@@ -1150,9 +1221,13 @@ export default function StudentsPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {isTeacher ? (
+          {isTeacherUser ? (
             <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-800">
-              Classe : {classes.find((c) => c.id === classFilter)?.name || 'Ma classe'}
+              Classe : {assignedTeacherClass?.name || classes.find((c) => c.id === classFilter)?.name || 'CP1'}
+            </span>
+          ) : isParentUser ? (
+            <span className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-800">
+              Famille • {filteredStudents.length} enfant(s)
             </span>
           ) : (
             <select
@@ -1169,7 +1244,7 @@ export default function StudentsPage() {
             </select>
           )}
 
-          {!isTeacher && (statusFilter !== 'all' || classFilter) && (
+          {!isTeacherUser && !isParentUser && (statusFilter !== 'all' || classFilter) && (
             <button
               onClick={() => {
                 setStatusFilter('all');

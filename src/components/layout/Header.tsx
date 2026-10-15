@@ -52,7 +52,7 @@ const moduleIcons: Record<ModuleKey, typeof LayoutDashboard> = {
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { profile, signOut, allowedModules, isDemoAccount, role, isTeacher } = useAuth();
+  const { profile, signOut, allowedModules, isDemoAccount, role, isTeacher, isParent } = useAuth();
   const { school, academicYear, academicYears, setAcademicYear, sidebarOpen, setSidebarOpen } = useApp();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [yearMenuOpen, setYearMenuOpen] = useState(false);
@@ -61,6 +61,7 @@ export default function Header() {
   const yearMenuRef = useRef<HTMLDivElement>(null);
   const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
   const isTeacherUser = isTeacher || role === 'teacher' || profileRole?.name === 'teacher' || profileRole === 'teacher';
+  const isParentUser = isParent || role === 'parent' || profileRole?.name === 'parent' || profileRole === 'parent';
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {
@@ -219,7 +220,11 @@ export default function Header() {
           {items.map(item => {
             const Icon = moduleIcons[item.key];
             const active = isActive(item.path);
-            const label = (item.key === 'students' && isTeacherUser) ? 'Mes Élèves' : item.label;
+            let label = item.label;
+            if (item.key === 'students') {
+              if (isTeacherUser) label = 'Mes Élèves';
+              else if (isParentUser) label = 'Mes Enfants';
+            }
 
             return (
               <button
@@ -243,7 +248,11 @@ export default function Header() {
             {items.map(item => {
               const Icon = moduleIcons[item.key];
               const active = isActive(item.path);
-              const label = (item.key === 'students' && isTeacherUser) ? 'Mes Élèves' : item.label;
+              let label = item.label;
+              if (item.key === 'students') {
+                if (isTeacherUser) label = 'Mes Élèves';
+                else if (isParentUser) label = 'Mes Enfants';
+              }
 
               return (
                 <button
