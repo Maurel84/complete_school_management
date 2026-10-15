@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import EmptyState from '../../components/common/EmptyState';
 import Modal from '../../components/common/Modal';
 import { formatDate, formatCurrency } from '../../lib/utils';
-import type { Document, Student, Class, Teacher, Parent, StudentParent, Subject, Grade, Payment, SchoolSupplyItem } from '../../types';
+import type { Document, Student, Class, Teacher, Parent, StudentParent, Subject, Grade, Payment, SchoolSupplyItem, Staff } from '../../types';
 import {
   FileText,
   Upload,
@@ -28,6 +28,9 @@ import {
   X,
   Shield,
   FileCheck,
+  FileCheck2,
+  Briefcase,
+  Navigation,
   ImageIcon,
   Sparkles,
   ArrowRight,
@@ -44,6 +47,10 @@ import {
   buildStudentCardHtml,
   buildClassAttendanceSheetHtml,
   buildClassSupplyListHtml,
+  buildWorkAttestationHtml,
+  buildWorkCertificateHtml,
+  buildMissionOrderHtml,
+  buildRecommendationLetterHtml,
   openPrintPreview,
   downloadTextDocument,
 } from '../../lib/printableDocuments';
@@ -57,6 +64,9 @@ export const VAULT_DOC_TYPES: { id: string; label: string; icon: string; forEnti
   { id: 'transfer_certificate', label: 'Certificat de radiation / Transfert', icon: 'FileText', forEntity: ['student'] },
   { id: 'prior_diploma', label: 'Diplôme / Attestation antérieure', icon: 'Award', forEntity: ['student', 'teacher'] },
   { id: 'staff_contract', label: 'Contrat de travail / Convention', icon: 'FileCheck', forEntity: ['teacher'] },
+  { id: 'work_certificate_uploaded', label: 'Certificat de travail (Départ archivé)', icon: 'FileCheck2', forEntity: ['teacher'] },
+  { id: 'resume_cv', label: 'Curriculum Vitae (CV) & Lettre de motivation', icon: 'Briefcase', forEntity: ['teacher'] },
+  { id: 'resignation_letter', label: 'Lettre de démission / Notification de départ', icon: 'FileText', forEntity: ['teacher'] },
   { id: 'identity_photo', label: 'Photo d’identité numérisée', icon: 'Image', forEntity: ['student', 'teacher'] },
   { id: 'ministry_authorization', label: 'Agrément ministériel / Statuts', icon: 'Shield', forEntity: ['school'] },
   { id: 'other_vault', label: 'Autre document administratif', icon: 'FolderLock', forEntity: ['student', 'teacher', 'school'] },
@@ -112,6 +122,38 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
     badgeColor: 'emerald',
   },
   {
+    id: 'work_attestation',
+    title: 'Attestation de Travail (En fonction)',
+    category: 'Ressources Humaines',
+    description: 'Atteste qu’un membre du personnel ou enseignant est sous contrat actif (démarches bancaires, visas, CNPS).',
+    icon: Briefcase,
+    badgeColor: 'teal',
+  },
+  {
+    id: 'work_certificate',
+    title: 'Certificat de Travail (Fin de contrat / Départ)',
+    category: 'Ressources Humaines',
+    description: 'Document officiel obligatoire remis au salarié à son départ (certifie qu’il quitte libre de tout engagement).',
+    icon: FileCheck2,
+    badgeColor: 'amber',
+  },
+  {
+    id: 'mission_order',
+    title: 'Ordre de Mission Officiel',
+    category: 'Administration & RH',
+    description: 'Autorisation formelle de déplacement pour séminaires, examens officiels ou missions d’inspection.',
+    icon: Navigation,
+    badgeColor: 'blue',
+  },
+  {
+    id: 'recommendation_letter',
+    title: 'Lettre de Recommandation Professionnelle',
+    category: 'Ressources Humaines',
+    description: 'Lettre de recommandation élogieuse signée de la Direction pour concours, embauche ou mobilités.',
+    icon: Award,
+    badgeColor: 'purple',
+  },
+  {
     id: 'account_statement',
     title: 'Relevé Financier Élève',
     category: 'Finances',
@@ -157,6 +199,7 @@ export default function DocumentsPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
   const [parents, setParents] = useState<Parent[]>([]);
   const [studentParents, setStudentParents] = useState<StudentParent[]>([]);
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -226,7 +269,7 @@ export default function DocumentsPage() {
   const [paramCity, setParamCity] = useState(school?.city || 'Abidjan');
   const [paramDirectorName, setParamDirectorName] = useState('Le Chef d’Établissement');
 
-  // Teacher Payroll parameters
+  // Teacher / Staff Payroll parameters
   const [payrollMonth, setPayrollMonth] = useState<number>(new Date().getMonth() + 1);
   const [payrollYear, setPayrollYear] = useState<number>(new Date().getFullYear());
   const [salaryBase, setSalaryBase] = useState<number>(250000);
@@ -235,6 +278,36 @@ export default function DocumentsPage() {
   const [salaryAnciennete, setSalaryAnciennete] = useState<number>(15000);
   const [salaryAutresPrimes, setSalaryAutresPrimes] = useState<number>(10000);
   const [salaryDeductions, setSalaryDeductions] = useState<number>(15000);
+
+  // Staff Official Documents parameters (Attestation, Certificat de Travail, Ordre de Mission, Recommandation)
+  const [paramStaffPosition, setParamStaffPosition] = useState('');
+  const [paramStaffDepartment, setParamStaffDepartment] = useState('');
+  const [paramStaffContractType, setParamStaffContractType] = useState('CDI');
+  const [paramStaffHireDate, setParamStaffHireDate] = useState('');
+  const [paramStaffEndDate, setParamStaffEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [paramStaffCni, setParamStaffCni] = useState('');
+  const [paramStaffDepartureReason, setParamStaffDepartureReason] = useState('Fin normale du contrat de travail');
+  const [paramStaffAttestationPurpose, setParamStaffAttestationPurpose] = useState('Pour servir et valoir ce que de droit (démarches administratives, bancaires ou consulaires)');
+
+  // Mission Order parameters
+  const [paramMissionDestination, setParamMissionDestination] = useState('Yamoussoukro - Centre Régional');
+  const [paramMissionPurpose, setParamMissionPurpose] = useState('Participation au séminaire de formation pédagogique et d’évaluation');
+  const [paramMissionStartDate, setParamMissionStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  });
+  const [paramMissionEndDate, setParamMissionEndDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 5);
+    return d.toISOString().split('T')[0];
+  });
+  const [paramMissionTransport, setParamMissionTransport] = useState('Véhicule de l’établissement / Transport en commun agréé');
+  const [paramMissionExpenseCoverage, setParamMissionExpenseCoverage] = useState('Frais de séjour et de déplacement intégralement pris en charge par l’établissement');
+
+  // Recommendation Letter parameters
+  const [paramRecRecipient, setParamRecRecipient] = useState('À qui de droit / Direction des Ressources Humaines');
+  const [paramRecQualities, setParamRecQualities] = useState('de remarquables compétences professionnelles et pédagogiques, une ponctualité exemplaire, une éthique de travail irréprochable et un dévouement constant.');
   
   // Feedback
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
@@ -254,6 +327,7 @@ export default function DocumentsPage() {
         { data: studsData },
         { data: classesData },
         { data: teachersData },
+        { data: staffData },
         { data: parentsData },
         { data: spData },
         { data: gradesData },
@@ -270,6 +344,7 @@ export default function DocumentsPage() {
         supabase.from('students').select('*').eq('school_id', school.id).order('last_name'),
         supabase.from('classes').select('*').eq('school_id', school.id).order('name'),
         supabase.from('teachers').select('*').eq('school_id', school.id).order('last_name'),
+        supabase.from('staff').select('*').eq('school_id', school.id).order('last_name'),
         supabase.from('parents').select('*').eq('school_id', school.id),
         supabase.from('student_parents').select('*'),
         supabase.from('grades').select('*').eq('school_id', school.id),
@@ -286,11 +361,13 @@ export default function DocumentsPage() {
       const loadedStudents = (studsData as Student[]) || [];
       const loadedClasses = (classesData as Class[]) || [];
       const loadedTeachers = (teachersData as Teacher[]) || [];
+      const loadedStaff = (staffData as Staff[]) || [];
 
       setDocuments((docsData as Document[]) || []);
       setStudents(loadedStudents);
       setClasses(loadedClasses);
       setTeachers(loadedTeachers);
+      setStaff(loadedStaff);
       setParents((parentsData as Parent[]) || []);
       setStudentParents((spData as StudentParent[]) || []);
       setGrades((gradesData as Grade[]) || []);
@@ -312,6 +389,12 @@ export default function DocumentsPage() {
       }
       if (loadedTeachers.length > 0) {
         syncTeacherState(loadedTeachers[0], (payrollsData as any[]) || []);
+      } else if (loadedStaff.length > 0) {
+        setGeneratorTeacherId(loadedStaff[0].id);
+        setParamStaffPosition(loadedStaff[0].position || 'Personnel Administratif');
+        setParamStaffDepartment(loadedStaff[0].department || 'Administration & Support');
+        setParamStaffContractType(loadedStaff[0].contract_type || 'CDI');
+        setParamStaffHireDate(loadedStaff[0].hire_date || '');
       }
     } catch (err) {
       console.error('Erreur chargement documents:', err);
@@ -363,6 +446,11 @@ export default function DocumentsPage() {
   // Synchronize teacher salary data
   function syncTeacherState(teacher: Teacher, pList = payrolls) {
     setGeneratorTeacherId(teacher.id);
+    setParamStaffPosition(teacher.specialty ? `Enseignant (${teacher.specialty})` : 'Enseignant');
+    setParamStaffDepartment('Corps Enseignant');
+    setParamStaffContractType(teacher.contract_type || 'CDI');
+    setParamStaffHireDate(teacher.hire_date || '');
+
     const existing = pList.find(p => p.person_id === teacher.id);
     if (existing) {
       setSalaryBase(Number(existing.base_salary) || 250000);
@@ -380,6 +468,74 @@ export default function DocumentsPage() {
       setSalaryDeductions(12500);
     }
   }
+
+  // Unified list of all school staff (teachers + administrative & support staff)
+  const unifiedStaff = useMemo(() => {
+    const list: {
+      id: string;
+      source: 'teacher' | 'staff';
+      first_name: string;
+      last_name: string;
+      matricule: string;
+      position: string;
+      department: string;
+      contract_type: string;
+      hire_date: string;
+      date_of_birth: string;
+      sex: string;
+      phone: string;
+      email: string;
+      address: string;
+      photo_url: string;
+    }[] = [];
+
+    teachers.forEach(t => {
+      list.push({
+        id: t.id,
+        source: 'teacher',
+        first_name: t.first_name,
+        last_name: t.last_name,
+        matricule: t.matricule || '',
+        position: t.specialty ? `Enseignant (${t.specialty})` : 'Enseignant',
+        department: 'Corps Enseignant',
+        contract_type: t.contract_type || 'CDI',
+        hire_date: t.hire_date || '',
+        date_of_birth: t.date_of_birth || '',
+        sex: t.sex || 'M',
+        phone: t.phone || '',
+        email: t.email || '',
+        address: t.address || '',
+        photo_url: t.photo_url || '',
+      });
+    });
+
+    staff.forEach(s => {
+      list.push({
+        id: s.id,
+        source: 'staff',
+        first_name: s.first_name,
+        last_name: s.last_name,
+        matricule: s.matricule || '',
+        position: s.position || 'Personnel Administratif',
+        department: s.department || 'Administration & Support',
+        contract_type: s.contract_type || 'CDI',
+        hire_date: s.hire_date || '',
+        date_of_birth: s.date_of_birth || '',
+        sex: s.sex || 'M',
+        phone: s.phone || '',
+        email: s.email || '',
+        address: s.address || '',
+        photo_url: s.photo_url || '',
+      });
+    });
+
+    return list.sort((a, b) => a.last_name.localeCompare(b.last_name));
+  }, [teachers, staff]);
+
+  // Selected unified staff member (either teacher or administrative staff)
+  const currentSelectedStaff = useMemo(() => {
+    return unifiedStaff.find(s => s.id === generatorTeacherId) || unifiedStaff[0] || null;
+  }, [unifiedStaff, generatorTeacherId]);
 
   // Filter students by selected class for generator
   const availableStudentsForClass = useMemo(() => {
@@ -421,11 +577,30 @@ export default function DocumentsPage() {
     }
   }
 
-  // Handle teacher change
-  function handleGeneratorTeacherChange(teacherId: string) {
-    const teacher = teachers.find(t => t.id === teacherId);
-    if (teacher) {
-      syncTeacherState(teacher);
+  // Handle teacher / staff change
+  function handleGeneratorTeacherChange(empId: string) {
+    setGeneratorTeacherId(empId);
+    const emp = unifiedStaff.find(e => e.id === empId);
+    if (emp) {
+      setParamStaffPosition(emp.position);
+      setParamStaffDepartment(emp.department);
+      setParamStaffContractType(emp.contract_type || 'CDI');
+      setParamStaffHireDate(emp.hire_date || '');
+
+      const teacher = teachers.find(t => t.id === empId);
+      if (teacher) {
+        syncTeacherState(teacher);
+      } else {
+        const existing = payrolls.find(p => p.person_id === empId);
+        if (existing) {
+          setSalaryBase(Number(existing.base_salary) || 250000);
+          setSalarySursalaire(Number(existing.details?.sursalaire) || 0);
+          setSalaryTransport(Number(existing.details?.transport) || 15000);
+          setSalaryAnciennete(Number(existing.details?.anciennete) || 0);
+          setSalaryAutresPrimes(Number(existing.details?.autres_primes) || 0);
+          setSalaryDeductions(Number(existing.deductions) || 15000);
+        }
+      }
     }
   }
 
@@ -597,8 +772,8 @@ export default function DocumentsPage() {
         const stud = students.find(s => s.id === uploadEntityId);
         if (stud) personName = ` - ${stud.last_name} ${stud.first_name}`;
       } else if (uploadEntityType === 'teacher') {
-        const t = teachers.find(teach => teach.id === uploadEntityId);
-        if (t) personName = ` - ${t.last_name} ${t.first_name}`;
+        const emp = unifiedStaff.find(item => item.id === uploadEntityId);
+        if (emp) personName = ` - ${emp.last_name} ${emp.first_name}`;
       }
       setUploadTitle(`${typeLabel}${personName}`);
     }
@@ -869,12 +1044,12 @@ export default function DocumentsPage() {
       return { html, title, baseFileName, entityType: 'student', entityId: currentSelectedStudent.id };
     }
 
-    // 7. Bulletin de Salaire (Real Teacher Payroll)
+    // 7. Bulletin de Salaire (Real Teacher / Staff Payroll)
     if (selectedTemplateId === 'payslip') {
-      const teacher = currentSelectedTeacher;
-      const name = teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Personnel';
+      const emp = currentSelectedStaff;
+      const name = emp ? `${emp.first_name} ${emp.last_name}` : 'Personnel';
       const title = `Bulletin de Salaire - ${name}`;
-      const baseFileName = `bulletin_paie_${teacher?.matricule || 'personnel'}`;
+      const baseFileName = `bulletin_paie_${emp?.matricule || 'personnel'}`;
 
       const baseSalaryNum = Number(salaryBase) || 0;
       const sursalaireNum = Number(salarySursalaire) || 0;
@@ -904,15 +1079,134 @@ export default function DocumentsPage() {
       const html = buildPayslipHtml({
         school,
         payroll: dynamicPayroll,
-        person: teacher || {
-          first_name: 'Enseignant',
-          last_name: 'Principal',
-          matricule: 'ENS-001',
-          specialty: 'Enseignement',
+        person: emp || {
+          first_name: 'Personnel',
+          last_name: 'Établissement',
+          matricule: 'PERS-001',
+          specialty: 'Administration',
         },
       });
 
-      return { html, title, baseFileName, entityType: 'teacher', entityId: teacher?.id || school.id };
+      return { html, title, baseFileName, entityType: emp?.source || 'teacher', entityId: emp?.id || school.id };
+    }
+
+    // 7.1. Attestation de Travail (En cours d'emploi)
+    if (selectedTemplateId === 'work_attestation') {
+      const emp = currentSelectedStaff;
+      if (!emp) return null;
+      const title = `Attestation de Travail - ${emp.last_name} ${emp.first_name}`;
+      const baseFileName = `attestation_travail_${emp.matricule || 'personnel'}`;
+
+      const html = buildWorkAttestationHtml({
+        school,
+        employee: {
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          matricule: emp.matricule,
+          position: paramStaffPosition || emp.position,
+          department: paramStaffDepartment || emp.department,
+          contract_type: paramStaffContractType || emp.contract_type,
+          hire_date: paramStaffHireDate || emp.hire_date,
+          date_of_birth: emp.date_of_birth,
+          phone: emp.phone,
+          sex: emp.sex,
+        },
+        city: paramCity,
+        directorName: paramDirectorName,
+        purpose: paramStaffAttestationPurpose,
+      });
+
+      return { html, title, baseFileName, entityType: emp.source, entityId: emp.id };
+    }
+
+    // 7.2. Certificat de Travail (Fin de contrat / Départ)
+    if (selectedTemplateId === 'work_certificate') {
+      const emp = currentSelectedStaff;
+      if (!emp) return null;
+      const title = `Certificat de Travail - ${emp.last_name} ${emp.first_name}`;
+      const baseFileName = `certificat_travail_${emp.matricule || 'personnel'}`;
+
+      const html = buildWorkCertificateHtml({
+        school,
+        employee: {
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          matricule: emp.matricule,
+          position: paramStaffPosition || emp.position,
+          department: paramStaffDepartment || emp.department,
+          contract_type: paramStaffContractType || emp.contract_type,
+          hire_date: paramStaffHireDate || emp.hire_date,
+          end_date: paramStaffEndDate,
+          date_of_birth: emp.date_of_birth,
+          phone: emp.phone,
+          cni_number: paramStaffCni,
+          sex: emp.sex,
+        },
+        city: paramCity,
+        directorName: paramDirectorName,
+        reason: paramStaffDepartureReason,
+      });
+
+      return { html, title, baseFileName, entityType: emp.source, entityId: emp.id };
+    }
+
+    // 7.3. Ordre de Mission Officiel
+    if (selectedTemplateId === 'mission_order') {
+      const emp = currentSelectedStaff;
+      if (!emp) return null;
+      const title = `Ordre de Mission - ${emp.last_name} ${emp.first_name}`;
+      const baseFileName = `ordre_mission_${emp.matricule || 'personnel'}`;
+
+      const html = buildMissionOrderHtml({
+        school,
+        employee: {
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          matricule: emp.matricule,
+          position: paramStaffPosition || emp.position,
+          department: paramStaffDepartment || emp.department,
+          phone: emp.phone,
+          sex: emp.sex,
+        },
+        city: paramCity,
+        directorName: paramDirectorName,
+        missionDestination: paramMissionDestination,
+        missionPurpose: paramMissionPurpose,
+        startDate: paramMissionStartDate,
+        endDate: paramMissionEndDate,
+        transportMode: paramMissionTransport,
+        expenseCoverage: paramMissionExpenseCoverage,
+      });
+
+      return { html, title, baseFileName, entityType: emp.source, entityId: emp.id };
+    }
+
+    // 7.4. Lettre de Recommandation Professionnelle
+    if (selectedTemplateId === 'recommendation_letter') {
+      const emp = currentSelectedStaff;
+      if (!emp) return null;
+      const title = `Lettre de Recommandation - ${emp.last_name} ${emp.first_name}`;
+      const baseFileName = `recommandation_${emp.matricule || 'personnel'}`;
+
+      const html = buildRecommendationLetterHtml({
+        school,
+        employee: {
+          first_name: emp.first_name,
+          last_name: emp.last_name,
+          matricule: emp.matricule,
+          position: paramStaffPosition || emp.position,
+          department: paramStaffDepartment || emp.department,
+          hire_date: paramStaffHireDate || emp.hire_date,
+          end_date: paramStaffEndDate,
+          sex: emp.sex,
+        },
+        city: paramCity,
+        directorName: paramDirectorName,
+        recipient: paramRecRecipient,
+        qualities: paramRecQualities,
+      });
+
+      return { html, title, baseFileName, entityType: emp.source, entityId: emp.id };
     }
 
     // 8. Relevé Financier Élève (Real Finance & Payments)
@@ -1088,10 +1382,14 @@ export default function DocumentsPage() {
       }
       return 'Élève';
     }
-    if (doc.entity_type === 'teacher') {
+    if (doc.entity_type === 'teacher' || doc.entity_type === 'staff') {
       const teacher = teachers.find(t => t.id === doc.entity_id);
       if (teacher) {
-        return `Personnel : ${teacher.last_name} ${teacher.first_name}`;
+        return `Enseignant : ${teacher.last_name} ${teacher.first_name} (Matr: ${teacher.matricule || '-'})`;
+      }
+      const st = staff.find(s => s.id === doc.entity_id);
+      if (st) {
+        return `Personnel : ${st.last_name} ${st.first_name} (${st.position || 'Administration'}) - Matr: ${st.matricule || '-'}`;
       }
       return 'Personnel / Enseignant';
     }
@@ -1452,22 +1750,52 @@ export default function DocumentsPage() {
       >
         <div className="space-y-5">
           {/* Target Selection: Class & Student (or Staff) */}
-          {selectedTemplateId === 'payslip' ? (
+          {['payslip', 'work_attestation', 'work_certificate', 'mission_order', 'recommendation_letter'].includes(selectedTemplateId) ? (
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                Personnel / Enseignant Bénéficiaire
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Personnel / Enseignant Bénéficiaire
+                </label>
+                <span className="text-xs text-slate-500 font-medium">
+                  {unifiedStaff.length} collaborateur(s) (Enseignants & Administratifs)
+                </span>
+              </div>
               <select
                 value={generatorTeacherId}
                 onChange={e => handleGeneratorTeacherChange(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
               >
-                {teachers.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.last_name} {t.first_name} — {t.specialty || 'Enseignant'} (Matr: {t.matricule})
+                {unifiedStaff.map(emp => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.last_name} {emp.first_name} — {emp.position} ({emp.source === 'teacher' ? 'Enseignant' : 'Personnel'}) - Matr: {emp.matricule || '-'}
                   </option>
                 ))}
               </select>
+
+              {/* Context Banner: Selected Staff Summary */}
+              {currentSelectedStaff && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs text-slate-800">
+                  <div className="flex items-center gap-2.5">
+                    <Briefcase className="h-4 w-4 text-blue-600 shrink-0" />
+                    <div>
+                      <span className="font-bold text-slate-900">
+                        {currentSelectedStaff.last_name} {currentSelectedStaff.first_name}
+                      </span>
+                      <span className="ml-1 text-slate-600">
+                        • {currentSelectedStaff.position} ({currentSelectedStaff.department})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono bg-white px-2 py-0.5 rounded border border-slate-200 text-slate-700">
+                      Matr: {currentSelectedStaff.matricule || 'N/A'}
+                    </span>
+                    <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full font-semibold">
+                      {paramStaffContractType || currentSelectedStaff.contract_type || 'CDI'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -1510,7 +1838,7 @@ export default function DocumentsPage() {
           )}
 
           {/* Context Banner: Selected Student Summary */}
-          {currentSelectedStudent && selectedTemplateId !== 'payslip' && (
+          {currentSelectedStudent && !['payslip', 'work_attestation', 'work_certificate', 'mission_order', 'recommendation_letter'].includes(selectedTemplateId) && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-blue-50/70 border border-blue-200/60 p-3.5 text-xs text-blue-900">
               <div className="flex items-center gap-3">
                 <GraduationCap className="h-5 w-5 text-blue-600 shrink-0" />
@@ -1890,6 +2218,302 @@ export default function DocumentsPage() {
             </div>
           )}
 
+          {/* SPECIFIC FIELDS: Attestation de Travail (En cours d'emploi) */}
+          {selectedTemplateId === 'work_attestation' && (
+            <div className="space-y-3.5 rounded-xl border border-teal-200 bg-teal-50/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-sm text-teal-950">Attestation de Travail & d'Emploi</span>
+                  <p className="text-xs text-teal-800">Certifie que le collaborateur est actuellement en service régulier</p>
+                </div>
+                <span className="text-xs font-bold text-teal-800 bg-teal-200/80 px-2.5 py-1 rounded-full">Contrat Actif</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Fonction / Poste occupé</label>
+                  <input
+                    type="text"
+                    value={paramStaffPosition}
+                    onChange={e => setParamStaffPosition(e.target.value)}
+                    placeholder="Ex: Professeur de Mathématiques / Économe"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Département / Service</label>
+                  <input
+                    type="text"
+                    value={paramStaffDepartment}
+                    onChange={e => setParamStaffDepartment(e.target.value)}
+                    placeholder="Ex: Corps Enseignant / Administration"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Type de Contrat</label>
+                  <select
+                    value={paramStaffContractType}
+                    onChange={e => setParamStaffContractType(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="CDI">Contrat à Durée Indéterminée (CDI)</option>
+                    <option value="CDD">Contrat à Durée Déterminée (CDD)</option>
+                    <option value="Vacataire">Vacataire / Prestation d'heures</option>
+                    <option value="Stage">Convention de Stage Professionnel</option>
+                    <option value="Prestataire">Prestation de Service</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date d'embauche / Prise de service</label>
+                  <input
+                    type="date"
+                    value={paramStaffHireDate}
+                    onChange={e => setParamStaffHireDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mention spéciale / Objet spécifique (optionnel)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex : Pour servir et valoir ce que de droit (demande de prêt bancaire, visa, CNPS)"
+                  value={paramStaffAttestationPurpose}
+                  onChange={e => setParamStaffAttestationPurpose(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="rounded-lg bg-teal-100/60 p-2.5 text-xs text-teal-900 border border-teal-200">
+                ℹ️ <strong>Usage officiel :</strong> Document standard exigé par les banques, ambassades, consulats et organismes de sécurité sociale pour attester de la situation active du salarié.
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Certificat de Travail (Fin de contrat / Départ) */}
+          {selectedTemplateId === 'work_certificate' && (
+            <div className="space-y-3.5 rounded-xl border border-amber-200 bg-amber-50/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-sm text-amber-950">Certificat de Travail (Document Légal Obligatoire)</span>
+                  <p className="text-xs text-amber-800">Délivré obligatoirement à la fin de tout contrat de travail selon le Code du Travail</p>
+                </div>
+                <span className="text-xs font-bold text-amber-800 bg-amber-200/80 px-2.5 py-1 rounded-full">Fin de contrat</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date d'embauche (Début)</label>
+                  <input
+                    type="date"
+                    value={paramStaffHireDate}
+                    onChange={e => setParamStaffHireDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date de fin d'emploi (Départ)</label>
+                  <input
+                    type="date"
+                    value={paramStaffEndDate}
+                    onChange={e => setParamStaffEndDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Dernière fonction occupée</label>
+                  <input
+                    type="text"
+                    value={paramStaffPosition}
+                    onChange={e => setParamStaffPosition(e.target.value)}
+                    placeholder="Ex: Professeur Titulaire / Économe"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Département / Service</label>
+                  <input
+                    type="text"
+                    value={paramStaffDepartment}
+                    onChange={e => setParamStaffDepartment(e.target.value)}
+                    placeholder="Ex: Secondaire Général / Administration"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Type de Contrat expiré</label>
+                  <select
+                    value={paramStaffContractType}
+                    onChange={e => setParamStaffContractType(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  >
+                    <option value="CDI">CDI (Rupture amiable / Démission / Licenciement)</option>
+                    <option value="CDD">CDD (Arrivée à échéance)</option>
+                    <option value="Vacataire">Vacation / Prestation d'heures</option>
+                    <option value="Stage">Fin de stage de perfectionnement</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">N° Pièce d'identité / CNI (optionnel)</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: C0123456789 ou Passeport"
+                    value={paramStaffCni}
+                    onChange={e => setParamStaffCni(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Motif du départ (optionnel)</label>
+                <input
+                  type="text"
+                  placeholder="Ex : Fin normale du contrat à durée déterminée / Démission acceptée"
+                  value={paramStaffDepartureReason}
+                  onChange={e => setParamStaffDepartureReason(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="rounded-lg bg-amber-100/70 p-2.5 text-xs text-amber-900 border border-amber-200">
+                ⚖️ <strong>Formule légale automatique :</strong> Le document certifie formellement que le salarié quitte l'établissement <em>« libre de tout engagement »</em>, avec règlement intégral de ses salaires et indemnités légales de fin de contrat.
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Ordre de Mission Officiel */}
+          {selectedTemplateId === 'mission_order' && (
+            <div className="space-y-3.5 rounded-xl border border-blue-200 bg-blue-50/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-sm text-blue-950">Ordre de Mission Officiel</span>
+                  <p className="text-xs text-blue-800">Autorisation formelle de déplacement professionnel et visas officiels</p>
+                </div>
+                <span className="text-xs font-bold text-blue-800 bg-blue-200/80 px-2.5 py-1 rounded-full">Déplacement Officiel</span>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Lieu / Destination de la mission</label>
+                  <input
+                    type="text"
+                    value={paramMissionDestination}
+                    onChange={e => setParamMissionDestination(e.target.value)}
+                    placeholder="Ex: Yamoussoukro, Centre Régional d'Examens"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Objet de la mission</label>
+                  <input
+                    type="text"
+                    value={paramMissionPurpose}
+                    onChange={e => setParamMissionPurpose(e.target.value)}
+                    placeholder="Ex: Participation aux jurys d'évaluation ministériels"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date de début de mission</label>
+                  <input
+                    type="date"
+                    value={paramMissionStartDate}
+                    onChange={e => setParamMissionStartDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Date de fin de mission</label>
+                  <input
+                    type="date"
+                    value={paramMissionEndDate}
+                    onChange={e => setParamMissionEndDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Moyen de transport</label>
+                  <input
+                    type="text"
+                    value={paramMissionTransport}
+                    onChange={e => setParamMissionTransport(e.target.value)}
+                    placeholder="Ex: Véhicule de service / Ligne régulière de car"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Prise en charge financière</label>
+                  <input
+                    type="text"
+                    value={paramMissionExpenseCoverage}
+                    onChange={e => setParamMissionExpenseCoverage(e.target.value)}
+                    placeholder="Ex: Frais de séjour et transport pris en charge par l'école"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="text-xs text-blue-800 bg-blue-100/50 p-2.5 rounded-lg border border-blue-200">
+                ℹ️ Cet ordre de mission officiel comporte les cadres réservés aux visas de départ et d'arrivée requis pour les contrôles routiers et administratifs.
+              </div>
+            </div>
+          )}
+
+          {/* SPECIFIC FIELDS: Lettre de Recommandation Professionnelle */}
+          {selectedTemplateId === 'recommendation_letter' && (
+            <div className="space-y-3.5 rounded-xl border border-purple-200 bg-purple-50/40 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="font-bold text-sm text-purple-950">Lettre de Recommandation Professionnelle</span>
+                  <p className="text-xs text-purple-800">Émise par la Direction pour valoriser le parcours et les compétences de l'employé</p>
+                </div>
+                <span className="text-xs font-bold text-purple-800 bg-purple-200/80 px-2.5 py-1 rounded-full">Recommandation</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Destinataire (À l'attention de)</label>
+                <input
+                  type="text"
+                  value={paramRecRecipient}
+                  onChange={e => setParamRecRecipient(e.target.value)}
+                  placeholder="Ex: À qui de droit / Direction des Ressources Humaines"
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Appréciations et qualités professionnelles mises en avant</label>
+                <textarea
+                  rows={3}
+                  value={paramRecQualities}
+                  onChange={e => setParamRecQualities(e.target.value)}
+                  placeholder="Ex: de remarquables qualités pédagogiques, une disponibilité sans faille et une rigueur professionnelle exemplaire."
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+              </div>
+            </div>
+          )}
+
           {/* SPECIFIC FIELDS: Relevé Financier (Real Payments & Balances) */}
           {selectedTemplateId === 'account_statement' && (
             <div className="space-y-3 rounded-xl border border-cyan-200 bg-cyan-50/40 p-4">
@@ -2026,7 +2650,7 @@ export default function DocumentsPage() {
                 type="button"
                 onClick={() => {
                   setUploadEntityType('teacher');
-                  if (teachers.length > 0) setUploadEntityId(teachers[0].id);
+                  if (unifiedStaff.length > 0) setUploadEntityId(unifiedStaff[0].id);
                 }}
                 className={`rounded-xl border p-2.5 text-center text-xs font-bold transition ${
                   uploadEntityType === 'teacher'
@@ -2076,15 +2700,15 @@ export default function DocumentsPage() {
 
           {uploadEntityType === 'teacher' && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Sélectionner l'enseignant / agent</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Sélectionner le collaborateur (Enseignant / Personnel)</label>
               <select
                 value={uploadEntityId}
                 onChange={e => setUploadEntityId(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
               >
-                {teachers.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.last_name} {t.first_name} — {t.specialty || 'Enseignant'}
+                {unifiedStaff.map(emp => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.last_name} {emp.first_name} — {emp.position} ({emp.source === 'teacher' ? 'Enseignant' : 'Personnel'}) - Matr: {emp.matricule || '-'}
                   </option>
                 ))}
               </select>
@@ -2104,6 +2728,9 @@ export default function DocumentsPage() {
                   if (uploadEntityType === 'student') {
                     const st = students.find(s => s.id === uploadEntityId);
                     if (st) suffix = ` - ${st.last_name} ${st.first_name}`;
+                  } else if (uploadEntityType === 'teacher') {
+                    const emp = unifiedStaff.find(item => item.id === uploadEntityId);
+                    if (emp) suffix = ` - ${emp.last_name} ${emp.first_name}`;
                   }
                   setUploadTitle(`${typeLabel(e.target.value)}${suffix}`);
                 }

@@ -2572,5 +2572,717 @@ export function buildHonorDiplomaHtml({
   );
 }
 
+export interface WorkAttestationInput {
+  school: School;
+  employee: {
+    first_name: string;
+    last_name: string;
+    matricule?: string;
+    position?: string;
+    department?: string;
+    contract_type?: string;
+    hire_date?: string;
+    date_of_birth?: string;
+    place_of_birth?: string;
+    phone?: string;
+    cni_number?: string;
+    sex?: string;
+    photo_url?: string;
+  };
+  referenceNumber?: string;
+  city?: string;
+  date?: string;
+  directorName?: string;
+  purpose?: string;
+}
+
+export function buildWorkAttestationHtml({
+  school,
+  employee,
+  referenceNumber,
+  city,
+  date,
+  directorName,
+  purpose,
+}: WorkAttestationInput) {
+  const ref = referenceNumber || `AT-RH-${Math.floor(100000 + Math.random() * 900000)}/${new Date().getFullYear()}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+  const civilite = employee.sex === 'F' ? 'Madame' : 'Monsieur';
+  const hireDateFormatted = employee.hire_date ? formatDate(employee.hire_date) : 'la rentrée scolaire';
+  const birthFormatted = employee.date_of_birth ? formatDate(employee.date_of_birth) : '';
+  const contractLabel = (employee.contract_type || 'CDI').toUpperCase();
+  const positionLabel = employee.position || 'Membre du Personnel Enseignant';
+
+  return printableShell(
+    `Attestation de Travail - ${employee.last_name} ${employee.first_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; min-height: 270mm;">
+        
+        <!-- Filigrane d'authenticité -->
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 70px; font-weight: 900; color: rgba(148, 163, 184, 0.08); pointer-events: none; text-transform: uppercase; white-space: nowrap; user-select: none;">
+          ${escapeHtml(school.name)}
+        </div>
+
+        <!-- En-tête officiel -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #0f766e;">
+          <div style="display: flex; align-items: center; gap: 16px; max-width: 60%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 80px; height: 80px; object-fit: contain; border-radius: 12px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 76px; height: 76px; border-radius: 12px; background: #0f766e; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 24px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; color: #0f766e; text-transform: uppercase; line-height: 1.2;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''}<br />
+                ${school.phone ? `Tél : ${escapeHtml(school.phone)}` : ''} ${school.email ? `| Email : ${escapeHtml(school.email)}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px; color: #475569;">
+            <p style="margin: 0; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+            <p style="margin: 2px 0 0; font-style: italic; color: #64748b;">Union - Discipline - Travail</p>
+            <p style="margin: 6px 0 0; font-weight: 700; color: #0f766e;">SERVICE DES RESSOURCES HUMAINES</p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8;">Réf. RH : <strong>${escapeHtml(ref)}</strong></p>
+          </div>
+        </div>
+
+        <!-- Titre du document -->
+        <div style="text-align: center; margin: 38px 0 32px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: #0f766e; background: #f0fdfa; padding: 4px 14px; border-radius: 999px; border: 1px solid #99f6e4; margin-bottom: 8px;">DOCUMENT ADMINISTRATIF OFFICIEL</span>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: 0.05em; color: #0f172a; text-transform: uppercase; border-bottom: 3px double #0f766e; display: inline-block; padding-bottom: 6px;">
+            ATTESTATION DE TRAVAIL
+          </h1>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #64748b; font-style: italic;">
+            Attestation d'emploi et d'exercice régulier des fonctions
+          </p>
+        </div>
+
+        <!-- Corps de l'attestation -->
+        <div style="font-size: 14.5px; line-height: 1.8; color: #1e293b; margin: 0 16px;">
+          <p style="margin: 0 0 20px;">
+            La Direction Générale du Groupe Scolaire soussignée, atteste sur l'honneur par la présente que :
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #0f766e; border-radius: 12px; padding: 22px 24px; margin: 24px 0;">
+            <div style="display: grid; grid-template-columns: 180px 1fr; row-gap: 12px; font-size: 14px;">
+              <span style="font-weight: 700; color: #475569;">Civilité & Identité :</span>
+              <span style="font-weight: 900; font-size: 16px; color: #0f172a; text-transform: uppercase;">${escapeHtml(civilite)} ${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</span>
+
+              ${
+                employee.matricule
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Numéro Matricule :</span>
+                <span style="font-family: monospace; font-weight: 800; color: #0f766e; font-size: 15px;">${escapeHtml(employee.matricule)}</span>
+              `
+                  : ''
+              }
+
+              ${
+                birthFormatted
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Date de Naissance :</span>
+                <span style="color: #1e293b;">${escapeHtml(birthFormatted)}${employee.place_of_birth ? ` à ${escapeHtml(employee.place_of_birth)}` : ''}</span>
+              `
+                  : ''
+              }
+
+              ${
+                employee.cni_number
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Pièce d'Identité (CNI/Passeport) :</span>
+                <span style="font-family: monospace; font-weight: 700; color: #1e293b;">${escapeHtml(employee.cni_number)}</span>
+              `
+                  : ''
+              }
+
+              <span style="font-weight: 700; color: #475569;">Fonction / Poste occupé :</span>
+              <span style="font-weight: 800; color: #0f172a;">${escapeHtml(positionLabel)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Département / Service :</span>
+              <span style="color: #334155;">${escapeHtml(employee.department || 'Pédagogique & Administratif')}</span>
+
+              <span style="font-weight: 700; color: #475569;">Type de Contrat :</span>
+              <span style="display: inline-block; background: #e0f2fe; color: #0369a1; padding: 2px 10px; border-radius: 6px; font-weight: 800; font-size: 12px; width: fit-content;">${escapeHtml(contractLabel)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Date de prise de service :</span>
+              <span style="font-weight: 700; color: #0f766e;">Depuis le ${escapeHtml(hireDateFormatted)}</span>
+            </div>
+          </div>
+
+          <p style="margin: 20px 0; text-align: justify;">
+            Est actuellement employé(e) au sein de notre établissement et y exerce ses fonctions de manière continue, avec assiduité, compétence et professionnalisme.
+          </p>
+
+          <p style="margin: 20px 0; text-align: justify;">
+            À ce jour, ${escapeHtml(civilite)} ${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)} fait partie des effectifs réguliers de l'établissement et n'est sous le coup d'aucune procédure de préavis ou de suspension.
+          </p>
+
+          ${
+            purpose
+              ? `
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px 16px; margin: 18px 0; font-size: 13px; color: #166534;">
+              <strong>Objet spécifique :</strong> ${escapeHtml(purpose)}
+            </div>
+          `
+              : ''
+          }
+
+          <p style="margin: 24px 0 0; text-align: justify; font-style: italic; color: #475569;">
+            La présente attestation lui est délivrée sur sa demande pour servir et valoir ce que de droit, notamment auprès des organismes bancaires, consulats, administrations publiques ou privées.
+          </p>
+        </div>
+
+        <!-- Date & Signatures -->
+        <div style="margin-top: 45px; padding-top: 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: flex-end;">
+          <div style="text-align: center; width: 220px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">L'Intéressé(e)</p>
+            <p style="margin: 2px 0 0; font-size: 10px; color: #94a3b8;">(Signature précédée de la mention manuscrite « Lu et approuvé »)</p>
+            <div style="height: 60px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 11px; color: #64748b;">${escapeHtml(employee.first_name)} ${escapeHtml(employee.last_name)}</span>
+            </div>
+          </div>
+
+          <!-- Tampon central -->
+          <div style="text-align: center;">
+            <div style="border: 2px dashed #0f766e; border-radius: 12px; padding: 10px 16px; color: #0f766e; font-size: 10px; font-weight: 800; text-transform: uppercase; background: #f0fdfa;">
+              CACHET OFFICIEL DE L'ÉTABLISSEMENT
+            </div>
+            <p style="margin: 8px 0 0; font-size: 11px; color: #64748b;">
+              Fait à <strong>${escapeHtml(currentCity)}</strong>, le <strong>${escapeHtml(currentDate)}</strong>
+            </p>
+          </div>
+
+          <div style="text-align: center; width: 220px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">La Direction Générale</p>
+            <p style="margin: 2px 0 0; font-size: 10px; color: #94a3b8;">Signature autorisée & Sceau</p>
+            <div style="height: 60px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 11px; font-weight: 800; color: #0f172a;">${escapeHtml(directorName || 'Le Chef d’Établissement')}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pied de page officiel -->
+        <div style="position: absolute; bottom: 18px; left: 40px; right: 40px; text-align: center; font-size: 9.5px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 8px;">
+          Toute falsification, surcharge ou altération du présent document expose son auteur aux sanctions pénales prévues par le Code Pénal. Réf : ${escapeHtml(ref)}
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+export interface WorkCertificateInput {
+  school: School;
+  employee: {
+    first_name: string;
+    last_name: string;
+    matricule?: string;
+    position?: string;
+    department?: string;
+    contract_type?: string;
+    hire_date?: string;
+    end_date?: string;
+    date_of_birth?: string;
+    place_of_birth?: string;
+    phone?: string;
+    cni_number?: string;
+    sex?: string;
+  };
+  referenceNumber?: string;
+  city?: string;
+  date?: string;
+  directorName?: string;
+  reason?: string;
+}
+
+export function buildWorkCertificateHtml({
+  school,
+  employee,
+  referenceNumber,
+  city,
+  date,
+  directorName,
+  reason,
+}: WorkCertificateInput) {
+  const ref = referenceNumber || `CT-FIN-${Math.floor(100000 + Math.random() * 900000)}/${new Date().getFullYear()}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+  const civilite = employee.sex === 'F' ? 'Madame' : 'Monsieur';
+  const hireDateFormatted = employee.hire_date ? formatDate(employee.hire_date) : 'la date d’embauche';
+  const endDateFormatted = employee.end_date ? formatDate(employee.end_date) : currentDate;
+  const birthFormatted = employee.date_of_birth ? formatDate(employee.date_of_birth) : '';
+  const positionLabel = employee.position || 'Enseignant / Membre du Personnel';
+
+  return printableShell(
+    `Certificat de Travail - ${employee.last_name} ${employee.first_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; min-height: 270mm;">
+        
+        <!-- Filigrane d'authenticité -->
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-30deg); font-size: 70px; font-weight: 900; color: rgba(148, 163, 184, 0.08); pointer-events: none; text-transform: uppercase; white-space: nowrap; user-select: none;">
+          ${escapeHtml(school.name)}
+        </div>
+
+        <!-- En-tête officiel -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #b45309;">
+          <div style="display: flex; align-items: center; gap: 16px; max-width: 60%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 80px; height: 80px; object-fit: contain; border-radius: 12px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 76px; height: 76px; border-radius: 12px; background: #b45309; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 24px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; color: #b45309; text-transform: uppercase; line-height: 1.2;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''}<br />
+                ${school.phone ? `Tél : ${escapeHtml(school.phone)}` : ''} ${school.email ? `| Email : ${escapeHtml(school.email)}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px; color: #475569;">
+            <p style="margin: 0; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+            <p style="margin: 2px 0 0; font-style: italic; color: #64748b;">Union - Discipline - Travail</p>
+            <p style="margin: 6px 0 0; font-weight: 700; color: #b45309;">DIRECTION DES RESSOURCES HUMAINES</p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8;">Certificat N° : <strong>${escapeHtml(ref)}</strong></p>
+          </div>
+        </div>
+
+        <!-- Titre du document -->
+        <div style="text-align: center; margin: 38px 0 32px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: #b45309; background: #fffbeb; padding: 4px 14px; border-radius: 999px; border: 1px solid #fde68a; margin-bottom: 8px;">DOCUMENT LÉGAL OBLIGATOIRE • CODE DU TRAVAIL</span>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: 0.05em; color: #0f172a; text-transform: uppercase; border-bottom: 3px double #b45309; display: inline-block; padding-bottom: 6px;">
+            CERTIFICAT DE TRAVAIL
+          </h1>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #64748b; font-style: italic;">
+            Délivré à l'expiration du contrat de travail conformément aux dispositions légales en vigueur
+          </p>
+        </div>
+
+        <!-- Corps du certificat -->
+        <div style="font-size: 14.5px; line-height: 1.8; color: #1e293b; margin: 0 16px;">
+          <p style="margin: 0 0 20px;">
+            La Direction du Groupe Scolaire soussignée, certifie par la présente que :
+          </p>
+
+          <div style="background: #fffbeb; border: 1px solid #fef3c7; border-left: 5px solid #b45309; border-radius: 12px; padding: 22px 24px; margin: 24px 0;">
+            <div style="display: grid; grid-template-columns: 180px 1fr; row-gap: 12px; font-size: 14px;">
+              <span style="font-weight: 700; color: #475569;">Civilité & Identité :</span>
+              <span style="font-weight: 900; font-size: 16px; color: #0f172a; text-transform: uppercase;">${escapeHtml(civilite)} ${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</span>
+
+              ${
+                employee.matricule
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Numéro Matricule :</span>
+                <span style="font-family: monospace; font-weight: 800; color: #b45309; font-size: 15px;">${escapeHtml(employee.matricule)}</span>
+              `
+                  : ''
+              }
+
+              ${
+                birthFormatted
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Date de Naissance :</span>
+                <span style="color: #1e293b;">${escapeHtml(birthFormatted)}${employee.place_of_birth ? ` à ${escapeHtml(employee.place_of_birth)}` : ''}</span>
+              `
+                  : ''
+              }
+
+              ${
+                employee.cni_number
+                  ? `
+                <span style="font-weight: 700; color: #475569;">Pièce d'Identité :</span>
+                <span style="font-family: monospace; font-weight: 700; color: #1e293b;">${escapeHtml(employee.cni_number)}</span>
+              `
+                  : ''
+              }
+
+              <span style="font-weight: 700; color: #475569;">Période d'Emploi :</span>
+              <span style="font-weight: 800; color: #0f172a;">
+                Du <strong>${escapeHtml(hireDateFormatted)}</strong> au <strong>${escapeHtml(endDateFormatted)}</strong>
+              </span>
+
+              <span style="font-weight: 700; color: #475569;">Dernière Fonction :</span>
+              <span style="font-weight: 800; color: #b45309;">${escapeHtml(positionLabel)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Département / Cycle :</span>
+              <span style="color: #334155;">${escapeHtml(employee.department || 'Enseignement & Administration')}</span>
+
+              <span style="font-weight: 700; color: #475569;">Type de Contrat :</span>
+              <span style="color: #334155;">${escapeHtml((employee.contract_type || 'CDI').toUpperCase())}</span>
+            </div>
+          </div>
+
+          <p style="margin: 20px 0; text-align: justify;">
+            A été employé(e) dans notre établissement durant la période mentionnée ci-dessus et y a exercé ses fonctions de manière consciencieuse et dévouée.
+          </p>
+
+          <!-- Formule légale obligatoire -->
+          <div style="background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; padding: 16px 20px; margin: 22px 0;">
+            <p style="margin: 0; font-weight: 800; color: #0f172a; text-transform: uppercase; font-size: 13px;">
+              Mention légale de libération :
+            </p>
+            <p style="margin: 6px 0 0; font-size: 14px; color: #334155; line-height: 1.6;">
+              ${escapeHtml(civilite)} <strong>${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</strong> quitte notre établissement ce jour, <strong>libre de tout engagement envers nous</strong>, l'ensemble de ses salaires, indemnités légales de fin de contrat et congés payés lui ayant été intégralement réglés.
+            </p>
+          </div>
+
+          ${
+            reason
+              ? `
+            <p style="margin: 16px 0; font-size: 13.5px; color: #475569;">
+              <strong>Motif du départ :</strong> ${escapeHtml(reason)}
+            </p>
+          `
+              : ''
+          }
+
+          <p style="margin: 24px 0 0; text-align: justify; font-style: italic; color: #475569;">
+            En foi de quoi, le présent certificat de travail lui est délivré en application des dispositions du Code du Travail pour servir et valoir ce que de droit.
+          </p>
+        </div>
+
+        <!-- Date & Signatures -->
+        <div style="margin-top: 45px; padding-top: 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: flex-end;">
+          <div style="text-align: center; width: 220px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">Pour Acquit & Réception</p>
+            <p style="margin: 2px 0 0; font-size: 10px; color: #94a3b8;">Signature de l'ex-salarié(e)</p>
+            <div style="height: 60px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 11px; color: #64748b;">${escapeHtml(employee.first_name)} ${escapeHtml(employee.last_name)}</span>
+            </div>
+          </div>
+
+          <!-- Tampon central -->
+          <div style="text-align: center;">
+            <div style="border: 2px dashed #b45309; border-radius: 12px; padding: 10px 16px; color: #b45309; font-size: 10px; font-weight: 800; text-transform: uppercase; background: #fffbeb;">
+              SCEAU & CACHET OFFICIEL
+            </div>
+            <p style="margin: 8px 0 0; font-size: 11px; color: #64748b;">
+              Fait à <strong>${escapeHtml(currentCity)}</strong>, le <strong>${escapeHtml(currentDate)}</strong>
+            </p>
+          </div>
+
+          <div style="text-align: center; width: 220px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">La Direction Générale</p>
+            <p style="margin: 2px 0 0; font-size: 10px; color: #94a3b8;">Signature autorisée</p>
+            <div style="height: 60px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 11px; font-weight: 800; color: #0f172a;">${escapeHtml(directorName || 'Le Chef d’Établissement')}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pied de page officiel -->
+        <div style="position: absolute; bottom: 18px; left: 40px; right: 40px; text-align: center; font-size: 9.5px; color: #94a3b8; border-top: 1px solid #f1f5f9; padding-top: 8px;">
+          Certificat délivré conformément aux lois et règlements régissant les contrats de travail. Réf : ${escapeHtml(ref)}
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+export interface MissionOrderInput {
+  school: School;
+  employee: {
+    first_name: string;
+    last_name: string;
+    matricule?: string;
+    position?: string;
+    department?: string;
+    phone?: string;
+    sex?: string;
+  };
+  referenceNumber?: string;
+  city?: string;
+  date?: string;
+  directorName?: string;
+  missionDestination: string;
+  missionPurpose: string;
+  startDate: string;
+  endDate: string;
+  transportMode?: string;
+  expenseCoverage?: string;
+}
+
+export function buildMissionOrderHtml({
+  school,
+  employee,
+  referenceNumber,
+  city,
+  date,
+  directorName,
+  missionDestination,
+  missionPurpose,
+  startDate,
+  endDate,
+  transportMode,
+  expenseCoverage,
+}: MissionOrderInput) {
+  const ref = referenceNumber || `OM-${Math.floor(100000 + Math.random() * 900000)}/${new Date().getFullYear()}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+  const civilite = employee.sex === 'F' ? 'Madame' : 'Monsieur';
+  const startFormatted = startDate ? formatDate(startDate) : currentDate;
+  const endFormatted = endDate ? formatDate(endDate) : currentDate;
+
+  return printableShell(
+    `Ordre de Mission - ${employee.last_name} ${employee.first_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; min-height: 270mm;">
+        
+        <!-- En-tête officiel -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #1e40af;">
+          <div style="display: flex; align-items: center; gap: 16px; max-width: 60%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 80px; height: 80px; object-fit: contain; border-radius: 12px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 76px; height: 76px; border-radius: 12px; background: #1e40af; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 24px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; color: #1e40af; text-transform: uppercase; line-height: 1.2;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''}<br />
+                ${school.phone ? `Tél : ${escapeHtml(school.phone)}` : ''} ${school.email ? `| Email : ${escapeHtml(school.email)}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px; color: #475569;">
+            <p style="margin: 0; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #1e293b;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+            <p style="margin: 2px 0 0; font-style: italic; color: #64748b;">Union - Discipline - Travail</p>
+            <p style="margin: 6px 0 0; font-weight: 700; color: #1e40af;">DIRECTION GÉNÉRALE</p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8;">Ordre N° : <strong>${escapeHtml(ref)}</strong></p>
+          </div>
+        </div>
+
+        <!-- Titre -->
+        <div style="text-align: center; margin: 38px 0 32px;">
+          <span style="display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: #1e40af; background: #eff6ff; padding: 4px 14px; border-radius: 999px; border: 1px solid #bfdbfe; margin-bottom: 8px;">MISSION OFFICIELLE</span>
+          <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: 0.05em; color: #0f172a; text-transform: uppercase; border-bottom: 3px double #1e40af; display: inline-block; padding-bottom: 6px;">
+            ORDRE DE MISSION
+          </h1>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #64748b; font-style: italic;">
+            Autorisation de déplacement et d'exécution de mission officielle
+          </p>
+        </div>
+
+        <div style="font-size: 14.5px; line-height: 1.8; color: #1e293b; margin: 0 16px;">
+          <p style="margin: 0 0 16px;">
+            Il est ordonné par la présente à :
+          </p>
+
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 5px solid #1e40af; border-radius: 12px; padding: 20px 24px; margin: 20px 0;">
+            <div style="display: grid; grid-template-columns: 180px 1fr; row-gap: 10px; font-size: 14px;">
+              <span style="font-weight: 700; color: #475569;">Bénéficiaire :</span>
+              <span style="font-weight: 900; font-size: 15px; color: #0f172a; text-transform: uppercase;">${escapeHtml(civilite)} ${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</span>
+
+              <span style="font-weight: 700; color: #475569;">Fonction :</span>
+              <span style="font-weight: 800; color: #1e40af;">${escapeHtml(employee.position || 'Personnel de l’Établissement')}</span>
+
+              <span style="font-weight: 700; color: #475569;">Matricule :</span>
+              <span style="font-family: monospace; font-weight: 700;">${escapeHtml(employee.matricule || '-')}</span>
+            </div>
+          </div>
+
+          <p style="margin: 16px 0;">
+            De se rendre en mission officielle selon les termes et dispositions suivants :
+          </p>
+
+          <div style="background: #eff6ff; border: 1px solid #dbeafe; border-radius: 12px; padding: 22px 24px; margin: 20px 0;">
+            <div style="display: grid; grid-template-columns: 180px 1fr; row-gap: 12px; font-size: 14px;">
+              <span style="font-weight: 700; color: #1e40af;">Lieu / Destination :</span>
+              <span style="font-weight: 800; font-size: 15px; color: #0f172a;">${escapeHtml(missionDestination || 'Non spécifié')}</span>
+
+              <span style="font-weight: 700; color: #1e40af;">Objet de la mission :</span>
+              <span style="color: #1e293b; font-weight: 600;">${escapeHtml(missionPurpose || 'Mission pédagogique et administrative')}</span>
+
+              <span style="font-weight: 700; color: #1e40af;">Période de mission :</span>
+              <span style="font-weight: 800; color: #0f172a;">Du <strong>${escapeHtml(startFormatted)}</strong> au <strong>${escapeHtml(endFormatted)}</strong></span>
+
+              <span style="font-weight: 700; color: #1e40af;">Moyen de transport :</span>
+              <span style="color: #334155;">${escapeHtml(transportMode || 'Transport en commun / Véhicule')}</span>
+
+              <span style="font-weight: 700; color: #1e40af;">Prise en charge :</span>
+              <span style="color: #334155;">${escapeHtml(expenseCoverage || 'Frais pris en charge par l’établissement')}</span>
+            </div>
+          </div>
+
+          <p style="margin: 20px 0; text-align: justify; font-size: 13.5px; color: #475569;">
+            Les autorités civiles, militaires et de police, ainsi que les responsables des centres ou institutions d'accueil, sont priées de faciliter l'accomplissement de sa mission et de lui prêter aide et assistance en cas de besoin.
+          </p>
+        </div>
+
+        <!-- Visas et Signatures -->
+        <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: flex-end;">
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Visa au Départ</p>
+            <div style="height: 55px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 10px; color: #94a3b8;">Date & Cachet départ</span>
+            </div>
+          </div>
+
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0; font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase;">Visa à l'Arrivée (Lieu de mission)</p>
+            <div style="height: 55px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 10px; color: #94a3b8;">Date & Cachet autorité d'accueil</span>
+            </div>
+          </div>
+
+          <div style="text-align: center; width: 200px;">
+            <p style="margin: 0; font-size: 11px; font-weight: 800; color: #1e40af; text-transform: uppercase;">L'Autorité Signataire</p>
+            <p style="margin: 2px 0 0; font-size: 9.5px; color: #64748b;">Le Chef d'Établissement</p>
+            <div style="height: 50px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 11px; font-weight: 800; color: #0f172a;">${escapeHtml(directorName || 'La Direction')}</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
+export interface RecommendationLetterInput {
+  school: School;
+  employee: {
+    first_name: string;
+    last_name: string;
+    matricule?: string;
+    position?: string;
+    department?: string;
+    hire_date?: string;
+    end_date?: string;
+    sex?: string;
+  };
+  referenceNumber?: string;
+  city?: string;
+  date?: string;
+  directorName?: string;
+  recipient?: string;
+  qualities?: string;
+}
+
+export function buildRecommendationLetterHtml({
+  school,
+  employee,
+  referenceNumber,
+  city,
+  date,
+  directorName,
+  recipient,
+  qualities,
+}: RecommendationLetterInput) {
+  const ref = referenceNumber || `REC-${Math.floor(100000 + Math.random() * 900000)}/${new Date().getFullYear()}`;
+  const currentDate = date || formatDate(new Date().toISOString());
+  const currentCity = city || school.city || 'Abidjan';
+  const civilite = employee.sex === 'F' ? 'Madame' : 'Monsieur';
+  const hireDateFormatted = employee.hire_date ? formatDate(employee.hire_date) : 'son intégration';
+  const positionLabel = employee.position || 'Enseignant(e)';
+  const defaultQualities = qualities || `de remarquables compétences professionnelles et pédagogiques, une ponctualité exemplaire, une éthique de travail irréprochable et un dévouement constant auprès des apprenants et de la communauté éducative.`;
+
+  return printableShell(
+    `Lettre de Recommandation - ${employee.last_name} ${employee.first_name}`,
+    `
+    <div class="page" style="padding: 24px; font-family: 'Segoe UI', Arial, sans-serif; color: #1e293b;">
+      <div class="sheet" style="max-width: 210mm; margin: 0 auto; background: white; border: 2px solid #cbd5e1; border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); position: relative; min-height: 270mm;">
+        
+        <!-- En-tête officiel -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 24px; border-bottom: 2px solid #6b21a8;">
+          <div style="display: flex; align-items: center; gap: 16px; max-width: 60%;">
+            ${
+              school.logo_url
+                ? `<img src="${escapeHtml(school.logo_url)}" alt="Logo" style="width: 80px; height: 80px; object-fit: contain; border-radius: 12px; border: 1px solid #e2e8f0; padding: 4px;" />`
+                : `<div style="width: 76px; height: 76px; border-radius: 12px; background: #6b21a8; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 24px;">${escapeHtml(school.name.substring(0, 2).toUpperCase())}</div>`
+            }
+            <div>
+              <h2 style="margin: 0; font-size: 20px; font-weight: 800; color: #6b21a8; text-transform: uppercase; line-height: 1.2;">${escapeHtml(school.name)}</h2>
+              <p style="margin: 4px 0 0; font-size: 11px; color: #64748b; line-height: 1.4;">
+                ${escapeHtml(school.address || '')}${school.city ? `, ${escapeHtml(school.city)}` : ''}<br />
+                ${school.phone ? `Tél : ${escapeHtml(school.phone)}` : ''} ${school.email ? `| Email : ${escapeHtml(school.email)}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div style="text-align: right; font-size: 11px; color: #475569;">
+            <p style="margin: 0; font-weight: 800; text-transform: uppercase; color: #1e293b;">RÉPUBLIQUE DE CÔTE D'IVOIRE</p>
+            <p style="margin: 2px 0 0; font-style: italic; color: #64748b;">Union - Discipline - Travail</p>
+            <p style="margin: 6px 0 0; font-weight: 700; color: #6b21a8;">DIRECTION GÉNÉRALE</p>
+            <p style="margin: 4px 0 0; font-size: 10px; color: #94a3b8;">Réf : <strong>${escapeHtml(ref)}</strong></p>
+          </div>
+        </div>
+
+        <!-- Destinataire -->
+        <div style="margin: 30px 0 20px; text-align: right;">
+          <p style="margin: 0; font-size: 13px; color: #64748b;">Fait à ${escapeHtml(currentCity)}, le ${escapeHtml(currentDate)}</p>
+          <div style="display: inline-block; margin-top: 10px; background: #faf5ff; border: 1px solid #e9d5ff; border-radius: 8px; padding: 10px 18px; text-align: left;">
+            <p style="margin: 0; font-size: 11px; font-weight: 700; color: #6b21a8; text-transform: uppercase;">Destinataire :</p>
+            <p style="margin: 2px 0 0; font-size: 13px; font-weight: 800; color: #0f172a;">${escapeHtml(recipient || 'À qui de droit / Direction des Recrutements')}</p>
+          </div>
+        </div>
+
+        <!-- Titre -->
+        <div style="text-align: center; margin: 15px 0 25px;">
+          <h1 style="margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.05em; color: #0f172a; text-transform: uppercase; border-bottom: 3px double #6b21a8; display: inline-block; padding-bottom: 6px;">
+            LETTRE DE RECOMMANDATION
+          </h1>
+        </div>
+
+        <!-- Corps -->
+        <div style="font-size: 14.5px; line-height: 1.8; color: #1e293b; margin: 0 16px; text-align: justify;">
+          <p style="margin: 0 0 18px;">
+            C'est avec grand honneur et un réel plaisir que je rédige cette lettre de recommandation en faveur de ${escapeHtml(civilite)} <strong>${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</strong>, qui a exercé au sein de notre établissement scolaire en qualité de <strong>${escapeHtml(positionLabel)}</strong> depuis le <strong>${escapeHtml(hireDateFormatted)}</strong>.
+          </p>
+
+          <p style="margin: 0 0 18px;">
+            Durant toute la période passée parmi nous, ${escapeHtml(civilite)} <strong>${escapeHtml(employee.last_name)}</strong> a fait preuve ${escapeHtml(defaultQualities)}
+          </p>
+
+          <p style="margin: 0 0 18px;">
+            Son sens aigu des responsabilités, sa capacité d'adaptation et son sens de la communication ont été particulièrement appréciés tant par ses pairs et la direction que par les élèves et leurs parents. Son apport à la réussite pédagogique et au climat scolaire au sein de notre groupe scolaire a été hautement bénéfique.
+          </p>
+
+          <p style="margin: 0 0 24px;">
+            Je recommande ${escapeHtml(civilite)} <strong>${escapeHtml(employee.last_name)} ${escapeHtml(employee.first_name)}</strong> de la manière la plus chaleureuse et sans la moindre réserve pour toute opportunité professionnelle ou académique future. Je suis convaincu(e) qu'il/elle saura être un atout précieux pour toute institution qui lui accordera sa confiance.
+          </p>
+
+          <p style="margin: 0; font-style: italic; color: #475569;">
+            Je reste à votre entière disposition pour tout renseignement complémentaire que vous jugeriez utile.
+          </p>
+        </div>
+
+        <!-- Signature -->
+        <div style="margin-top: 50px; padding-top: 24px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+          <div style="text-align: center; width: 260px;">
+            <p style="margin: 0; font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">Le Chef d'Établissement</p>
+            <p style="margin: 2px 0 0; font-size: 10px; color: #94a3b8;">Signature & Sceau de l'École</p>
+            <div style="height: 65px;"></div>
+            <div style="border-top: 1px dashed #cbd5e1; padding-top: 4px;">
+              <span style="font-size: 12px; font-weight: 800; color: #0f172a;">${escapeHtml(directorName || 'La Direction Générale')}</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    `,
+  );
+}
+
 
 
