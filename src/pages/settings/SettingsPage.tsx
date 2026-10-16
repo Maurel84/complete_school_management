@@ -31,8 +31,10 @@ import {
   FileCheck,
   Palette,
   CheckCircle2,
+  Sun,
+  Moon,
 } from 'lucide-react';
-import { THEME_PRESETS, ThemePresetOption, SchoolTheme } from '../../lib/schoolTheme';
+import { THEME_PRESETS, ThemePresetOption, SchoolTheme, getDarkMode, setDarkMode } from '../../lib/schoolTheme';
 
 type SettingsTab = 'school' | 'theme' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
 type LevelItem = { id: string; name: string; order_index: number };
@@ -54,6 +56,7 @@ export default function SettingsPage() {
   const [customAccent, setCustomAccent] = useState<string>(theme?.accent || '#d97706');
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeNotice, setThemeNotice] = useState<string | null>(null);
+  const [isDark, setIsDark] = useState(() => getDarkMode());
 
   useEffect(() => {
     if (theme) {
@@ -1246,6 +1249,78 @@ export default function SettingsPage() {
                   <div style={{ backgroundColor: customAccent }} className="flex-1 transition-all" />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* 4. GESTION MODE CLAIR / SOMBRE */}
+          <div className="pt-4 border-t border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900 mb-1 dark:text-white">
+              4. Mode d'Affichage de l'Interface (Jour / Nuit)
+            </h3>
+            <p className="text-xs text-slate-500 mb-4 dark:text-slate-400">
+              Basculez entre le thème clair (optimisé pour le jour et les impressions) et le thème sombre (confort visuel et repos oculaire).
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDarkMode(false);
+                  setIsDark(false);
+                  setThemeNotice('Mode Clair activé !');
+                  setTimeout(() => setThemeNotice(null), 3000);
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all flex items-center justify-between text-left ${
+                  !isDark
+                    ? 'border-slate-900 bg-white shadow-md ring-4 ring-slate-900/5 dark:bg-slate-800'
+                    : 'border-slate-200 bg-white/70 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-amber-100 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400">
+                    <Sun size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm dark:text-white">Thème Clair (Jour)</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Fond blanc pur, contrastes nets, idéal pour bureaux</p>
+                  </div>
+                </div>
+                {!isDark && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-slate-900 text-white flex items-center gap-1 dark:bg-white dark:text-slate-900">
+                    <CheckCircle2 size={12} /> Actif
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDarkMode(true);
+                  setIsDark(true);
+                  setThemeNotice('Mode Sombre activé !');
+                  setTimeout(() => setThemeNotice(null), 3000);
+                }}
+                className={`p-5 rounded-3xl border-2 transition-all flex items-center justify-between text-left ${
+                  isDark
+                    ? 'border-emerald-500 bg-slate-900 text-white shadow-md ring-4 ring-emerald-500/10'
+                    : 'border-slate-200 bg-white/70 hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800/60'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 rounded-2xl bg-indigo-950 text-amber-300">
+                    <Moon size={24} />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-900 text-sm dark:text-white">Thème Sombre (Nuit)</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Élégant, reposant pour les yeux et économe en énergie</p>
+                  </div>
+                </div>
+                {isDark && (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-emerald-600 text-white flex items-center gap-1">
+                    <CheckCircle2 size={12} /> Actif
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </div>

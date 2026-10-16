@@ -28,16 +28,16 @@ export default function Modal({ isOpen, open, onClose, title, children, size = '
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-slate-950/45 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl ${sizeClass} animate-in`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5">
-          <h2 className="display-font text-xl font-semibold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="rounded-md p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">
+      <div className={`relative flex max-h-[90vh] w-full flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900 ${sizeClass} animate-in`}>
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
+          <h2 className="display-font text-xl font-semibold text-slate-900 dark:text-white">{title}</h2>
+          <button onClick={onClose} className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200">
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 scrollbar-thin">{children}</div>
         {bottomActions && (
-          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-5">{bottomActions}</div>
+          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-5 dark:border-slate-800">{bottomActions}</div>
         )}
       </div>
     </div>

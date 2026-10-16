@@ -6,6 +6,10 @@ import { AuthProvider } from './contexts/AuthContext';
 import { AppProvider } from './contexts/AppContext';
 import App from './App.tsx';
 import './index.css';
+import { initThemeAndDarkMode } from './lib/schoolTheme';
+
+// Initialize School Theme & Dark Mode before rendering
+initThemeAndDarkMode();
 
 const queryClient = new QueryClient({
   defaultOptions: {
