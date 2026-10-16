@@ -2,16 +2,21 @@ import { ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 interface ModalProps {
-  isOpen: boolean;
+  isOpen?: boolean;
+  open?: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   actions?: ReactNode;
+  footer?: ReactNode;
 }
 
-export default function Modal({ isOpen, onClose, title, children, size = 'md', actions }: ModalProps) {
-  if (!isOpen) return null;
+export default function Modal({ isOpen, open, onClose, title, children, size = 'md', actions, footer }: ModalProps) {
+  const isVisible = isOpen ?? open ?? false;
+  if (!isVisible) return null;
+
+  const bottomActions = actions ?? footer;
 
   const sizeClass = {
     sm: 'max-w-md',
@@ -31,8 +36,8 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md', a
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {actions && (
-          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-5">{actions}</div>
+        {bottomActions && (
+          <div className="flex justify-end gap-3 border-t border-slate-100 px-6 py-5">{bottomActions}</div>
         )}
       </div>
     </div>

@@ -616,7 +616,7 @@ export function buildStudentCardHtml({
                     <!-- Student Status Pill -->
                     <div style="margin-bottom:2px;">
                       <span style="font-size:5.5px; font-weight:800; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; padding:1px 5px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em; display:inline-block;">
-                        ÉLÈVE ${student.gender === 'female' || (student.first_name && /elle|e$/i.test(student.first_name)) ? 'RÉGULIÈRE' : 'RÉGULIER'}
+                        ÉLÈVE ${(student as any).gender === 'female' || (student.first_name && /elle|e$/i.test(student.first_name)) ? 'RÉGULIÈRE' : 'RÉGULIER'}
                       </span>
                     </div>
 

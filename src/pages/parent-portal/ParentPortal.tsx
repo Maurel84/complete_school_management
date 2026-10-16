@@ -194,26 +194,29 @@ export default function ParentPortal() {
 
   function handlePrintReportCard() {
     if (!selectedStudent || !reportCardData) return;
+    const currentSchool = school || activeSchool || { name: 'Établissement Scolaire' };
     const html = buildReportCardHtml({
-      student: selectedStudent,
-      school: school || { name: 'Établissement Scolaire' },
-      reportCard: {
-        academic_year: '2025-2026',
-        term: '1er Trimestre',
-        overall_average: reportCardData.overallAverage,
-        rank: 1,
-        total_students: 25,
-      },
-      items: reportCardData.subjects.map(s => ({
-        subject_name: s.name,
-        average: s.subjectAvg,
+      school: currentSchool as any,
+      student: selectedStudent as any,
+      className: selectedStudent.class?.name || 'Classe',
+      academicYearName: '2025-2026',
+      term: '1er Trimestre',
+      subjects: reportCardData.subjects.map(s => ({
+        name: s.name,
+        devoirsAvg: s.subjectAvg,
+        compScore: null,
+        subjectAvg: s.subjectAvg,
         coefficient: s.coefficient,
-        weighted_average: s.weightedScore,
-        class_average: 12.5,
-        appreciation: s.subjectAvg >= 14 ? 'Très bien' : s.subjectAvg >= 10 ? 'Bien' : 'À encourager',
+        weightedScore: s.weightedScore,
       })),
+      overallAverage: reportCardData.overallAverage,
+      rank: 1,
+      totalStudents: 25,
+      classAverage: 12.5,
+      maxAverage: 17.5,
+      minAverage: 8.5,
     });
-    openPrintPreview(html, `Bulletin_${selectedStudent.last_name}_${selectedStudent.first_name}`);
+    openPrintPreview(html);
   }
 
   async function handleConfirmMobilePayment() {

@@ -60,8 +60,8 @@ export default function Header() {
   const userMenuRef = useRef<HTMLDivElement>(null);
   const yearMenuRef = useRef<HTMLDivElement>(null);
   const profileRole = Array.isArray(profile?.role) ? profile?.role[0] : profile?.role;
-  const isTeacherUser = isTeacher || role === 'teacher' || profileRole?.name === 'teacher' || profileRole === 'teacher';
-  const isParentUser = isParent || role === 'parent' || profileRole?.name === 'parent' || profileRole === 'parent';
+  const isTeacherUser = isTeacher || role === 'teacher' || profileRole?.name === 'teacher' || (profileRole as any) === 'teacher';
+  const isParentUser = isParent || role === 'parent' || profileRole?.name === 'parent' || (profileRole as any) === 'parent';
 
   useEffect(() => {
     function handleClick(event: MouseEvent) {

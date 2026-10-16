@@ -23,6 +23,7 @@ import {
   Building,
   GraduationCap,
   Sparkles,
+  Copy,
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
