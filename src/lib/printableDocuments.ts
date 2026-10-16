@@ -497,8 +497,8 @@ export function buildStudentCardHtml({
   directorName,
   directorPhotoUrl,
 }: StudentCardTemplateInput) {
-  const guardianNameStr = primaryGuardian || (student as any).parent_name || 'Maurel AGOHI-N’GUESSAN';
-  const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || '0700276689';
+  const guardianNameStr = primaryGuardian || (student as any).parent_name || 'Non renseigné';
+  const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || 'Non renseigné';
 
   let resolvedStampUrl = school.stamp_url;
   let resolvedSignatureUrl = school.signature_url;
@@ -517,7 +517,7 @@ export function buildStudentCardHtml({
       }
     } catch {}
   }
-  if (!resolvedDirectorName) resolvedDirectorName = 'JEAN KRAZLIN';
+  if (!resolvedDirectorName) resolvedDirectorName = (school as any).director_name || 'La Direction';
 
   // Minimal dual accent line in soft national orange (#F77F00) and green (#009E60)
   const dualAccentLine = `
@@ -574,7 +574,7 @@ export function buildStudentCardHtml({
                     }
                     <div style="text-align:center; min-width:0;">
                       <h2 style="margin:0; font-size:7.8px; font-weight:800; color:#0f172a; text-transform:uppercase; letter-spacing:0.02em; line-height:1.15; font-family:'Inter', sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:48mm;">
-                        ${escapeHtml(school.name || 'GROUPE SCOLAIRE LA HARPE DE DAVID')}
+                        ${escapeHtml(school.name || 'ÉTABLISSEMENT SCOLAIRE')}
                       </h2>
                     </div>
                   </div>
@@ -630,13 +630,13 @@ export function buildStudentCardHtml({
 
                     <!-- Date & Lieu de Naissance -->
                     <div style="font-size:6.3px; font-weight:700; color:#334155; margin-top:2px; font-family:'Inter', sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                      Né(e) le : <strong style="color:#0f172a;">${escapeHtml(student.date_of_birth ? (formatDate(student.date_of_birth) || student.date_of_birth) : ((student as any).birth_date ? (formatDate((student as any).birth_date) || (student as any).birth_date) : '14/05/2021'))}</strong>${((student as any).place_of_birth || (student as any).birth_place) ? ` à <strong style="color:#0f172a;">${escapeHtml((student as any).place_of_birth || (student as any).birth_place)}</strong>` : ' à Abidjan'}
+                      Né(e) le : <strong style="color:#0f172a;">${escapeHtml(student.date_of_birth ? (formatDate(student.date_of_birth) || student.date_of_birth) : ((student as any).birth_date ? (formatDate((student as any).birth_date) || (student as any).birth_date) : '-'))}</strong>${((student as any).place_of_birth || (student as any).birth_place) ? ` à <strong style="color:#0f172a;">${escapeHtml((student as any).place_of_birth || (student as any).birth_place)}</strong>` : ''}
                     </div>
 
                     <!-- Class Badge -->
                     <div style="margin-top:2px;">
                       <span style="display:inline-block; font-size:7.5px; font-weight:900; color:#166534; background:#f0fdf4; border:1px solid #86efac; padding:1.5px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">
-                        ${escapeHtml(className || 'MATERNELLE GS')}
+                        ${escapeHtml(className || 'Classe')}
                       </span>
                     </div>
 
@@ -726,7 +726,7 @@ export function buildStudentCardHtml({
                     RÉPUBLIQUE DE CÔTE D’IVOIRE – CARTE SCOLAIRE
                   </p>
                   <p style="margin:1px 0 0; font-size:7.5px; font-weight:900; color:#0f172a; text-transform:uppercase;">
-                    ${escapeHtml(school.name || 'GROUPE SCOLAIRE LA HARPE DE DAVID')}
+                    ${escapeHtml(school.name || 'ÉTABLISSEMENT SCOLAIRE')}
                   </p>
                 </div>
 

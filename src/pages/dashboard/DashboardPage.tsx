@@ -822,7 +822,7 @@ export default function DashboardPage() {
               Bonjour, {profile?.first_name} {profile?.last_name} 👋
             </h1>
             <p className="text-xs text-slate-300 mt-1 max-w-xl">
-              Suivi scolaire, assiduité, notes et frais de scolarité de vos enfants inscrits au {school?.name || 'Groupe Scolaire La Harpe de David'}.
+              Suivi scolaire, assiduité, notes et frais de scolarité de vos enfants inscrits {school?.name ? `à ${school.name}` : 'à votre établissement scolaire'}.
             </p>
           </div>
 
