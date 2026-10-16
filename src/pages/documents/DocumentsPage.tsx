@@ -56,6 +56,7 @@ import {
 } from '../../lib/printableDocuments';
 import { saveGeneratedDocument } from '../../lib/generatedDocuments';
 import { resolveStudentFinance } from '../../lib/financePlanResolver';
+import { resolveTeacherClass } from '../../lib/roleDataResolver';
 
 export const VAULT_DOC_TYPES: { id: string; label: string; icon: string; forEntity: ('student' | 'teacher' | 'school')[] }[] = [
   { id: 'birth_certificate', label: 'Extrait d’acte de naissance', icon: 'FileText', forEntity: ['student'] },
@@ -189,7 +190,13 @@ export const OFFICIAL_DOCUMENT_TEMPLATES = [
 
 export default function DocumentsPage() {
   const { school, academicYear } = useApp();
-  const { profile } = useAuth();
+  const { profile, role, isTeacher, isParent, isAdmin, isDirector, isSuperAdmin } = useAuth();
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const isParentUser = isParent || role === 'parent' || (profile?.role as any)?.name === 'parent';
+  const isAdminUser = isAdmin || isDirector || isSuperAdmin || role === 'admin' || role === 'director' || role === 'super_admin';
+
+  const [teacherClass, setTeacherClass] = useState<Class | null>(null);
+  const [teacherRecord, setTeacherRecord] = useState<any | null>(null);
 
   // Navigation
   const [activeTab, setActiveTab] = useState<'generate' | 'vault'>('generate');
@@ -380,11 +387,21 @@ export default function DocumentsPage() {
       setPayrolls((payrollsData as any[]) || []);
       setSchoolSupplies((suppliesData as SchoolSupplyItem[]) || []);
 
-      if (loadedClasses.length > 0) {
-        setGeneratorClassId(loadedClasses[0].id);
-        const classStudents = loadedStudents.filter(s => s.class_id === loadedClasses[0].id);
+      let effectiveClassId = loadedClasses[0]?.id || '';
+      if (isTeacherUser && profile) {
+        const { assignedClass, teacherRecord: tRec } = await resolveTeacherClass(school.id, profile, loadedClasses);
+        setTeacherClass(assignedClass);
+        setTeacherRecord(tRec);
+        if (assignedClass) {
+          effectiveClassId = assignedClass.id;
+        }
+      }
+
+      if (effectiveClassId) {
+        setGeneratorClassId(effectiveClassId);
+        const classStudents = loadedStudents.filter(s => s.class_id === effectiveClassId);
         if (classStudents.length > 0) {
-          syncStudentState(classStudents[0], loadedClasses[0].id, (spData as StudentParent[]) || [], (parentsData as Parent[]) || [], (gradesData as Grade[]) || [], (subsData as Subject[]) || []);
+          syncStudentState(classStudents[0], effectiveClassId, (spData as StudentParent[]) || [], (parentsData as Parent[]) || [], (gradesData as Grade[]) || [], (subsData as Subject[]) || []);
         }
       }
       if (loadedTeachers.length > 0) {
@@ -537,11 +554,39 @@ export default function DocumentsPage() {
     return unifiedStaff.find(s => s.id === generatorTeacherId) || unifiedStaff[0] || null;
   }, [unifiedStaff, generatorTeacherId]);
 
+  // Scoped classes for current user
+  const visibleClasses = useMemo(() => {
+    if (isTeacherUser && teacherClass) {
+      return classes.filter(c => c.id === teacherClass.id);
+    }
+    return classes;
+  }, [classes, isTeacherUser, teacherClass]);
+
+  // Scoped templates for current user (RBAC)
+  const visibleTemplates = useMemo(() => {
+    if (isAdminUser) return OFFICIAL_DOCUMENT_TEMPLATES;
+    if (isTeacherUser) {
+      const allowed = [
+        'class_roster',
+        'supply_list',
+        'school_certificate',
+        'attendance_certificate',
+        'report_card',
+        'honor_diploma',
+        'parent_summons',
+        'student_card',
+      ];
+      return OFFICIAL_DOCUMENT_TEMPLATES.filter(t => allowed.includes(t.id));
+    }
+    return [];
+  }, [isAdminUser, isTeacherUser]);
+
   // Filter students by selected class for generator
   const availableStudentsForClass = useMemo(() => {
-    if (!generatorClassId) return students;
-    return students.filter(s => s.class_id === generatorClassId);
-  }, [students, generatorClassId]);
+    const targetClassId = isTeacherUser && teacherClass ? teacherClass.id : generatorClassId;
+    if (!targetClassId) return students;
+    return students.filter(s => s.class_id === targetClassId);
+  }, [students, generatorClassId, isTeacherUser, teacherClass]);
 
   // Selected student entity
   const currentSelectedStudent = useMemo(() => {
@@ -1353,6 +1398,10 @@ export default function DocumentsPage() {
 
   // Open generator modal for a template
   function openGeneratorFor(templateId: string) {
+    if (isTeacherUser && !['class_roster', 'supply_list', 'school_certificate', 'attendance_certificate', 'report_card', 'honor_diploma', 'parent_summons', 'student_card'].includes(templateId)) {
+      alert("Accès restreint : ce document administratif est strictement réservé à la Direction de l'établissement.");
+      return;
+    }
     setSelectedTemplateId(templateId);
     setIsGeneratorModalOpen(true);
   }
@@ -1360,6 +1409,13 @@ export default function DocumentsPage() {
   // Filtered Vault documents
   const filteredVaultDocuments = useMemo(() => {
     return documents.filter(doc => {
+      // Role scoping: teacher only sees their class students or their own teacher docs
+      if (isTeacherUser && teacherClass) {
+        const myClassStudentIds = new Set(students.filter(s => s.class_id === teacherClass.id).map(s => s.id));
+        const isMyStudent = doc.entity_type === 'student' && myClassStudentIds.has(doc.entity_id);
+        const isMyTeacherDoc = (doc.entity_type === 'teacher' || doc.entity_type === 'staff') && doc.entity_id === teacherRecord?.id;
+        if (!isMyStudent && !isMyTeacherDoc) return false;
+      }
       if (vaultEntityFilter !== 'all' && doc.entity_type !== vaultEntityFilter) return false;
       if (vaultTypeFilter !== 'all' && doc.document_type !== vaultTypeFilter) return false;
       if (vaultSearch.trim()) {
@@ -1370,7 +1426,7 @@ export default function DocumentsPage() {
       }
       return true;
     });
-  }, [documents, vaultEntityFilter, vaultTypeFilter, vaultSearch]);
+  }, [documents, vaultEntityFilter, vaultTypeFilter, vaultSearch, isTeacherUser, teacherClass, students, teacherRecord]);
 
   // Resolve entity name for vault item
   function getEntityLabel(doc: Document) {
@@ -1500,7 +1556,7 @@ export default function DocumentsPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {OFFICIAL_DOCUMENT_TEMPLATES.map(tpl => {
+            {visibleTemplates.map(tpl => {
               const IconComp = tpl.icon;
               return (
                 <div
@@ -1808,7 +1864,7 @@ export default function DocumentsPage() {
                   onChange={e => handleGeneratorClassChange(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                 >
-                  {classes.map(c => (
+                  {visibleClasses.map(c => (
                     <option key={c.id} value={c.id}>
                       {c.name}
                     </option>

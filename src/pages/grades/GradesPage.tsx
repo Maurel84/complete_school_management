@@ -45,6 +45,7 @@ export default function GradesPage() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [teacherClass, setTeacherClass] = useState<Class | null>(null);
   const [loading, setLoading] = useState(true);
   const [parentChildIds, setParentChildIds] = useState<string[]>([]);
 
@@ -109,6 +110,7 @@ export default function GradesPage() {
       let autoSelectedClassId = '';
       if (isTeacherUser && profile && clsRes.data) {
         const { assignedClass } = await resolveTeacherClass(sid, profile, clsRes.data as Class[]);
+        setTeacherClass(assignedClass);
         if (assignedClass) {
           autoSelectedClassId = assignedClass.id;
         }
@@ -387,10 +389,12 @@ export default function GradesPage() {
         <div>
           <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
             <BookOpen className="text-blue-600" size={26} />
-            Évaluations & Notes Scolaires
+            {isTeacherUser ? `Évaluations & Notes • ${teacherClass?.name || 'CP1'}` : 'Évaluations & Notes Scolaires'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Grille de saisie collective par classe et matière, calcul de moyennes et bulletins
+            {isTeacherUser
+              ? `Grille de saisie collective des notes et calcul des bulletins pour votre classe (${teacherClass?.name || 'CP1'})`
+              : 'Grille de saisie collective par classe et matière, calcul de moyennes et bulletins'}
           </p>
         </div>
 
@@ -438,18 +442,25 @@ export default function GradesPage() {
                 <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
                   1. Classe :
                 </label>
-                <select
-                  value={selectedClass}
-                  onChange={e => setSelectedClass(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
-                >
-                  <option value="">-- Choisir une classe --</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {isTeacherUser && teacherClass ? (
+                  <div className="w-full rounded-xl border border-blue-200 bg-blue-50/60 px-3.5 py-2.5 text-sm font-bold text-blue-900 shadow-2xs flex items-center gap-2">
+                    <Users size={16} className="text-blue-600" />
+                    <span>Votre classe : {teacherClass.name}</span>
+                  </div>
+                ) : (
+                  <select
+                    value={selectedClass}
+                    onChange={e => setSelectedClass(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
+                  >
+                    <option value="">-- Choisir une classe --</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="lg:col-span-2">

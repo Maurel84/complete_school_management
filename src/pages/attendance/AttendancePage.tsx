@@ -53,6 +53,7 @@ export default function AttendancePage() {
   const [discipline, setDiscipline] = useState<DisciplineRecord[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [teacherClass, setTeacherClass] = useState<Class | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'sheet' | 'history' | 'discipline'>(isParentUser ? 'history' : 'sheet');
   const [parentChildIds, setParentChildIds] = useState<string[]>([]);
@@ -123,6 +124,7 @@ export default function AttendancePage() {
       let autoSelectedClassId = '';
       if (isTeacherUser && profile && clsRes.data) {
         const { assignedClass } = await resolveTeacherClass(sid, profile, clsRes.data as Class[]);
+        setTeacherClass(assignedClass);
         if (assignedClass) {
           autoSelectedClassId = assignedClass.id;
         }
@@ -411,10 +413,14 @@ export default function AttendancePage() {
         <div>
           <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
             <CalendarCheck className="text-emerald-600" size={26} />
-            Présences & Vie Scolaire
+            {isTeacherUser
+              ? `Présences & Vie Scolaire • ${teacherClass?.name || 'CP1'}`
+              : 'Présences & Vie Scolaire'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Feuille d'appel collective par classe, registre d'assiduité et suivi disciplinaire
+            {isTeacherUser
+              ? `Feuille d'appel quotidienne et registre d'assiduité de votre classe (${teacherClass?.name || 'CP1'})`
+              : "Feuille d'appel collective par classe, registre d'assiduité et suivi disciplinaire"}
           </p>
         </div>
 
@@ -462,18 +468,25 @@ export default function AttendancePage() {
                 <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1.5">
                   1. Sélectionner la Classe :
                 </label>
-                <select
-                  value={selectedClass}
-                  onChange={e => setSelectedClass(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 shadow-2xs"
-                >
-                  <option value="">-- Choisir une classe --</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                {isTeacherUser && teacherClass ? (
+                  <div className="w-full rounded-xl border border-emerald-200 bg-emerald-50/60 px-3.5 py-2.5 text-sm font-bold text-emerald-900 shadow-2xs flex items-center gap-2">
+                    <Users size={16} className="text-emerald-600" />
+                    <span>Votre classe : {teacherClass.name}</span>
+                  </div>
+                ) : (
+                  <select
+                    value={selectedClass}
+                    onChange={e => setSelectedClass(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-4 focus:ring-emerald-500/10 shadow-2xs"
+                  >
+                    <option value="">-- Choisir une classe --</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>

@@ -90,6 +90,16 @@ export default function MessagesPage() {
   const [savingContact, setSavingContact] = useState(false);
   const [contactSaveNotice, setContactSaveNotice] = useState<string | null>(null);
 
+  // Broadcast / Message Groupé State
+  const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
+  const [broadcastTargetScope, setBroadcastTargetScope] = useState<'all' | string>('all');
+  const [broadcastChannel, setBroadcastChannel] = useState<'whatsapp' | 'sms' | 'internal'>('whatsapp');
+  const [broadcastSubject, setBroadcastSubject] = useState('');
+  const [broadcastContent, setBroadcastContent] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
+  const [broadcastNotice, setBroadcastNotice] = useState<string | null>(null);
+  const [broadcastCopiedNotice, setBroadcastCopiedNotice] = useState(false);
+
   useEffect(() => {
     if (school) fetchData();
   }, [school, profile]);
@@ -432,6 +442,138 @@ export default function MessagesPage() {
     setCustomMsgModal(false);
   }
 
+  function openBroadcastModal() {
+    const defaultScope = isTeacherUser && teacherClass ? teacherClass.id : 'all';
+    setBroadcastTargetScope(defaultScope);
+    setBroadcastChannel('whatsapp');
+    setBroadcastNotice(null);
+    setBroadcastCopiedNotice(false);
+
+    const schoolName = school?.name || 'Groupe Scolaire';
+    const targetLabel = isTeacherUser && teacherClass ? `la classe de ${teacherClass.name}` : "l'établissement";
+    setBroadcastSubject(`Information Importante — ${schoolName}`);
+    setBroadcastContent(
+      `NOTE D'INFORMATION AUX PARENTS D'ÉLÈVES — ${schoolName}\n\nChers parents d'élèves de ${targetLabel},\n\nNous vous informons de la tenue prochaine d'un événement important dans notre école.\n\nMerci pour votre constante collaboration et votre engagement aux côtés de l'équipe pédagogique.\n\nCordialement,\nLa Direction`
+    );
+    setBroadcastModalOpen(true);
+  }
+
+  function applyBroadcastTemplate(type: 'reunion' | 'rentree' | 'finances' | 'fermeture' | 'fete') {
+    const schoolName = school?.name || 'Groupe Scolaire';
+    const targetLabel = isTeacherUser && teacherClass ? `la classe de ${teacherClass.name}` : "l'établissement";
+
+    if (type === 'reunion') {
+      setBroadcastSubject(`Convocation : Assemblée Générale des Parents d'Élèves`);
+      setBroadcastContent(
+        `CONVOCATION / ASSEMBLÉE GÉNÉRALE DES PARENTS D'ÉLÈVES\n\nChers parents d'élèves de ${targetLabel},\n\nNous avons l'honneur de vous convier à la réunion générale des parents d'élèves qui se tiendra dans l'enceinte de l'école.\n\nOrdre du jour :\n1. Bilan d'étape et projet pédagogique\n2. Suivi scolaire et portails numériques (notes, scolarités)\n3. Calendrier des évaluations et divers\n\nVotre présence est vivement souhaitée pour la réussite de nos apprenants.\n\nLa Direction — ${schoolName}`
+      );
+    } else if (type === 'rentree') {
+      setBroadcastSubject(`Rentrée Scolaire & Horaires des Cours`);
+      setBroadcastContent(
+        `AVIS DE RENTRÉE SCOLAIRE — ${schoolName}\n\nChers parents,\n\nNous vous souhaitons la bienvenue pour cette nouvelle rentrée scolaire. Les cours débutent tous les matins dès 07h45 (montée des couleurs à 07h30).\n\nNous vous prions de veiller au port strict de la tenue scolaire réglementaire et à la ponctualité de vos enfants.\n\nBonne et fructueuse année scolaire !\nLa Direction`
+      );
+    } else if (type === 'finances') {
+      setBroadcastSubject(`Rappel : Échéance des frais de scolarité`);
+      setBroadcastContent(
+        `AVIS IMPORTANT / COMPTABILITÉ — ${schoolName}\n\nChers parents d'élèves,\n\nNous vous rappelons que l'échéance des frais de scolarité arrive à terme selon le calendrier officiel.\n\nNous vous prions de bien vouloir régulariser la situation auprès de la caisse ou par paiement Mobile Money afin de garantir la continuité pédagogique.\n\nMerci pour votre fidélité et votre diligence.\nLe Service Comptabilité`
+      );
+    } else if (type === 'fermeture') {
+      setBroadcastSubject(`Information : Congés scolaires et arrêt des cours`);
+      setBroadcastContent(
+        `NOTE D'INFORMATION AUX FAMILLES — ${schoolName}\n\nChers parents,\n\nNous vous informons de l'arrêt temporaire des cours conformément au calendrier officiel du Ministère de l'Éducation Nationale.\n\nLa reprise effective des cours aura lieu le matin à 07h45.\n\nNous souhaitons un excellent repos à tous nos élèves.\nLa Direction`
+      );
+    } else if (type === 'fete') {
+      setBroadcastSubject(`Invitation : Cérémonie d'Excellence et Fête de l'École`);
+      setBroadcastContent(
+        `GRANDE FÊTE DE L'ÉCOLE & CÉRÉMONIE DE L'EXCELLENCE — ${schoolName}\n\nChers parents d'élèves,\n\nVous êtes chaleureusement conviés à prendre part à la grande fête de fin d'année et à la remise des prix d'excellence récompensant le travail remarquable de nos élèves.\n\nVenez nombreux célébrer le mérite de nos enfants !\nL'Équipe de Direction`
+      );
+    }
+  }
+
+  // Targeted parents for the broadcast
+  const targetedBroadcastParents = useMemo(() => {
+    if (isParentUser) return [];
+    if (isTeacherUser && teacherClass) {
+      return parentDirectory.filter(item => item.children.some(c => c.class_id === teacherClass.id));
+    }
+    if (broadcastTargetScope === 'all') {
+      return parentDirectory;
+    }
+    return parentDirectory.filter(item => item.children.some(c => c.class_id === broadcastTargetScope));
+  }, [parentDirectory, isParentUser, isTeacherUser, teacherClass, broadcastTargetScope]);
+
+  // Clean phone numbers list
+  const broadcastPhonesList = useMemo(() => {
+    const set = new Set<string>();
+    targetedBroadcastParents.forEach(item => {
+      const p = item.parent;
+      const parsed = parsePhoneNumbers(p.phone || '');
+      const num = parsed.whatsappPhone || parsed.mainPhone || p.phone;
+      const clean = cleanPhone(num);
+      if (clean) set.add(clean);
+    });
+    return Array.from(set);
+  }, [targetedBroadcastParents]);
+
+  async function handleExecuteBroadcast() {
+    if (!broadcastContent.trim()) {
+      alert('Veuillez saisir le contenu du message à diffuser.');
+      return;
+    }
+
+    if (broadcastChannel === 'internal') {
+      setBroadcastSending(true);
+      try {
+        const scopeLabel = broadcastTargetScope === 'all' ? 'Toutes les familles' : classes.find(c => c.id === broadcastTargetScope)?.name || 'Classe';
+        await supabase.from('messages').insert({
+          school_id: school!.id,
+          sender_id: profile!.id,
+          recipient_id: null,
+          subject: broadcastSubject.trim() || `Information aux Familles (${scopeLabel})`,
+          content: broadcastContent.trim(),
+          is_announcement: true,
+          is_read: false,
+        });
+        setBroadcastNotice(`✅ Annonce interne publiée avec succès pour ${targetedBroadcastParents.length} parents !`);
+        setTimeout(() => {
+          setBroadcastModalOpen(false);
+          setBroadcastNotice(null);
+          void fetchData();
+        }, 2000);
+      } catch (err: any) {
+        alert("Erreur lors de la diffusion de l'annonce : " + err.message);
+      } finally {
+        setBroadcastSending(false);
+      }
+    } else if (broadcastChannel === 'sms') {
+      if (broadcastPhonesList.length === 0) {
+        alert('Aucun numéro de téléphone valide trouvé pour la sélection ciblée.');
+        return;
+      }
+      const smsUri = `sms:${broadcastPhonesList.join(',')}?body=${encodeURIComponent(broadcastContent)}`;
+      window.open(smsUri, '_blank');
+      setBroadcastNotice(`Application SMS ouverte pour ${broadcastPhonesList.length} destinataires.`);
+    } else if (broadcastChannel === 'whatsapp') {
+      if (broadcastPhonesList.length === 0) {
+        alert('Aucun numéro WhatsApp trouvé pour les parents ciblés.');
+        return;
+      }
+      navigator.clipboard?.writeText(broadcastPhonesList.join(', '));
+      const firstNum = broadcastPhonesList[0];
+      const waUri = `https://wa.me/${firstNum}?text=${encodeURIComponent(broadcastContent)}`;
+      window.open(waUri, '_blank');
+      setBroadcastNotice(`Numéros copiés dans le presse-papier (${broadcastPhonesList.length} numéros). WhatsApp ouvert.`);
+    }
+  }
+
+  function handleCopyAllNumbers() {
+    if (broadcastPhonesList.length === 0) return;
+    const txt = broadcastPhonesList.join('; ');
+    navigator.clipboard?.writeText(txt);
+    setBroadcastCopiedNotice(true);
+    setTimeout(() => setBroadcastCopiedNotice(false), 3000);
+  }
+
   const inbox = messages.filter(m => m.recipient_id === profile?.id && !m.is_announcement);
   const sent = messages.filter(m => m.sender_id === profile?.id && !m.is_announcement);
   const announcements = messages.filter(m => m.is_announcement);
@@ -473,6 +615,16 @@ export default function MessagesPage() {
           >
             <Plus size={16} /> {isParentUser ? "Écrire à l'école / aux enseignants" : "Nouveau message interne"}
           </button>
+
+          {!isParentUser && (
+            <button
+              onClick={() => openBroadcastModal()}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-semibold hover:bg-emerald-700 shadow-xs transition"
+            >
+              <Megaphone size={16} />
+              {isTeacherUser ? `Message Groupé aux Parents (${teacherClass?.name || 'CP1'})` : 'Message Groupé aux Parents (1 clic)'}
+            </button>
+          )}
 
           {isAdminUser && (
             <button
@@ -1151,6 +1303,222 @@ export default function MessagesPage() {
               onChange={e => setForm({ ...form, content: e.target.value })}
               rows={5}
               className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
+            />
+          </FormField>
+        </div>
+      </Modal>
+
+      {/* MODAL MESSAGE GROUPÉ / BROADCAST AUX PARENTS */}
+      <Modal
+        open={broadcastModalOpen}
+        onClose={() => setBroadcastModalOpen(false)}
+        title="Diffusion de Message Groupé aux Parents (1 Clic)"
+        footer={
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs">
+                {broadcastPhonesList.length}
+              </span>
+              <span>numéros valides prêts pour la diffusion</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyAllNumbers}
+                disabled={broadcastPhonesList.length === 0}
+                className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {broadcastCopiedNotice ? (
+                  <>
+                    <Check size={14} className="text-emerald-600" />
+                    <span>Numéros copiés !</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={14} />
+                    <span>Copier les numéros</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setBroadcastModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl"
+              >
+                Fermer
+              </button>
+
+              <button
+                type="button"
+                onClick={handleExecuteBroadcast}
+                disabled={broadcastSending || !broadcastContent.trim() || targetedBroadcastParents.length === 0}
+                className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-xs transition disabled:opacity-50 ${
+                  broadcastChannel === 'whatsapp'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : broadcastChannel === 'sms'
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-teal-600 hover:bg-teal-700'
+                }`}
+              >
+                <Send size={15} />
+                {broadcastSending
+                  ? 'Envoi en cours...'
+                  : broadcastChannel === 'whatsapp'
+                  ? 'Lancer WhatsApp Broadcast'
+                  : broadcastChannel === 'sms'
+                  ? 'Lancer SMS Groupé'
+                  : 'Publier Annonce aux Parents'}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          {broadcastNotice && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+              <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />
+              <span>{broadcastNotice}</span>
+            </div>
+          )}
+
+          {/* Target Scope Selection */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                Destinataires ciblés :
+              </label>
+              {isTeacherUser && teacherClass ? (
+                <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
+                  👩‍🏫 Parents de votre classe ({teacherClass.name}) • {targetedBroadcastParents.length} parents
+                </div>
+              ) : (
+                <select
+                  value={broadcastTargetScope}
+                  onChange={e => setBroadcastTargetScope(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="all">👨‍👩‍👧‍👦 Toutes les familles de l'école ({parentDirectory.length} parents)</option>
+                  {classes.map(c => {
+                    const countInClass = parentDirectory.filter(item => item.children.some(ch => ch.class_id === c.id)).length;
+                    return (
+                      <option key={c.id} value={c.id}>
+                        Classe {c.name} ({countInClass} parents)
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                Canal de diffusion :
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setBroadcastChannel('whatsapp')}
+                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    broadcastChannel === 'whatsapp'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <MessageCircle size={14} /> WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBroadcastChannel('sms')}
+                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    broadcastChannel === 'sms'
+                      ? 'bg-blue-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Phone size={14} /> SMS
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBroadcastChannel('internal')}
+                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                    broadcastChannel === 'internal'
+                      ? 'bg-teal-600 text-white shadow-2xs'
+                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Megaphone size={14} /> Portail
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Pre-filled Templates */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                Modèles de messages rapides :
+              </label>
+              <span className="text-[11px] text-slate-400">Cliquez pour appliquer</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => applyBroadcastTemplate('reunion')}
+                className="px-2.5 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-medium hover:bg-amber-100 transition"
+              >
+                📅 Réunion / Assemblée
+              </button>
+              <button
+                type="button"
+                onClick={() => applyBroadcastTemplate('rentree')}
+                className="px-2.5 py-1.5 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-xs font-medium hover:bg-blue-100 transition"
+              >
+                🎓 Rentrée scolaire
+              </button>
+              <button
+                type="button"
+                onClick={() => applyBroadcastTemplate('finances')}
+                className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-medium hover:bg-emerald-100 transition"
+              >
+                💳 Rappel de scolarité
+              </button>
+              <button
+                type="button"
+                onClick={() => applyBroadcastTemplate('fermeture')}
+                className="px-2.5 py-1.5 bg-rose-50 text-rose-800 border border-rose-200 rounded-lg text-xs font-medium hover:bg-rose-100 transition"
+              >
+                🏖️ Congés / Arrêt cours
+              </button>
+              <button
+                type="button"
+                onClick={() => applyBroadcastTemplate('fete')}
+                className="px-2.5 py-1.5 bg-purple-50 text-purple-800 border border-purple-200 rounded-lg text-xs font-medium hover:bg-purple-100 transition"
+              >
+                🏆 Fête de l'école
+              </button>
+            </div>
+          </div>
+
+          {/* Subject & Content */}
+          <FormField label="Objet de la communication" required>
+            <input
+              type="text"
+              value={broadcastSubject}
+              onChange={e => setBroadcastSubject(e.target.value)}
+              placeholder="Ex: Assemblée Générale des Parents d'Élèves..."
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
+            />
+          </FormField>
+
+          <FormField label="Contenu du message aux parents" required>
+            <textarea
+              rows={6}
+              value={broadcastContent}
+              onChange={e => setBroadcastContent(e.target.value)}
+              placeholder="Rédigez ici le texte à envoyer à tous les parents..."
+              className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs sm:text-sm font-normal text-slate-800 focus:outline-none focus:border-emerald-500 font-mono"
             />
           </FormField>
         </div>

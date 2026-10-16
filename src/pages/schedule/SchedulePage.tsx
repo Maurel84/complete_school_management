@@ -17,7 +17,9 @@ import {
   User,
   MapPin,
   CheckCircle2,
+  School,
 } from 'lucide-react';
+import { resolveTeacherClass } from '../../lib/roleDataResolver';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 
@@ -52,13 +54,15 @@ function getDurationLabel(start?: string, end?: string): string {
 
 export default function SchedulePage() {
   const { school, academicYear } = useApp();
-  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher } = useAuth();
-  const canManageSchedule = isSuperAdmin || isAdmin || isDirector || isSupervisor;
+  const { isSuperAdmin, isAdmin, isDirector, isSupervisor, isTeacher, role, profile } = useAuth();
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
+  const canManageSchedule = (isSuperAdmin || isAdmin || isDirector || isSupervisor) && !isTeacherUser;
 
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
+  const [teacherClass, setTeacherClass] = useState<Class | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedClass, setSelectedClass] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -99,7 +103,18 @@ export default function SchedulePage() {
       setTeachers((teaRes.data as Teacher[]) || []);
       setClasses((clsRes.data as Class[]) || []);
 
-      if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
+      let initialClassId = '';
+      if (isTeacherUser && profile && clsRes.data) {
+        const { assignedClass } = await resolveTeacherClass(sid, profile, clsRes.data as Class[]);
+        setTeacherClass(assignedClass);
+        if (assignedClass) {
+          initialClassId = assignedClass.id;
+        }
+      }
+
+      if (initialClassId) {
+        setSelectedClass(initialClassId);
+      } else if (clsRes.data && clsRes.data.length > 0 && !selectedClass) {
         setSelectedClass(clsRes.data[0].id);
       }
     } catch (e) {
@@ -260,10 +275,12 @@ export default function SchedulePage() {
         <div>
           <h1 className="display-font text-2xl font-bold text-slate-900 flex items-center gap-2">
             <Clock className="text-blue-600" size={26} />
-            Emploi du temps
+            {isTeacherUser ? `Emploi du temps • ${teacherClass?.name || 'CP1'}` : 'Emploi du temps'}
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Planification hebdomadaire des cours, pauses et séances d'apprentissage
+            {isTeacherUser
+              ? `Planning hebdomadaire des cours de votre classe (${teacherClass?.name || 'CP1'})`
+              : "Planification hebdomadaire des cours, pauses et séances d'apprentissage"}
           </p>
         </div>
 
@@ -320,18 +337,25 @@ export default function SchedulePage() {
           <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
             Classe concernée :
           </label>
-          <select
-            value={selectedClass}
-            onChange={e => setSelectedClass(e.target.value)}
-            className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
-          >
-            <option value="">Toutes les classes</option>
-            {classes.map(c => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          {isTeacherUser && teacherClass ? (
+            <div className="flex items-center gap-2 px-3.5 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800">
+              <School size={15} className="text-emerald-600" />
+              <span>Votre classe : {teacherClass.name}</span>
+            </div>
+          ) : (
+            <select
+              value={selectedClass}
+              onChange={e => setSelectedClass(e.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 shadow-2xs"
+            >
+              <option value="">Toutes les classes</option>
+              {classes.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="text-xs text-slate-500 font-medium">

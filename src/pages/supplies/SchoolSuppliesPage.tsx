@@ -8,6 +8,7 @@ import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
 import { formatCurrency } from '../../lib/utils';
 import { buildClassSupplyListHtml, openPrintPreview } from '../../lib/printableDocuments';
+import { resolveTeacherClass } from '../../lib/roleDataResolver';
 import type { SchoolSupplyItem } from '../../types';
 import { 
   BookOpen, 
@@ -55,11 +56,13 @@ const STANDARD_PACK_TEMPLATES: Record<string, { item_name: string; category: Sch
 };
 
 export default function SchoolSuppliesPage() {
-  const { profile } = useAuth();
+  const { profile, role, isTeacher } = useAuth();
+  const isTeacherUser = isTeacher || role === 'teacher' || (profile?.role as any)?.name === 'teacher';
   const { school, academicYear } = useApp();
   const schoolId = school?.id;
   const queryClient = useQueryClient();
 
+  const [teacherClass, setTeacherClass] = useState<any | null>(null);
   const [selectedYearId, setSelectedYearId] = useState<string>('');
   const [selectedClassId, setSelectedClassId] = useState<string>('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -114,12 +117,22 @@ export default function SchoolSuppliesPage() {
     enabled: !!schoolId,
   });
 
-  // Default to first class if not set
+  // Default to assigned teacher class or first class
   useEffect(() => {
-    if (classes.length > 0 && !selectedClassId) {
+    if (!classes || classes.length === 0) return;
+    if (isTeacherUser && profile && schoolId) {
+      void resolveTeacherClass(schoolId, profile, classes as any[]).then(res => {
+        if (res.assignedClass) {
+          setTeacherClass(res.assignedClass);
+          setSelectedClassId(res.assignedClass.id);
+        } else if (!selectedClassId && classes.length > 0) {
+          setSelectedClassId(classes[0].id);
+        }
+      });
+    } else if (classes.length > 0 && !selectedClassId) {
       setSelectedClassId(classes[0].id);
     }
-  }, [classes, selectedClassId]);
+  }, [classes, isTeacherUser, profile, schoolId, selectedClassId]);
 
   // 3. Fetch Supplies for School, Year and Class
   const { data: supplies = [], isLoading } = useQuery({
@@ -383,10 +396,14 @@ export default function SchoolSuppliesPage() {
                 </div>
                 <div>
                   <h1 className="display-font text-2xl font-bold text-slate-900">
-                    Fournitures & Manuels Scolaires
+                    {isTeacherUser
+                      ? `Fournitures & Manuels Scolaires • ${teacherClass?.name || 'CP1'}`
+                      : 'Fournitures & Manuels Scolaires'}
                   </h1>
                   <p className="text-sm text-slate-500">
-                    Configurez et imprimez les listes officielles de livres et fournitures par classe et par rentrée académique.
+                    {isTeacherUser
+                      ? `Consultez et imprimez la liste des manuels et fournitures de votre classe (${teacherClass?.name || 'CP1'}).`
+                      : 'Configurez et imprimez les listes officielles de livres et fournitures par classe et par rentrée académique.'}
                   </p>
                 </div>
               </div>
@@ -439,17 +456,23 @@ export default function SchoolSuppliesPage() {
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
               <School size={14} /> Classe :
             </span>
-            <select
-              value={selectedClassId}
-              onChange={e => setSelectedClassId(e.target.value)}
-              className="rounded-xl border border-blue-200 bg-blue-50/50 px-3 py-2 text-xs font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              {classes.map(c => (
-                <option key={c.id} value={c.id}>
-                  Classe de {c.name}
-                </option>
-              ))}
-            </select>
+            {isTeacherUser && teacherClass ? (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                Votre classe : {teacherClass.name}
+              </div>
+            ) : (
+              <select
+                value={selectedClassId}
+                onChange={e => setSelectedClassId(e.target.value)}
+                className="rounded-xl border border-blue-200 bg-blue-50/50 px-3 py-2 text-xs font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>
+                    Classe de {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
