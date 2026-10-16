@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -154,13 +154,39 @@ export default function StudentsPage() {
     void loadRoleScope();
   }, [isTeacherUser, isParentUser, school?.id, profile, classes]);
 
+  const queryClient = useQueryClient();
+
   // Financial system integration
   const {
     plansQuery,
     studentFeesQuery,
+    studentInstallmentsQuery,
+    canteenPaymentsQuery,
     saveDetailedPayment,
     saveCanteenPayment,
   } = useFinance(school?.id, academicYear?.id);
+
+  // Query: tuition payments list for the school (synced live)
+  const paymentsQuery = useQuery({
+    queryKey: ['payments_all', school?.id],
+    queryFn: async () => {
+      if (!school?.id) return [];
+      const { data, error } = await supabase
+        .from('payments')
+        .select(`
+          *,
+          student:students(id, first_name, last_name, matricule, class:classes(name, level_id)),
+          parent:parents(id, first_name, last_name, phone, email),
+          processor:profiles(first_name, last_name)
+        `)
+        .eq('school_id', school.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!school?.id,
+  });
 
   // Active Cash Register
   const activeRegisterQuery = useQuery({
@@ -468,6 +494,10 @@ export default function StudentsPage() {
 
       setPaymentModalOpen(false);
       void studentsQuery.refetch();
+      void paymentsQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['payments_all', school.id] });
+      void queryClient.invalidateQueries({ queryKey: ['student_fees', school.id, academicYear?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['student_installments_all', school.id, academicYear?.id] });
 
       if (confirm(`Paiement de scolarité (Reçu N° ${payment.receipt_number || ''}) enregistré avec succès !\nVoulez-vous imprimer le reçu officiel ?`)) {
         void handlePrintReceipt({ ...payment, student_id: payload.student_id, student }, false);
@@ -529,6 +559,8 @@ export default function StudentsPage() {
 
       setPaymentModalOpen(false);
       void studentsQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: ['canteen_payments', school.id, academicYear?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['payments_all', school.id] });
 
       if (confirm(`Paiement Cantine (Reçu N° ${payload.receipt_number || ''}) enregistré avec succès !\nVoulez-vous imprimer le reçu officiel ?`)) {
         void handlePrintReceipt({ ...cp, student_id: payload.student_id, student }, true);
@@ -1355,8 +1387,9 @@ export default function StudentsPage() {
           students={students}
           studentFees={studentFeesQuery.data || []}
           plans={plansQuery.data || []}
-          payments={[]}
-          canteenPayments={[]}
+          payments={paymentsQuery.data || []}
+          canteenPayments={canteenPaymentsQuery.data || []}
+          studentInstallments={studentInstallmentsQuery.data || []}
           classes={classes}
           initialStudentId={paymentTargetStudent?.id}
           initialPaymentType={paymentType}

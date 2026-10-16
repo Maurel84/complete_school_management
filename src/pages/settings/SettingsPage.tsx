@@ -29,9 +29,12 @@ import {
   MessageSquare,
   FileText,
   FileCheck,
+  Palette,
+  CheckCircle2,
 } from 'lucide-react';
+import { THEME_PRESETS, ThemePresetOption, SchoolTheme } from '../../lib/schoolTheme';
 
-type SettingsTab = 'school' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
+type SettingsTab = 'school' | 'theme' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
 type LevelItem = { id: string; name: string; order_index: number };
 type SubjectItem = { id: string; name: string; code: string; coefficient: number };
 type FeeTypeItem = { id: string; name: string; description: string; is_recurring: boolean };
@@ -43,9 +46,22 @@ function normalizeFeeTypeName(value: string) {
 }
 
 export default function SettingsPage() {
-  const { school, refreshSchool, refreshAcademicYears } = useApp();
+  const { school, refreshSchool, refreshAcademicYears, theme, updateTheme } = useApp();
   const { isAdmin, isSuperAdmin } = useAuth();
   const [tab, setTab] = useState<SettingsTab>('school');
+  const [selectedPreset, setSelectedPreset] = useState<string>(theme?.presetId || 'emerald');
+  const [customPrimary, setCustomPrimary] = useState<string>(theme?.primary || '#059669');
+  const [customAccent, setCustomAccent] = useState<string>(theme?.accent || '#d97706');
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeNotice, setThemeNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (theme) {
+      setSelectedPreset(theme.presetId);
+      setCustomPrimary(theme.primary);
+      setCustomAccent(theme.accent);
+    }
+  }, [theme]);
   const [schoolForm, setSchoolForm] = useState({
     name: '',
     address: '',
@@ -698,6 +714,7 @@ export default function SettingsPage() {
 
   const tabs = [
     { key: 'school', label: 'École', icon: ImageIcon },
+    { key: 'theme', label: '🎨 Thème & Couleurs', icon: Palette },
     { key: 'years', label: 'Années', icon: CalendarDays },
     { key: 'levels', label: 'Niveaux', icon: Layers3 },
     { key: 'subjects', label: 'Matières', icon: BookOpen },
@@ -988,6 +1005,249 @@ export default function SettingsPage() {
           <button onClick={() => void saveSchool()} disabled={saving || !canManage} className="mt-6 inline-flex items-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">
             <Save size={16} /> Enregistrer
           </button>
+        </div>
+      )}
+
+      {tab === 'theme' && (
+        <div className="surface-card p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-2 rounded-xl bg-emerald-100 text-emerald-700">
+                  <Palette size={20} />
+                </span>
+                <h2 className="display-font text-xl font-semibold text-slate-900">
+                  Thème & Charte Graphique de l'Établissement
+                </h2>
+              </div>
+              <p className="mt-1 text-sm text-slate-500 max-w-2xl">
+                Adaptez instantanément l'apparence visuelle de la plateforme aux couleurs de votre établissement,
+                de votre logo et de l'uniforme scolaire des élèves.
+              </p>
+            </div>
+
+            {themeNotice && (
+              <div className="px-4 py-2 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold flex items-center gap-2 animate-in">
+                <CheckCircle2 size={16} className="text-emerald-600" />
+                {themeNotice}
+              </div>
+            )}
+          </div>
+
+          {/* PALETTES PRÉDÉFINIES */}
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 mb-1">
+              1. Choisissez une Palette Académique Institutionnelle (1 Clic)
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Des combinaisons harmonieuses soigneusement calibrées pour les établissements d'enseignement scolaire.
+            </p>
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {THEME_PRESETS.map(preset => {
+                const isActive = selectedPreset === preset.id;
+                return (
+                  <div
+                    key={preset.id}
+                    onClick={() => {
+                      setSelectedPreset(preset.id);
+                      setCustomPrimary(preset.primary);
+                      setCustomAccent(preset.accent);
+                      const newTh: SchoolTheme = {
+                        presetId: preset.id,
+                        primary: preset.primary,
+                        primaryHover: preset.primaryHover,
+                        primaryLight: preset.primaryLight,
+                        accent: preset.accent,
+                        accentLight: preset.accentLight,
+                        name: preset.name,
+                      };
+                      void updateTheme(newTh);
+                      setThemeNotice(`Thème "${preset.name}" activé !`);
+                      setTimeout(() => setThemeNotice(null), 3000);
+                    }}
+                    className={`cursor-pointer rounded-3xl p-5 border-2 transition-all flex flex-col justify-between ${
+                      isActive
+                        ? 'border-slate-900 bg-white shadow-md ring-4 ring-slate-900/5'
+                        : 'border-slate-200/80 bg-white/70 hover:border-slate-300 hover:bg-white'
+                    }`}
+                  >
+                    <div>
+                      {/* Color circles */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-8 h-8 rounded-full shadow-sm border-2 border-white ring-1 ring-slate-200"
+                            style={{ backgroundColor: preset.primary }}
+                            title="Couleur Primaire"
+                          />
+                          <div
+                            className="w-8 h-8 rounded-full shadow-sm border-2 border-white ring-1 ring-slate-200"
+                            style={{ backgroundColor: preset.accent }}
+                            title="Couleur Accent"
+                          />
+                        </div>
+
+                        {isActive && (
+                          <span className="px-2.5 py-1 rounded-full text-[10px] font-extrabold bg-slate-900 text-white flex items-center gap-1">
+                            <CheckCircle2 size={12} /> Actif
+                          </span>
+                        )}
+                      </div>
+
+                      <h4 className="font-bold text-slate-900 text-sm">{preset.name}</h4>
+                      <p className="text-[11px] font-semibold text-slate-500 mt-0.5">{preset.tagline}</p>
+                      <p className="text-xs text-slate-600 mt-2 leading-relaxed">{preset.description}</p>
+                    </div>
+
+                    <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-400 font-mono text-[11px]">{preset.primary} • {preset.accent}</span>
+                      <span className="text-slate-700 underline text-xs">Appliquer</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* SÉLECTEUR DE COULEURS SUR-MESURE */}
+          <div className="pt-4 border-t border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900 mb-1">
+              2. Ou définissez vos propres couleurs sur-mesure (Charte de l'école)
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Saisissez les codes Hexadécimaux (#) de votre école pour un affichage sur-mesure à 100%.
+            </p>
+
+            <div className="grid gap-4 md:grid-cols-2 bg-slate-50/70 p-5 rounded-3xl border border-slate-200/80">
+              {/* Primary Color Picker */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700">
+                  Couleur Principale (Boutons, Menus, En-têtes)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={customPrimary}
+                    onChange={e => setCustomPrimary(e.target.value)}
+                    className="w-12 h-12 rounded-2xl cursor-pointer border border-slate-200 p-1 bg-white shadow-2xs"
+                  />
+                  <input
+                    type="text"
+                    value={customPrimary}
+                    onChange={e => setCustomPrimary(e.target.value)}
+                    placeholder="#059669"
+                    className="flex-1 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 font-mono text-sm uppercase text-slate-900 font-bold focus:border-slate-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Accent Color Picker */}
+              <div className="space-y-2">
+                <label className="block text-xs font-bold text-slate-700">
+                  Couleur d'Accentuation (Badges, Alertes, Éléments de mise en valeur)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={customAccent}
+                    onChange={e => setCustomAccent(e.target.value)}
+                    className="w-12 h-12 rounded-2xl cursor-pointer border border-slate-200 p-1 bg-white shadow-2xs"
+                  />
+                  <input
+                    type="text"
+                    value={customAccent}
+                    onChange={e => setCustomAccent(e.target.value)}
+                    placeholder="#D97706"
+                    className="flex-1 rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 font-mono text-sm uppercase text-slate-900 font-bold focus:border-slate-900 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="md:col-span-2 pt-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setThemeSaving(true);
+                    try {
+                      const newTh: SchoolTheme = {
+                        presetId: 'custom',
+                        primary: customPrimary,
+                        primaryHover: customPrimary,
+                        primaryLight: customPrimary + '15',
+                        accent: customAccent,
+                        accentLight: customAccent + '20',
+                        name: 'Charte sur-mesure',
+                      };
+                      await updateTheme(newTh);
+                      setSelectedPreset('custom');
+                      setThemeNotice('Couleurs personnalisées enregistrées et appliquées avec succès !');
+                      setTimeout(() => setThemeNotice(null), 3000);
+                    } finally {
+                      setThemeSaving(false);
+                    }
+                  }}
+                  disabled={themeSaving}
+                  className="px-5 py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center gap-2 shadow-xs"
+                >
+                  <Save size={16} />
+                  {themeSaving ? 'Application...' : 'Appliquer et Enregistrer les Couleurs'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* STUDIO DE PRÉVISUALISATION EN DIRECT */}
+          <div className="pt-4 border-t border-slate-100">
+            <h3 className="text-sm font-bold text-slate-900 mb-2">
+              3. Aperçu en Direct des Composants Graphiques
+            </h3>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xs space-y-4">
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  style={{ backgroundColor: customPrimary }}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold text-white shadow-sm flex items-center gap-2"
+                >
+                  <Sparkles size={14} /> Bouton Principal de l'École
+                </button>
+
+                <button
+                  type="button"
+                  style={{ backgroundColor: customAccent }}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold text-white shadow-sm flex items-center gap-2"
+                >
+                  Bouton d'Action Secondaire
+                </button>
+
+                <span
+                  style={{ color: customPrimary, backgroundColor: customPrimary + '18', borderColor: customPrimary + '40' }}
+                  className="px-3 py-1 rounded-full text-xs font-extrabold border"
+                >
+                  Badge Inscription Validée
+                </span>
+
+                <span
+                  style={{ color: customAccent, backgroundColor: customAccent + '18', borderColor: customAccent + '40' }}
+                  className="px-3 py-1 rounded-full text-xs font-extrabold border"
+                >
+                  Notification Frais de Scolarité
+                </span>
+              </div>
+
+              {/* Sample Card Accent Bar */}
+              <div className="pt-3 border-t border-slate-100">
+                <p className="text-[11px] font-bold text-slate-500 mb-1.5 uppercase tracking-wider">
+                  Bandeau décoratif de Carte Scolaire & Documents :
+                </p>
+                <div className="w-full h-3 rounded-full overflow-hidden flex shadow-inner">
+                  <div style={{ backgroundColor: customPrimary }} className="flex-1 transition-all" />
+                  <div style={{ backgroundColor: customAccent }} className="flex-1 transition-all" />
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

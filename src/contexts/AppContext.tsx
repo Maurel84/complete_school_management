@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from 'react
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import type { School, AcademicYear } from '../types';
+import { getSchoolTheme, applySchoolTheme, saveSchoolTheme, SchoolTheme, DEFAULT_THEME } from '../lib/schoolTheme';
 
 interface AppContextType {
   school: School | null;
@@ -12,6 +13,8 @@ interface AppContextType {
   setSidebarOpen: (open: boolean) => void;
   refreshSchool: () => Promise<void>;
   refreshAcademicYears: () => Promise<void>;
+  theme: SchoolTheme;
+  updateTheme: (newTheme: SchoolTheme) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -22,6 +25,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [academicYear, setAcademicYear] = useState<AcademicYear | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [theme, setThemeState] = useState<SchoolTheme>(() => getSchoolTheme());
+
+  useEffect(() => {
+    if (school?.id) {
+      const activeTheme = getSchoolTheme(school.id);
+      setThemeState(activeTheme);
+      applySchoolTheme(activeTheme);
+    } else {
+      applySchoolTheme(theme);
+    }
+  }, [school?.id]);
+
+  async function updateTheme(newTheme: SchoolTheme) {
+    setThemeState(newTheme);
+    applySchoolTheme(newTheme);
+    if (school?.id) {
+      await saveSchoolTheme(school.id, newTheme);
+    }
+  }
 
   useEffect(() => {
     if (profile?.school_id) {
@@ -64,6 +86,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setSidebarOpen,
         refreshSchool,
         refreshAcademicYears,
+        theme,
+        updateTheme,
       }}
     >
       {children}

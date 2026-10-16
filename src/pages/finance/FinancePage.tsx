@@ -826,6 +826,7 @@ export default function FinancePage() {
         plans={plansQuery.data || []}
         payments={paymentsQuery.data || []}
         canteenPayments={canteenPaymentsQuery.data || []}
+        studentInstallments={studentInstallmentsQuery.data || []}
         classes={classesQuery.data || []}
         onSavePayment={handleSaveTuitionPayment}
         onSaveCanteen={handleSaveCanteenPayment}
