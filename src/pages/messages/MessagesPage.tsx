@@ -109,12 +109,25 @@ export default function MessagesPage() {
     setLoading(true);
     const sid = school!.id;
     try {
-      // 1. Fetch messages
-      const msgPromise = supabase
-        .from('messages')
-        .select('*, sender:profiles!messages_sender_id_fkey(*)')
-        .eq('school_id', sid)
-        .order('created_at', { ascending: false });
+      // 1. Fetch messages with error resilience
+      let loadedMessages: any[] = [];
+      try {
+        const msgRes = await supabase
+          .from('messages')
+          .select('*, sender:profiles(id, first_name, last_name, email)')
+          .eq('school_id', sid)
+          .order('created_at', { ascending: false });
+
+        if (msgRes.error) throw msgRes.error;
+        loadedMessages = msgRes.data || [];
+      } catch {
+        const fallbackRes = await supabase
+          .from('messages')
+          .select('*')
+          .eq('school_id', sid)
+          .order('created_at', { ascending: false });
+        loadedMessages = fallbackRes.data || [];
+      }
 
       // 2. Fetch classes
       const clsPromise = supabase
@@ -126,22 +139,22 @@ export default function MessagesPage() {
       // 3. Fetch staff and teachers
       const staffPromise = supabase
         .from('profiles')
-        .select('id, first_name, last_name, email, role:roles(name)');
+        .select('id, first_name, last_name, email, role:roles(name)')
+        .eq('school_id', sid);
 
       const teachersPromise = supabase
         .from('teachers')
         .select('id, user_id, first_name, last_name, specialty, teacher_subjects(class_id, class:classes(name))')
         .eq('school_id', sid);
 
-      const [msgRes, clsRes, staffRes, teachRes] = await Promise.all([
-        msgPromise,
+      const [clsRes, staffRes, teachRes] = await Promise.all([
         clsPromise,
         staffPromise,
         teachersPromise,
       ]);
 
       const loadedClasses = (clsRes.data as Class[]) || [];
-      setMessages((msgRes.data as any[]) || []);
+      setMessages(loadedMessages);
       setClasses(loadedClasses);
 
       // Build recipients list
@@ -176,6 +189,8 @@ export default function MessagesPage() {
       setAvailableRecipients(recList);
 
       // 4. Role specific data loading
+      const studentFields = 'id, first_name, last_name, matricule, phone, email, address, class_id, class:classes(name), student_parents(parent_id, relationship, is_primary, parent:parents(*))';
+
       if (isParentUser) {
         const { children: pChildren } = await resolveParentChildren(sid, profile);
         setParentChildren(pChildren);
@@ -189,7 +204,7 @@ export default function MessagesPage() {
           const [stRes, parRes] = await Promise.all([
             supabase
               .from('students')
-              .select('id, first_name, last_name, matricule, class_id, class:classes(name), student_parents(parent:parents(*))')
+              .select(studentFields)
               .eq('school_id', sid)
               .eq('class_id', assignedClass.id)
               .order('last_name'),
@@ -203,7 +218,7 @@ export default function MessagesPage() {
         const [stuRes, parRes] = await Promise.all([
           supabase
             .from('students')
-            .select('id, first_name, last_name, matricule, class_id, class:classes(name), student_parents(parent:parents(*))')
+            .select(studentFields)
             .eq('school_id', sid)
             .order('last_name'),
           supabase.from('parents').select('*').eq('school_id', sid).order('last_name'),
@@ -275,19 +290,43 @@ export default function MessagesPage() {
       }
 
       const parentLinks = st.student_parents || [];
-      parentLinks.forEach((pl: any) => {
-        const par = pl.parent;
-        if (!par) return;
+      if (parentLinks.length > 0) {
+        parentLinks.forEach((pl: any) => {
+          const par = pl.parent;
+          if (!par) return;
 
-        if (!map.has(par.id)) {
-          map.set(par.id, {
-            parent: par,
-            children: [],
+          if (!map.has(par.id)) {
+            map.set(par.id, {
+              parent: par,
+              children: [],
+              className: st.class?.name || '',
+            });
+          }
+          map.get(par.id)!.children.push(st);
+        });
+      } else if (st.phone) {
+        // Fallback: Pupil has a parent contact phone registered directly on pupil card
+        const fallbackId = `student-contact-${st.id}`;
+        if (!map.has(fallbackId)) {
+          map.set(fallbackId, {
+            parent: {
+              id: fallbackId,
+              school_id: st.school_id,
+              first_name: st.last_name,
+              last_name: '(Parent / Tuteur)',
+              phone: st.phone,
+              email: st.email || '',
+              address: st.address || '',
+              profession: '',
+              relationship: 'Tuteur légal',
+              created_at: st.created_at,
+              updated_at: st.updated_at,
+            } as any,
+            children: [st],
             className: st.class?.name || '',
           });
         }
-        map.get(par.id)!.children.push(st);
-      });
+      }
     });
 
     if (isAdminUser) {

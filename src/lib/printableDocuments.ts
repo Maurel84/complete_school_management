@@ -405,7 +405,7 @@ export function buildPaymentReceiptHtml({
                     : ''
                 }
                 <div style="margin-top:8px; border: 2px dashed #047857; color: #047857; border-radius: 50%; padding: 8px; width: 62px; height: 62px; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:bold; text-align:center; transform: rotate(-8deg);">
-                  HARPE DE DAVID
+                  ${escapeHtml(school?.name || 'DIRECTION')}
                 </div>
               </div>
               ${
@@ -1228,9 +1228,9 @@ export function buildContractHtml({
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 30px;">
           <div>
             <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #1e3a8a; text-transform: uppercase;">${escapeHtml(school.name)}</h1>
-            <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 700; color: #db2777;">EECAD - GROUPE LA HARPE DE DAVID</p>
+            <p style="margin: 4px 0 0 0; font-size: 12px; font-weight: 700; color: #db2777;">${school.motto ? escapeHtml(school.motto) : escapeHtml(school.name)}</p>
             <p style="margin: 6px 0 0 0; font-size: 11px; color: #64748b;">
-              BP 506 BONOUA • Tél: ${escapeHtml(school.phone || '')}<br/>
+              ${school.city ? escapeHtml(school.city) + ' • ' : ''}Tél: ${escapeHtml(school.phone || '')}<br/>
               ${school.email ? `E-mail: ${escapeHtml(school.email)}` : ''}
             </p>
           </div>
@@ -1551,7 +1551,7 @@ export function buildReportCardHtml({
             <p style="margin: 0 0 60px 0; text-decoration: underline; color: #1e3a8a;">Le Directeur de l'École</p>
             <!-- Stamp simulation -->
             <div style="margin: 10px auto 0; border: 2px dashed #db2777; color: #db2777; border-radius: 50%; padding: 6px; width: 66px; height: 66px; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:bold; text-align:center; transform: rotate(-8deg); background: rgba(255,255,255,0.85);">
-              HARPE DE DAVID
+              ${escapeHtml(school?.name || 'DIRECTION')}
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { useApp } from '../../../contexts/AppContext';
 import StatCard from '../../../components/common/StatCard';
 import { formatCurrency } from '../../../lib/utils';
 import {
@@ -52,6 +53,8 @@ export default function FinanceDashboard({
   classes = [],
   plans = [],
 }: FinanceDashboardProps) {
+  const { school } = useApp();
+
   // Compute finances per student according to their class/level configuration
   const studentFinances = useMemo(() => {
     return students.map(s =>
@@ -259,8 +262,8 @@ export default function FinanceDashboard({
             <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
               Statistiques Cantine
             </h3>
-            <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 flex items-center gap-1.5">
-              <Utensils size={14} /> La Harpe de David
+            <span className="rounded-xl bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 flex items-center gap-1.5 dark:bg-amber-950/40 dark:text-amber-400">
+              <Utensils size={14} /> {school?.name || 'Cantine Scolaire'}
             </span>
           </div>
 

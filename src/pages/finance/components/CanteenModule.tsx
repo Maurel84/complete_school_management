@@ -2,6 +2,7 @@ import DataTable from '../../../components/common/DataTable';
 import type { Column } from '../../../components/common/DataTable';
 import { formatCurrency, formatDate } from '../../../lib/utils';
 import { Download, Printer, Trash2, Utensils } from 'lucide-react';
+import { useApp } from '../../../contexts/AppContext';
 
 interface CanteenModuleProps {
   canteenPayments: any[];
@@ -16,6 +17,7 @@ export default function CanteenModule({
   isGeneralAdmin = false,
   onDeletePayment,
 }: CanteenModuleProps) {
+  const { school } = useApp();
   const columns: Column<any>[] = [
     { key: 'receipt_number', label: 'Reçu' },
     {
@@ -101,40 +103,40 @@ export default function CanteenModule({
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-3">
-            *Rappel La Harpe de David* : L'enregistrement n'autorise que les montants trimestriels exigibles de 21 000 FCFA.
+          <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-3 dark:border-slate-800 dark:text-slate-400">
+            *Rappel {school?.name || "Règlement intérieur"}* : L'enregistrement n'autorise que les montants trimestriels exigibles de 21 000 FCFA.
           </p>
         </div>
 
         {/* Primare Rates */}
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between dark:border-slate-800 dark:bg-slate-900">
           <div>
-            <div className="flex items-center gap-3 text-slate-800 mb-4">
-              <div className="rounded-2xl bg-teal-50 p-3 text-teal-600">
+            <div className="flex items-center gap-3 text-slate-800 mb-4 dark:text-slate-200">
+              <div className="rounded-2xl bg-teal-50 p-3 text-teal-600 dark:bg-teal-950/40 dark:text-teal-400">
                 <Utensils size={18} />
               </div>
               <div>
-                <h4 className="font-bold text-slate-900">Tarifs Primaire</h4>
-                <p className="text-xs text-slate-500">Cycles CP1 à CM2</p>
+                <h4 className="font-bold text-slate-900 dark:text-white">Tarifs Primaire</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Cycles CP1 à CM2</p>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-3 text-center my-4 text-xs">
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 dark:bg-slate-800 dark:border-slate-700">
                 <p className="text-slate-400">Mensuel</p>
-                <p className="font-bold text-slate-800 text-sm mt-1">{formatCurrency(8000)}</p>
+                <p className="font-bold text-slate-800 text-sm mt-1 dark:text-slate-200">{formatCurrency(8000)}</p>
               </div>
-              <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100">
-                <p className="text-emerald-700 font-semibold">Trimestriel</p>
-                <p className="font-bold text-emerald-800 text-sm mt-1">{formatCurrency(24000)}</p>
+              <div className="bg-emerald-50/50 rounded-xl p-3 border border-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800">
+                <p className="text-emerald-700 font-semibold dark:text-emerald-400">Trimestriel</p>
+                <p className="font-bold text-emerald-800 text-sm mt-1 dark:text-emerald-300">{formatCurrency(24000)}</p>
               </div>
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100 dark:bg-slate-800 dark:border-slate-700">
                 <p className="text-slate-400">Annuel</p>
-                <p className="font-bold text-slate-800 text-sm mt-1">{formatCurrency(64000)}</p>
+                <p className="font-bold text-slate-800 text-sm mt-1 dark:text-slate-200">{formatCurrency(64000)}</p>
               </div>
             </div>
           </div>
-          <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-3">
-            *Rappel La Harpe de David* : L'enregistrement n'autorise que les montants trimestriels exigibles de 24 000 FCFA.
+          <p className="text-[10px] text-slate-500 border-t border-slate-100 pt-3 dark:border-slate-800 dark:text-slate-400">
+            *Rappel {school?.name || "Règlement intérieur"}* : L'enregistrement n'autorise que les montants trimestriels exigibles de 24 000 FCFA.
           </p>
         </div>
       </div>

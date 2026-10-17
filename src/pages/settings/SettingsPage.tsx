@@ -33,6 +33,7 @@ import {
   CheckCircle2,
   Sun,
   Moon,
+  RefreshCw,
 } from 'lucide-react';
 import { THEME_PRESETS, ThemePresetOption, SchoolTheme, getDarkMode, setDarkMode } from '../../lib/schoolTheme';
 
@@ -48,7 +49,7 @@ function normalizeFeeTypeName(value: string) {
 }
 
 export default function SettingsPage() {
-  const { school, refreshSchool, refreshAcademicYears, theme, updateTheme } = useApp();
+  const { school, refreshSchool, refreshAcademicYears, theme, updateTheme, bootstrapSchoolData } = useApp();
   const { isAdmin, isSuperAdmin } = useAuth();
   const [tab, setTab] = useState<SettingsTab>('school');
   const [selectedPreset, setSelectedPreset] = useState<string>(theme?.presetId || 'emerald');
@@ -57,6 +58,8 @@ export default function SettingsPage() {
   const [themeSaving, setThemeSaving] = useState(false);
   const [themeNotice, setThemeNotice] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(() => getDarkMode());
+  const [initializingData, setInitializingData] = useState(false);
+  const [initFeedback, setInitFeedback] = useState<string | null>(null);
 
   useEffect(() => {
     if (theme) {
@@ -557,6 +560,22 @@ export default function SettingsPage() {
     await Promise.all([fetchLevels(), fetchSubjects(), fetchFeeTypes()]);
   }
 
+  async function handleBootstrapSchool() {
+    if (!school) return;
+    if (!confirm(`Voulez-vous synchroniser et initialiser automatiquement toutes les structures (Niveaux PS à CM2, Classes, Matières, Frais et Élèves démo) pour "${school.name}" ?`)) return;
+    setInitializingData(true);
+    setInitFeedback(null);
+    try {
+      const res = await bootstrapSchoolData(true);
+      await Promise.all([fetchLevels(), fetchSubjects(), fetchFeeTypes(), fetchAcademicYearsData()]);
+      setInitFeedback(`✅ Initialisation réussie pour ${school.name} ! ${res?.levelsCount || 8} niveaux, ${res?.classesCount || 8} classes, ${res?.subjectsCount || 0} matières et ${res?.plansCount || 0} plans de scolarité prêts.`);
+    } catch (e: any) {
+      setInitFeedback(`❌ Erreur lors de l'initialisation : ${e.message}`);
+    } finally {
+      setInitializingData(false);
+    }
+  }
+
   async function removeLevel(levelId: string) {
     if (!confirm('Supprimer ce niveau et les classes associées ?')) return;
     await supabase.from('levels').delete().eq('id', levelId);
@@ -769,13 +788,35 @@ export default function SettingsPage() {
                 <p className="text-xs text-slate-500">Types de frais</p>
               </div>
             </div>
-            <button
-              onClick={() => void applyPrimaryStructure()}
-              disabled={saving || !canManage}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Sparkles size={16} /> Préconfigurer l’école primaire
-            </button>
+            <div className="mt-4 space-y-2">
+              <button
+                onClick={() => void handleBootstrapSchool()}
+                disabled={initializingData || saving || !canManage}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {initializingData ? (
+                  <>
+                    <RefreshCw size={16} className="animate-spin" /> Synchronisation en cours...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={16} /> ⚡ Initialiser les Structures & Données (1 Clic)
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => void applyPrimaryStructure()}
+                disabled={saving || !canManage}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 py-2.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Layers3 size={14} /> Préconfigurer Niveaux & Matières seuls
+              </button>
+            </div>
+            {initFeedback && (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3 text-xs text-slate-700 shadow-sm animate-in fade-in">
+                {initFeedback}
+              </div>
+            )}
           </div>
         </div>
       </section>
