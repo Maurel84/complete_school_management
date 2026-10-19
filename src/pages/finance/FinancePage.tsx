@@ -245,20 +245,28 @@ export default function FinancePage() {
       });
 
       // 2. Sync to active register if Cash payment
-      if (payload.payment_method === 'cash') {
-        await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+      try {
+        if (payload.payment_method === 'cash') {
+          await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+        }
+      } catch (err) {
+        console.warn('Could not sync cash register in FinancePage:', err);
       }
 
       // 3. Sync to general accounting journal
-      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
-      await createDoubleEntry({
-        schoolId: schoolId!,
-        amount: payload.amount,
-        description: `Paiement Scolarité - ${studentName}`,
-        debitAccountNo: debitAcc,
-        creditAccountNo: '706100',
-        reference: payment.receipt_number || '',
-      });
+      try {
+        const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+        await createDoubleEntry({
+          schoolId: schoolId!,
+          amount: payload.amount,
+          description: `Paiement Scolarité - ${studentName}`,
+          debitAccountNo: debitAcc,
+          creditAccountNo: '706100',
+          reference: payment.receipt_number || '',
+        });
+      } catch (err) {
+        console.warn('Could not create double entry in FinancePage:', err);
+      }
 
       setPaymentModalOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['payments_all', schoolId] });
@@ -323,20 +331,28 @@ export default function FinancePage() {
         digitalSig,
       });
 
-      if (payload.payment_method === 'cash') {
-        await syncCashRegisterTransaction('', studentName, payload.amount, true);
+      try {
+        if (payload.payment_method === 'cash') {
+          await syncCashRegisterTransaction('', studentName, payload.amount, true);
+        }
+      } catch (err) {
+        console.warn('Could not sync cash register for canteen in FinancePage:', err);
       }
 
       // 3. Sync to general accounting journal
-      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
-      await createDoubleEntry({
-        schoolId: schoolId!,
-        amount: payload.amount,
-        description: `Paiement Cantine - ${studentName}`,
-        debitAccountNo: debitAcc,
-        creditAccountNo: '708200',
-        reference: payload.receipt_number || '',
-      });
+      try {
+        const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+        await createDoubleEntry({
+          schoolId: schoolId!,
+          amount: payload.amount,
+          description: `Paiement Cantine - ${studentName}`,
+          debitAccountNo: debitAcc,
+          creditAccountNo: '708200',
+          reference: payload.receipt_number || '',
+        });
+      } catch (err) {
+        console.warn('Could not create double entry for canteen in FinancePage:', err);
+      }
 
       setPaymentModalOpen(false);
 

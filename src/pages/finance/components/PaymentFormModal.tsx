@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Modal from '../../../components/common/Modal';
 import FormField from '../../../components/common/FormField';
-import { PAYMENT_METHODS, formatCurrency, formatDate } from '../../../lib/utils';
+import { PAYMENT_METHODS, formatCurrency, formatDate, generateReceiptNumber } from '../../../lib/utils';
 import {
   Check,
   Info,
@@ -270,22 +270,24 @@ export default function PaymentFormModal({
         trimester: form.trimester,
         payment_date: form.payment_date,
         payment_method: form.payment_method,
-        notes: form.notes,
-        status: 'completed',
-        receipt_number: `CANT-${Date.now().toString().slice(-6)}`,
+        notes: form.notes || '',
+        receipt_number: `CANT-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`,
       };
 
-      void onSaveCanteen(payload, qrHash, digitalSig);
+      await onSaveCanteen(payload, qrHash, digitalSig);
     } else {
+      const finalNotes = form.is_first_installment
+        ? (form.notes ? `${form.notes} - 1er versement (Inscription & Fournitures)` : '1er versement (Inscription & Fournitures)')
+        : (form.notes || '');
+
       const payload = {
         student_id: form.student_id,
         parent_id: form.parent_id || null,
         amount: form.amount,
         payment_method: form.payment_method,
         payment_date: form.payment_date,
-        notes: form.notes,
-        is_first_installment: form.is_first_installment,
-        receipt_number: `REC-${Date.now().toString().slice(-6)}`,
+        notes: finalNotes,
+        receipt_number: generateReceiptNumber(),
         status: 'paid',
       };
 
@@ -296,7 +298,7 @@ export default function PaymentFormModal({
           }))
         : [];
 
-      void onSavePayment(payload, details, qrHash, digitalSig);
+      await onSavePayment(payload, details, qrHash, digitalSig);
     }
   }
 
@@ -758,7 +760,7 @@ export default function PaymentFormModal({
           <FormField label="Montant à verser (FCFA)" required>
             <input
               type="number"
-              disabled={form.is_first_installment || form.payment_type === 'canteen'}
+              disabled={form.payment_type === 'canteen'}
               value={form.amount || ''}
               onChange={e => setForm(c => ({ ...c, amount: parseFloat(e.target.value) || 0 }))}
               placeholder="Ex: 30000"

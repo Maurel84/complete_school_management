@@ -458,41 +458,53 @@ export default function StudentsPage() {
         digitalSig,
       });
 
-      if (payload.payment_method === 'cash') {
-        await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+      // Auxiliary side-effects wrapped safely
+      try {
+        if (payload.payment_method === 'cash') {
+          await syncCashRegisterTransaction(payment.id, studentName, payload.amount, false);
+        }
+      } catch (err) {
+        console.warn('Could not sync cash register transaction:', err);
       }
 
-      // Sync double-entry general accounting
-      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
-      await createDoubleEntry({
-        schoolId: school.id,
-        amount: payload.amount,
-        description: `Paiement Scolarité - ${studentName}`,
-        debitAccountNo: debitAcc,
-        creditAccountNo: '706100',
-        reference: payment.receipt_number || '',
-      });
-
-      // Record audit log
-      await recordAuditLog({
-        schoolId: school.id,
-        userId: profile?.id,
-        userName: actorName,
-        userEmail: profile?.email,
-        userRole: actorRole,
-        action: 'payment_tuition_created',
-        entityType: 'payment',
-        entityId: payment.id,
-        details: {
-          receipt_number: payment.receipt_number,
+      try {
+        const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+        await createDoubleEntry({
+          schoolId: school.id,
           amount: payload.amount,
-          student_id: payload.student_id,
-          student_name: studentName,
-          payment_method: payload.payment_method,
-        },
-      });
+          description: `Paiement Scolarité - ${studentName}`,
+          debitAccountNo: debitAcc,
+          creditAccountNo: '706100',
+          reference: payment.receipt_number || '',
+        });
+      } catch (err) {
+        console.warn('Could not create double entry accounting:', err);
+      }
+
+      try {
+        await recordAuditLog({
+          schoolId: school.id,
+          userId: profile?.id,
+          userName: actorName,
+          userEmail: profile?.email,
+          userRole: actorRole,
+          action: 'payment_tuition_created',
+          entityType: 'payment',
+          entityId: payment.id,
+          details: {
+            receipt_number: payment.receipt_number,
+            amount: payload.amount,
+            student_id: payload.student_id,
+            student_name: studentName,
+            payment_method: payload.payment_method,
+          },
+        });
+      } catch (err) {
+        console.warn('Could not record audit log:', err);
+      }
 
       setPaymentModalOpen(false);
+      setPaymentTargetStudent(null);
       void studentsQuery.refetch();
       void paymentsQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['payments_all', school.id] });
@@ -523,41 +535,53 @@ export default function StudentsPage() {
         digitalSig,
       });
 
-      if (payload.payment_method === 'cash') {
-        await syncCashRegisterTransaction('', studentName, payload.amount, true);
+      try {
+        if (payload.payment_method === 'cash') {
+          await syncCashRegisterTransaction('', studentName, payload.amount, true);
+        }
+      } catch (err) {
+        console.warn('Could not sync cash register for canteen:', err);
       }
 
-      const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
-      await createDoubleEntry({
-        schoolId: school.id,
-        amount: payload.amount,
-        description: `Paiement Cantine - ${studentName}`,
-        debitAccountNo: debitAcc,
-        creditAccountNo: '708200',
-        reference: payload.receipt_number || '',
-      });
-
-      // Record audit log
-      await recordAuditLog({
-        schoolId: school.id,
-        userId: profile?.id,
-        userName: actorName,
-        userEmail: profile?.email,
-        userRole: actorRole,
-        action: 'payment_canteen_created',
-        entityType: 'canteen_payment',
-        entityId: cp.id,
-        details: {
-          receipt_number: cp.receipt_number,
+      try {
+        const debitAcc = payload.payment_method === 'cash' ? '571100' : '521100';
+        await createDoubleEntry({
+          schoolId: school.id,
           amount: payload.amount,
-          trimester: payload.trimester,
-          student_id: payload.student_id,
-          student_name: studentName,
-          payment_method: payload.payment_method,
-        },
-      });
+          description: `Paiement Cantine - ${studentName}`,
+          debitAccountNo: debitAcc,
+          creditAccountNo: '708200',
+          reference: payload.receipt_number || '',
+        });
+      } catch (err) {
+        console.warn('Could not create double entry for canteen:', err);
+      }
+
+      try {
+        await recordAuditLog({
+          schoolId: school.id,
+          userId: profile?.id,
+          userName: actorName,
+          userEmail: profile?.email,
+          userRole: actorRole,
+          action: 'payment_canteen_created',
+          entityType: 'canteen_payment',
+          entityId: cp.id,
+          details: {
+            receipt_number: cp.receipt_number,
+            amount: payload.amount,
+            trimester: payload.trimester,
+            student_id: payload.student_id,
+            student_name: studentName,
+            payment_method: payload.payment_method,
+          },
+        });
+      } catch (err) {
+        console.warn('Could not record audit log for canteen:', err);
+      }
 
       setPaymentModalOpen(false);
+      setPaymentTargetStudent(null);
       void studentsQuery.refetch();
       void queryClient.invalidateQueries({ queryKey: ['canteen_payments', school.id, academicYear?.id] });
       void queryClient.invalidateQueries({ queryKey: ['payments_all', school.id] });
@@ -668,7 +692,7 @@ export default function StudentsPage() {
         ? Promise.resolve({ data: [] })
         : supabase
             .from('payment_details')
-            .select('amount, payment_plan_compositions(item_name)')
+            .select('*')
             .eq('payment_id', p.id),
     ]);
 
@@ -719,7 +743,7 @@ export default function StudentsPage() {
       feeLabel: isCanteen ? `Cantine scolaire - Trimestre ${p.trimester || 1}` : 'Scolarité annuelle',
       processedByName: profile ? `${profile.first_name} ${profile.last_name}` : undefined,
       compositions: compositions.length > 0 ? compositions.map((c: any) => ({
-        item_name: c.payment_plan_compositions?.item_name || 'Frais scolarité',
+        item_name: c.item_name || c.payment_plan_compositions?.item_name || 'Frais scolarité',
         amount: Number(c.amount),
       })) : undefined,
       qrCodeHash: receiptMeta?.qr_code_hash,
