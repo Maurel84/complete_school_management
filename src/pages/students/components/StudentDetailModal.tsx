@@ -4,6 +4,7 @@ import Badge from '../../../components/common/Badge';
 import { formatDate, formatCurrency, parsePhoneNumbers } from '../../../lib/utils';
 import { Download, Link2, Printer, CreditCard, Utensils, FileText, Edit, Trash2, Check, X, Phone, MessageCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
+import { IVORY_COAST_COAT_OF_ARMS_BASE64 } from '../../../lib/armoirieBase64';
 import type { AcademicYear, Class, School, Student } from '../../../types';
 
 interface StudentDetailModalProps {
@@ -468,93 +469,174 @@ export default function StudentDetailModal({
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-white/70 font-semibold">Carte scolaire officielle</p>
-                  <h3 className="display-font mt-1 text-lg font-bold">Aperçu Recto / Verso (Alignés)</h3>
+                  <h3 className="display-font mt-1 text-lg font-bold">Modèle Officiel Recto Unique (CR80)</h3>
                 </div>
                 <div className="rounded-xl bg-white/10 px-3 py-1.5 text-right border border-white/15">
-                  <p className="text-[10px] uppercase tracking-[0.16em] text-amber-300 font-bold">Validité</p>
-                  <p className="text-xs font-bold text-white">30 Juin 2027</p>
+                  <p className="text-[10px] uppercase tracking-[0.16em] text-emerald-300 font-bold">Format PVC</p>
+                  <p className="text-xs font-bold text-white">86 × 54 mm</p>
                 </div>
               </div>
 
-              {/* RECTO & VERSO CARDS PREVIEW ALIGNED */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* RECTO PREVIEW */}
-                <div className="space-y-1">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300 text-center">Recto (Face avant)</p>
-                  <div className="rounded-2xl border border-white/30 bg-gradient-to-br from-blue-900 via-blue-700 to-amber-600 p-3 text-white shadow-md aspect-[85.6/54] flex flex-col justify-between relative overflow-hidden">
-                    <div className="absolute inset-0 bg-radial-gradient from-white/20 to-transparent opacity-40 pointer-events-none" />
+              {/* SINGLE-FACED APPROVED CARD PREVIEW */}
+              <div className="max-w-md mx-auto w-full">
+                <div className="relative rounded-2xl border border-slate-300 bg-white text-slate-900 shadow-xl overflow-hidden aspect-[86/54] flex flex-col justify-between p-2.5 select-none">
+                  
+                  {/* Background Artwork: Orange top-left, Green bottom-right watercolor splashes */}
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" viewBox="0 0 860 540" fill="none">
+                    <defs>
+                      <radialGradient id="modalOrangeGlow" cx="0" cy="0" r="480" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#FF6F00" stopOpacity="0.95" />
+                        <stop offset="35%" stopColor="#FF9100" stopOpacity="0.80" />
+                        <stop offset="65%" stopColor="#FFB300" stopOpacity="0.45" />
+                        <stop offset="85%" stopColor="#FFD54F" stopOpacity="0.15" />
+                        <stop offset="100%" stopColor="#FFF8E1" stopOpacity="0" />
+                      </radialGradient>
+                      <radialGradient id="modalGreenGlow" cx="860" cy="540" r="500" gradientUnits="userSpaceOnUse">
+                        <stop offset="0%" stopColor="#00695C" stopOpacity="0.95" />
+                        <stop offset="30%" stopColor="#00897B" stopOpacity="0.8" />
+                        <stop offset="60%" stopColor="#009E60" stopOpacity="0.5" />
+                        <stop offset="80%" stopColor="#4DB6AC" stopOpacity="0.2" />
+                        <stop offset="100%" stopColor="#E0F2F1" stopOpacity="0" />
+                      </radialGradient>
+                    </defs>
+                    <rect width="860" height="540" fill="#FCFCFD" />
+                    <path d="M-20 -20 L380 -20 C320 30 260 65 180 85 C110 102 50 145 -20 180 Z" fill="url(#modalOrangeGlow)" />
+                    <path d="M-10 0 C80 15 220 10 390 45 C450 60 520 80 560 110 C500 125 430 115 360 105 C260 90 140 85 -10 65 Z" fill="#E65100" opacity="0.75" />
+                    <path d="M880 560 L480 560 C530 500 580 450 670 420 C750 395 810 350 880 310 Z" fill="url(#modalGreenGlow)" />
+                    <path d="M870 540 C770 515 640 500 480 470 C420 455 350 430 300 390 C360 380 430 395 510 410 C620 430 740 445 870 470 Z" fill="#00796B" opacity="0.8" />
+                  </svg>
+
+                  {/* Watermark Coat of Arms */}
+                  <img
+                    src={IVORY_COAST_COAT_OF_ARMS_BASE64}
+                    alt="Armoiries"
+                    className="absolute right-4 top-8 h-28 w-auto opacity-15 pointer-events-none z-1"
+                  />
+
+                  {/* Top Header */}
+                  <div className="relative z-10 text-center pr-8 pl-1">
+                    <p className="text-[7.5px] font-black uppercase text-slate-900 tracking-tight leading-none font-sans">
+                      MINISTERE DE L'EDUCATION NATIONALE ET DE L'ALPHABETISATION
+                    </p>
+                    <div className="flex h-[2px] w-36 mx-auto my-0.5 border border-slate-900 overflow-hidden">
+                      <div className="flex-1 bg-[#FF7900]" />
+                      <div className="flex-1 bg-[#FFFFFF]" />
+                      <div className="flex-1 bg-[#009E60]" />
+                    </div>
+                    <p className="text-[6.8px] font-bold uppercase text-slate-900 tracking-wider leading-none">
+                      {((student as any).class?.name && /section|maternelle|creche|garderie|petite/i.test((student as any).class?.name))
+                        ? 'CENTRE DE PROTECTION DE LA PETITE ENFANCE'
+                        : 'ÉTABLISSEMENT D’ENSEIGNEMENT SCOLAIRE'}
+                    </p>
+                    <p className="text-[8.5px] font-black uppercase text-slate-950 tracking-tight leading-tight mt-0.5">
+                      {school?.name || 'GROUPE SCOLAIRE LA HARPE DE DAVID'}
+                    </p>
+                  </div>
+
+                  {/* Top-Right Circular Seal */}
+                  <div className="absolute top-2 right-2.5 h-8 w-8 rounded-full border border-red-700 bg-white flex items-center justify-center shadow-xs overflow-hidden z-20">
+                    {school?.logo_url ? (
+                      <img src={school.logo_url} alt={school.name} className="h-full w-full object-contain rounded-full" />
+                    ) : (
+                      <div className="text-[7px] font-bold text-amber-700">★</div>
+                    )}
+                  </div>
+
+                  {/* Card Body: Photo (Left) + Details (Right) */}
+                  <div className="relative z-10 flex gap-2.5 items-stretch flex-1 mt-1">
                     
-                    <div className="flex items-center justify-between border-b border-white/20 pb-1.5 relative z-10">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        {school?.logo_url ? (
-                          <img src={school.logo_url} alt={school.name} className="h-5 w-5 rounded-full object-cover bg-white p-0.5" />
+                    {/* Left: Photo & Direction Signature */}
+                    <div className="w-24 flex flex-col justify-between flex-shrink-0">
+                      <div className="w-24 h-24 rounded-lg overflow-hidden border border-slate-300 shadow-xs bg-slate-100 relative">
+                        {student.photo_url ? (
+                          <img src={student.photo_url} alt={student.first_name} className="w-full h-full object-cover" />
                         ) : (
-                          <span className="text-[9px]">★</span>
+                          <div className="w-full h-full flex flex-col items-center justify-center text-[7px] font-bold text-slate-400">
+                            PHOTO
+                          </div>
                         )}
-                        <p className="text-[9px] font-extrabold truncate text-white">{school?.name || 'École'}</p>
                       </div>
-                      <span className="text-[8px] font-extrabold bg-white/25 px-1.5 py-0.5 rounded text-amber-200">2026-2027</span>
+
+                      <div className="mt-0.5">
+                        <p className="text-[6.5px] font-bold italic underline text-slate-900 leading-none">Signature de la Direction</p>
+                        <div className="h-5 flex items-center gap-1 mt-0.5">
+                          {school?.stamp_url || school?.signature_url ? (
+                            <div className="flex items-center h-full">
+                              {school?.stamp_url && <img src={school.stamp_url} alt="Cachet" className="h-5 max-w-[20px] object-contain" />}
+                              {school?.signature_url && <img src={school.signature_url} alt="Signature" className="h-4 max-w-[28px] object-contain -ml-1" />}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <div className="h-4 w-4 rounded-full border border-dashed border-blue-600 flex items-center justify-center text-[4px] font-black text-blue-700">DIR</div>
+                              <span className="text-[8px] font-serif italic text-blue-800 font-bold">Direction</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="flex items-center justify-between gap-2 relative z-10">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[8px] font-extrabold uppercase tracking-tight opacity-75">Élève</p>
-                        <p className="text-xs font-black line-clamp-1 text-white">{student.last_name.toUpperCase()}</p>
-                        <p className="text-xs font-bold line-clamp-1 text-slate-100">{student.first_name}</p>
-                        <div className="mt-1 flex items-center gap-1">
-                          <span className="bg-white text-blue-900 text-[8px] font-black px-1.5 py-0.5 rounded uppercase">{(student as any).class?.name || 'Classe'}</span>
-                          <span className="text-[8px] font-mono font-bold text-amber-200">{localMatricule}</span>
+                    {/* Right: Student Information */}
+                    <div className="flex-1 flex flex-col justify-between min-w-0 pr-1">
+                      <div>
+                        <p className="text-[6.5px] italic text-slate-800 leading-none">Nom</p>
+                        <p className="text-[11px] font-black text-black uppercase leading-tight tracking-tight truncate">{student.last_name}</p>
+                      </div>
+
+                      <div className="mt-0.5">
+                        <p className="text-[6.5px] italic text-slate-800 leading-none">Prénom(s)</p>
+                        <p className="text-[9.5px] font-extrabold text-black uppercase leading-tight tracking-tight truncate">{student.first_name}</p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1 mt-0.5">
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">Date de Naissance</p>
+                          <p className="text-[8.5px] font-bold text-black leading-tight">
+                            {student.date_of_birth ? formatDate(student.date_of_birth) : '-'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">Sexe</p>
+                          <p className="text-[8.5px] font-bold text-black leading-tight">{student.sex || 'F'}</p>
                         </div>
                       </div>
 
-                      {student.photo_url ? (
-                        <img src={student.photo_url} alt={student.first_name} className="h-12 w-11 rounded-lg object-cover border-2 border-white shadow-xs" />
-                      ) : (
-                        <div className="h-12 w-11 rounded-lg bg-white/20 border border-white/40 flex items-center justify-center text-[8px] font-bold text-white">PHOTO</div>
-                      )}
+                      <div className="grid grid-cols-2 gap-1 mt-0.5">
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">Lieu de Naissance</p>
+                          <p className="text-[8px] font-bold text-black uppercase leading-tight truncate">
+                            {(student as any).place_of_birth || student.birth_place || 'ADIAKE (CIV)'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">N° d'urgence</p>
+                          <p className="text-[8.5px] font-bold text-black font-mono leading-tight truncate">
+                            {parsedGuardian.mainPhone || guardianPhone || '0709176869'}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-0.5">
+                        <p className="text-[6px] italic text-slate-800 leading-none">Classe</p>
+                        <p className="text-[10px] font-black text-black uppercase leading-tight tracking-tight">
+                          {(student as any).class?.name || 'PETITE SECTION'}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1 mt-0.5">
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">Année Scolaire</p>
+                          <p className="text-[8.5px] font-bold text-black leading-tight">{academicYear?.name || '2025-2026'}</p>
+                        </div>
+                        <div>
+                          <p className="text-[6px] italic text-slate-800 leading-none">Matricule</p>
+                          <p className="text-[8px] font-bold text-black font-mono leading-tight">{localMatricule}</p>
+                        </div>
+                      </div>
+
                     </div>
 
-                    <div className="flex justify-between items-center text-[7.5px] border-t border-white/20 pt-1 relative z-10 font-medium">
-                      <span className="opacity-90">{localMatricule}</span>
-                      <span className="text-amber-200 font-extrabold">Valable jusqu'au 30/06/2027</span>
-                    </div>
                   </div>
-                </div>
 
-                {/* VERSO PREVIEW */}
-                <div className="space-y-1">
-                  <p className="text-[10px] font-extrabold uppercase tracking-wider text-slate-300 text-center">Verso (Face arrière)</p>
-                  <div className="rounded-2xl border border-slate-300 bg-white p-3 text-slate-900 shadow-md aspect-[85.6/54] flex flex-col justify-between">
-                    <div className="flex items-center justify-between border-b border-blue-600 pb-1">
-                      <p className="text-[8px] font-black text-blue-700 uppercase tracking-tight">Renseignements</p>
-                      <span className="text-[7.5px] font-extrabold bg-blue-50 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">VERSO</span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-1 text-[8px] my-1">
-                      <div className="bg-slate-50 p-1 rounded border border-slate-100">
-                        <span className="text-[7px] text-slate-400 block font-semibold">Né(e) le</span>
-                        <strong className="text-slate-800">{student.date_of_birth ? formatDate(student.date_of_birth) : '-'}</strong>
-                      </div>
-                      <div className="bg-slate-50 p-1 rounded border border-slate-100">
-                        <span className="text-[7px] text-slate-400 block font-semibold">Sexe</span>
-                        <strong className="text-slate-800">{student.sex === 'F' ? 'Féminin' : 'Masculin'}</strong>
-                      </div>
-                      <div className="col-span-2 bg-blue-50/80 p-1 rounded border border-blue-200">
-                        <span className="text-[6.5px] text-blue-700 block font-bold uppercase tracking-tight">Parent / Tuteur Légal & Contact</span>
-                        <strong className="text-slate-900 truncate block text-[8px]">{guardianName}</strong>
-                        <span className="text-blue-700 font-extrabold text-[7.5px] block font-mono">
-                          📞 {parsedGuardian.mainPhone || guardianPhone}
-                          {parsedGuardian.whatsappPhone && ` • 💬 WA: ${parsedGuardian.whatsappPhone}`}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="bg-blue-50 border border-blue-200 rounded p-1 text-center">
-                      <p className="text-[7.5px] font-black text-blue-900">
-                        Année Scolaire 2026-2027 — Valable jusqu'au 30 Juin 2027
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
 
@@ -563,7 +645,7 @@ export default function StudentDetailModal({
                   onClick={() => onStudentCardAction('print')}
                   className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 text-xs font-bold text-slate-900 transition hover:bg-slate-100 shadow-sm"
                 >
-                  <Printer size={15} /> Imprimer les Cartes
+                  <Printer size={15} /> Imprimer la Carte
                 </button>
                 <button
                   onClick={() => onStudentCardAction('download')}

@@ -431,6 +431,7 @@ export interface StudentCardTemplateInput {
   primaryGuardianPhone?: string;
   directorName?: string;
   directorPhotoUrl?: string;
+  schoolSubtitle?: string;
 }
 
 export function getIvoryCoastCoatOfArmsSvg({ size = 30, opacity = 1 }: { size?: number; opacity?: number } = {}) {
@@ -490,16 +491,15 @@ export function getIvoryCoastCoatOfArmsSvg({ size = 30, opacity = 1 }: { size?: 
 export function buildStudentCardHtml({
   school,
   student,
-  academicYearName = '2026-2027',
+  academicYearName = '2025-2026',
   className,
   primaryGuardian,
   primaryGuardianPhone,
   directorName,
   directorPhotoUrl,
+  schoolSubtitle,
 }: StudentCardTemplateInput) {
-  const guardianNameStr = primaryGuardian || (student as any).parent_name || 'Non renseigné';
-  const guardianPhoneStr = primaryGuardianPhone || (student as any).parent_phone || school.phone || 'Non renseigné';
-
+  // Resolve branding: logo, stamp, signature, director name
   let resolvedStampUrl = school.stamp_url;
   let resolvedSignatureUrl = school.signature_url;
   let resolvedDirectorName = directorName || (school as any).director_name;
@@ -519,300 +519,584 @@ export function buildStudentCardHtml({
   }
   if (!resolvedDirectorName) resolvedDirectorName = (school as any).director_name || 'La Direction';
 
-  // Minimal dual accent line in soft national orange (#F77F00) and green (#009E60)
-  const dualAccentLine = `
-    <div style="display:flex; width:100%; height:2.5px; margin:2.5px 0 4.5px; border-radius:1px; overflow:hidden;">
-      <div style="flex:1; background:#F77F00;"></div>
-      <div style="flex:1; background:#009E60;"></div>
-    </div>
-  `;
+  // Dates & formatted fields matching the approved physical model (media_1792566949594_8bde9017.jpg)
+  const rawDob = student.date_of_birth || (student as any).birth_date || '';
+  const formattedDob = rawDob ? (formatDate(rawDob) || rawDob) : '-';
 
-  // Specimen watermark in light semi-transparent gray
-  const specimenWatermark = `
-    <div style="position:absolute; top:52%; left:50%; transform:translate(-50%, -50%) rotate(-23deg); font-size:15px; font-weight:900; color:rgba(100, 116, 139, 0.08); text-transform:uppercase; letter-spacing:0.18em; white-space:nowrap; pointer-events:none; z-index:0; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-      SPÉCIMEN – CARTE SCOLAIRE
-    </div>
-  `;
+  const rawSex = student.sex || (student as any).gender || '';
+  const sexLabel = rawSex.toUpperCase().startsWith('F')
+    ? 'F'
+    : (rawSex.toUpperCase().startsWith('M') ? 'M' : (rawSex ? rawSex.toUpperCase().charAt(0) : 'F'));
 
-  return printableShell(
-    `Carte scolaire officielle - ${student.first_name} ${student.last_name}`,
-    `
-    <div class="page" style="display:flex; align-items:center; justify-content:center; padding: 20px; font-family:'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-      <section class="sheet" style="max-width: 320mm; padding: 20px; background: transparent; box-shadow: none;">
-        
-        <div style="display:flex; flex-wrap:wrap; gap:16mm; justify-content:center; align-items:center;">
+  const birthPlace = (student as any).place_of_birth || student.birth_place || (student as any).city || 'ADIAKE (CIV)';
+  const emergencyPhone = primaryGuardianPhone || (student as any).emergency_phone || (student as any).parent_phone || school.phone || '0709176869';
+  const resolvedClass = className || (student as any).class?.name || (student as any).class_name || 'PETITE SECTION';
+  const resolvedYear = academicYearName || (school as any).academic_year || '2025-2026';
+
+  // Subtitle hierarchy: e.g. "CENTRE DE PROTECTION DE LA PETITE ENFANCE"
+  const resolvedSubtitle = schoolSubtitle ||
+    ((resolvedClass && /section|maternelle|creche|garderie|petite/i.test(resolvedClass))
+      ? 'CENTRE DE PROTECTION DE LA PETITE ENFANCE'
+      : ((school as any).subtitle || 'MINISTÈRE DE L’ÉDUCATION NATIONALE - ENSEIGNEMENT GÉNÉRAL'));
+
+  const schoolDisplayName = school.name || 'GROUPE SCOLAIRE LA HARPE DE DAVID';
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Carte Scolaire - ${escapeHtml(student.last_name)} ${escapeHtml(student.first_name)}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+      color: #0f172a;
+      background: #e2e8f0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    
+    @page {
+      size: 86mm 54mm;
+      margin: 0;
+    }
+    
+    @media print {
+      body, html {
+        background: transparent !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 86mm !important;
+        height: 54mm !important;
+      }
+      .card-viewport {
+        padding: 0 !important;
+        min-height: 0 !important;
+        display: block !important;
+      }
+      .card-container {
+        box-shadow: none !important;
+        border: none !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        width: 86mm !important;
+        height: 54mm !important;
+        page-break-inside: avoid;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+
+    .card-viewport {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    /* Standard CR80 Card Dimensions: 86mm x 54mm */
+    .card-container {
+      width: 86mm;
+      height: 54mm;
+      position: relative;
+      overflow: hidden;
+      background: #ffffff;
+      border-radius: 3.2mm;
+      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16), 0 2px 8px rgba(15, 23, 42, 0.08);
+      border: 0.5px solid #cbd5e1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    /* Background Watercolor Artwork */
+    .bg-art {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* Watermark Coat of Arms */
+    .watermark-arms {
+      position: absolute;
+      right: 7mm;
+      top: 12mm;
+      height: 33mm;
+      width: auto;
+      opacity: 0.15;
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    /* Header */
+    .card-header {
+      position: relative;
+      z-index: 2;
+      padding: 2.2mm 15mm 0 3mm;
+      text-align: center;
+    }
+
+    .header-ministry {
+      font-size: 5.2pt;
+      font-weight: 800;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+      line-height: 1.1;
+      font-family: Arial, sans-serif;
+    }
+
+    .tricolor-strip {
+      display: flex;
+      height: 1.5px;
+      width: 52mm;
+      margin: 1.2px auto 1.5px;
+      border: 0.4px solid #1e293b;
+      overflow: hidden;
+    }
+    .tricolor-orange { flex: 1; background: #FF7900; }
+    .tricolor-white { flex: 1; background: #FFFFFF; }
+    .tricolor-green { flex: 1; background: #009E60; }
+
+    .header-subtitle {
+      font-size: 4.8pt;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      line-height: 1.1;
+      font-family: Arial, sans-serif;
+    }
+
+    .header-school {
+      font-size: 6.8pt;
+      font-weight: 900;
+      color: #0f172a;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      line-height: 1.15;
+      margin-top: 0.8px;
+      font-family: Arial, sans-serif;
+    }
+
+    /* Top-Right Circular Seal / Logo */
+    .school-logo-badge {
+      position: absolute;
+      top: 1.8mm;
+      right: 2.5mm;
+      width: 11.5mm;
+      height: 11.5mm;
+      border-radius: 50%;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: white;
+      border: 0.8px solid #c2410c;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    /* Main Card Body */
+    .card-body {
+      position: relative;
+      z-index: 2;
+      flex: 1;
+      display: flex;
+      padding: 1mm 2.5mm 1.5mm 3mm;
+      gap: 3mm;
+    }
+
+    /* Left Column: Photo & Direction Signature */
+    .left-col {
+      width: 27mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .student-photo-wrapper {
+      width: 27mm;
+      height: 29.5mm;
+      border-radius: 2.5mm;
+      overflow: hidden;
+      background: #f1f5f9;
+      border: 0.8px solid #cbd5e1;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+      position: relative;
+    }
+
+    .student-photo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      color: #64748b;
+    }
+
+    .signature-section {
+      margin-top: 1mm;
+      position: relative;
+    }
+
+    .signature-title {
+      font-family: "Times New Roman", Times, Georgia, serif;
+      font-style: italic;
+      font-size: 5.2pt;
+      font-weight: 800;
+      color: #0f172a;
+      text-decoration: underline;
+      text-underline-offset: 1px;
+      line-height: 1;
+    }
+
+    .signature-box {
+      height: 7.5mm;
+      display: flex;
+      align-items: center;
+      gap: 1.5mm;
+      margin-top: 0.5px;
+    }
+
+    /* Right Column: Information */
+    .right-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding-top: 0.5mm;
+    }
+
+    .field-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .field-label {
+      font-family: "Times New Roman", Times, Georgia, serif;
+      font-style: italic;
+      font-size: 4.8pt;
+      color: #0f172a;
+      line-height: 1;
+    }
+
+    .val-nom {
+      font-size: 11pt;
+      font-weight: 900;
+      color: #000000;
+      text-transform: uppercase;
+      line-height: 1.05;
+      letter-spacing: 0.02em;
+    }
+
+    .val-prenom {
+      font-size: 9pt;
+      font-weight: 800;
+      color: #000000;
+      text-transform: uppercase;
+      line-height: 1.1;
+      letter-spacing: 0.01em;
+    }
+
+    .two-cols {
+      display: flex;
+      justify-content: space-between;
+      gap: 2mm;
+      align-items: flex-start;
+    }
+
+    .col-left {
+      flex: 1.2;
+    }
+
+    .col-right {
+      flex: 0.8;
+    }
+
+    .val-date {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #000000;
+      line-height: 1.1;
+    }
+
+    .val-sexe {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #000000;
+      line-height: 1.1;
+    }
+
+    .val-lieu {
+      font-size: 7.8pt;
+      font-weight: 800;
+      color: #000000;
+      text-transform: uppercase;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 28mm;
+    }
+
+    .val-urgence {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #000000;
+      line-height: 1.1;
+      font-family: Arial, monospace, sans-serif;
+    }
+
+    .val-classe {
+      font-size: 9.5pt;
+      font-weight: 900;
+      color: #000000;
+      text-transform: uppercase;
+      line-height: 1.1;
+      letter-spacing: 0.02em;
+    }
+
+    .val-annee {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #000000;
+      line-height: 1.1;
+    }
+
+    .val-matricule {
+      font-size: 7.8pt;
+      font-weight: 800;
+      color: #000000;
+      line-height: 1.1;
+      font-family: monospace, Arial, sans-serif;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="card-viewport">
+    <div class="card-container">
+      
+      <!-- Vector Background Watercolor Art (Côte d'Ivoire National Colors) -->
+      <svg class="bg-art" viewBox="0 0 860 540" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <!-- Top Left Orange Glow & Brush Gradients -->
+          <radialGradient id="orangeGlow" cx="0" cy="0" r="480" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#FF6F00" stop-opacity="0.95" />
+            <stop offset="35%" stop-color="#FF9100" stop-opacity="0.80" />
+            <stop offset="65%" stop-color="#FFB300" stop-opacity="0.45" />
+            <stop offset="85%" stop-color="#FFD54F" stop-opacity="0.15" />
+            <stop offset="100%" stop-color="#FFF8E1" stop-opacity="0" />
+          </radialGradient>
           
-          <!-- RECTO (FACE AVANT) -->
-          <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:10px; font-weight:900; color:#1e293b; letter-spacing:0.08em; text-transform:uppercase;">RECTO (FACE AVANT)</span>
-              <span style="font-size:9px; background:#eff6ff; color:#1d4ed8; padding:1px 6px; border-radius:999px; font-weight:800; border:1px solid #bfdbfe;">86 × 54 mm (CR80)</span>
+          <linearGradient id="orangeBrush1" x1="0" y1="0" x2="520" y2="180" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#E65100" stop-opacity="0.9" />
+            <stop offset="25%" stop-color="#F57C00" stop-opacity="0.85" />
+            <stop offset="60%" stop-color="#FFA726" stop-opacity="0.6" />
+            <stop offset="85%" stop-color="#FFD54F" stop-opacity="0.3" />
+            <stop offset="100%" stop-color="#FFE082" stop-opacity="0" />
+          </linearGradient>
+
+          <!-- Bottom Right Green Glow & Brush Gradients -->
+          <radialGradient id="greenGlow" cx="860" cy="540" r="500" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00695C" stop-opacity="0.95" />
+            <stop offset="30%" stop-color="#00897B" stop-opacity="0.8" />
+            <stop offset="60%" stop-color="#009E60" stop-opacity="0.5" />
+            <stop offset="80%" stop-color="#4DB6AC" stop-opacity="0.2" />
+            <stop offset="100%" stop-color="#E0F2F1" stop-opacity="0" />
+          </radialGradient>
+
+          <linearGradient id="greenBrush1" x1="860" y1="540" x2="340" y2="350" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#00796B" stop-opacity="0.9" />
+            <stop offset="35%" stop-color="#009E60" stop-opacity="0.85" />
+            <stop offset="65%" stop-color="#43A047" stop-opacity="0.6" />
+            <stop offset="88%" stop-color="#81C784" stop-opacity="0.25" />
+            <stop offset="100%" stop-color="#C8E6C9" stop-opacity="0" />
+          </linearGradient>
+        </defs>
+
+        <!-- Base Off-White Card -->
+        <rect width="860" height="540" fill="#FCFCFD" />
+
+        <!-- Top-Left Orange Watercolor Splash -->
+        <path d="M-20 -20 L380 -20 C320 30 260 65 180 85 C110 102 50 145 -20 180 Z" fill="url(#orangeGlow)" />
+        <path d="M-10 0 C80 15 220 10 390 45 C450 60 520 80 560 110 C500 125 430 115 360 105 C260 90 140 85 -10 65 Z" fill="url(#orangeBrush1)" opacity="0.85" />
+        <path d="M0 40 C110 50 240 55 350 75 C420 90 490 115 540 145 C470 148 400 135 320 120 C200 95 90 85 0 80 Z" fill="#FFA726" opacity="0.4" />
+        <path d="M-15 80 C60 95 140 110 210 140 C170 165 110 175 -15 170 Z" fill="#FFB74D" opacity="0.35" />
+
+        <!-- Center Ribbon/Brushstroke Swooshes -->
+        <path d="M 450 60 C 510 40 560 70 540 120 C 520 170 460 190 420 160 C 380 130 400 80 460 70" stroke="rgba(255,255,255,0.75)" stroke-width="22" stroke-linecap="round" fill="none" />
+        <path d="M 370 380 C 420 360 480 390 460 440 C 440 480 380 490 350 460 C 320 430 330 390 380 380" stroke="rgba(255,255,255,0.85)" stroke-width="26" stroke-linecap="round" fill="none" />
+        <path d="M 390 400 C 435 385 470 415 450 450 C 430 480 385 485 360 460" stroke="rgba(76,175,80,0.3)" stroke-width="14" stroke-linecap="round" fill="none" />
+
+        <!-- Bottom-Right Emerald Green Watercolor Splash -->
+        <path d="M880 560 L480 560 C530 500 580 450 670 420 C750 395 810 350 880 310 Z" fill="url(#greenGlow)" />
+        <path d="M870 540 C770 515 640 500 480 470 C420 455 350 430 300 390 C360 380 430 395 510 410 C620 430 740 445 870 470 Z" fill="url(#greenBrush1)" opacity="0.88" />
+        <path d="M860 490 C750 475 620 460 500 435 C430 415 360 390 310 355 C370 355 450 375 540 395 C660 425 770 440 860 450 Z" fill="#66BB6A" opacity="0.45" />
+        <path d="M875 440 C800 415 720 390 640 360 C680 335 750 330 875 340 Z" fill="#81C784" opacity="0.35" />
+      </svg>
+
+      <!-- Center Watermark Coat of Arms -->
+      <img class="watermark-arms" src="${IVORY_COAST_COAT_OF_ARMS_BASE64}" alt="Armoiries de Côte d'Ivoire" />
+
+      <!-- Top Header -->
+      <div class="card-header">
+        <div class="header-ministry">MINISTERE DE L'EDUCATION NATIONALE ET DE L'ALPHABETISATION</div>
+        <div class="tricolor-strip">
+          <div class="tricolor-orange"></div>
+          <div class="tricolor-white"></div>
+          <div class="tricolor-green"></div>
+        </div>
+        <div class="header-subtitle">${escapeHtml(resolvedSubtitle)}</div>
+        <div class="header-school">${escapeHtml(schoolDisplayName)}</div>
+      </div>
+
+      <!-- Top-Right Circular Seal / Logo -->
+      <div class="school-logo-badge">
+        ${
+          resolvedLogoUrl
+            ? `<img src="${escapeHtml(resolvedLogoUrl)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; object-fit:contain; border-radius:50%;" />`
+            : `<svg width="100%" height="100%" viewBox="0 0 100 100">
+                <circle cx="50" cy="50" r="46" fill="white" stroke="#991B1B" stroke-width="2.5" />
+                <circle cx="50" cy="50" r="40" fill="none" stroke="#991B1B" stroke-width="1" stroke-dasharray="2 2" />
+                <path id="curveTop" d="M 18 50 A 32 32 0 0 1 82 50" fill="none" />
+                <text font-size="6.5" font-weight="bold" fill="#991B1B" text-anchor="middle">
+                  <textPath href="#curveTop" startOffset="50%">PETITE ENFANCE</textPath>
+                </text>
+                <path id="curveBottom" d="M 82 50 A 32 32 0 0 1 18 50" fill="none" />
+                <text font-size="6.5" font-weight="bold" fill="#991B1B" text-anchor="middle">
+                  <textPath href="#curveBottom" startOffset="50%">LA HARPE DE DAVID</textPath>
+                </text>
+                <g transform="translate(36, 32) scale(0.7)">
+                  <path d="M 10 0 C 18 0 25 10 22 25 C 20 35 15 40 10 40 L 5 40 L 5 0 Z" fill="#D97706" />
+                  <line x1="8" y1="5" x2="8" y2="35" stroke="#FDE68A" stroke-width="1.2" />
+                  <line x1="12" y1="5" x2="12" y2="35" stroke="#FDE68A" stroke-width="1.2" />
+                  <line x1="16" y1="8" x2="16" y2="32" stroke="#FDE68A" stroke-width="1.2" />
+                </g>
+              </svg>`
+        }
+      </div>
+
+      <!-- Main Card Body -->
+      <div class="card-body">
+        
+        <!-- Left Column: Student Photo & Direction Signature -->
+        <div class="left-col">
+          <div class="student-photo-wrapper">
+            ${
+              student.photo_url
+                ? `<img class="student-photo" src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" />`
+                : `<div class="photo-placeholder">
+                    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="1.5"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                    <span style="font-size:5pt; font-weight:800; color:#475569; margin-top:1mm;">PHOTO ÉLÈVE</span>
+                  </div>`
+            }
+          </div>
+
+          <div class="signature-section">
+            <div class="signature-title">Signature de la Direction</div>
+            <div class="signature-box">
+              ${
+                resolvedStampUrl || resolvedSignatureUrl
+                  ? `<div style="display:flex; align-items:center; height:100%; position:relative;">
+                      ${resolvedStampUrl ? `<img src="${escapeHtml(resolvedStampUrl)}" alt="Cachet" style="height:7.5mm; width:auto; max-width:12mm; object-fit:contain; filter:contrast(1.1);" />` : ''}
+                      ${resolvedSignatureUrl ? `<img src="${escapeHtml(resolvedSignatureUrl)}" alt="Signature" style="height:6.5mm; width:auto; max-width:15mm; object-fit:contain; margin-left:-2mm; filter:contrast(1.1);" />` : ''}
+                    </div>`
+                  : `<div style="display:flex; align-items:center; gap:1.5mm;">
+                      <div style="width:7mm; height:7mm; border:0.8px dashed #1d4ed8; border-radius:50%; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:3.5pt; font-weight:900; color:#1d4ed8; text-transform:uppercase; text-align:center; transform:rotate(-8deg); line-height:1; flex-shrink:0;">
+                        <span>DIRECTION</span>
+                      </div>
+                      <span style="font-family:'Brush Script MT', 'Dancing Script', 'Segoe Script', cursive, italic; font-size:9pt; color:#1e40af; font-weight:bold; transform:rotate(-4deg); white-space:nowrap;">
+                        ${escapeHtml(resolvedDirectorName.split(' ')[0] || 'Direction')}
+                      </span>
+                    </div>`
+              }
             </div>
-            
-            <div style="width: 86mm; height: 54mm; border-radius: 4mm; overflow: hidden; position: relative; box-shadow: 0 16px 36px rgba(15,23,42,0.12), 0 2px 8px rgba(15,23,42,0.06); background: linear-gradient(145deg, #ffffff 0%, #f9fafb 100%); color: #0f172a; box-sizing: border-box; border: 1.2px solid #e2e8f0; display: flex; flex-direction: column; justify-content: space-between; padding: 4.5px 6.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
-              
-              <!-- Subtle Specimen Watermark -->
-              ${specimenWatermark}
+          </div>
+        </div>
 
-              <!-- Top Header: Coat of Arms + School Branding + Academic Year -->
-              <div style="position:relative; z-index:1;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:4px;">
-                  
-                  <!-- Left: Côte d'Ivoire Coat of Arms -->
-                  <div style="flex-shrink:0; display:flex; align-items:center;">
-                    <img src="${IVORY_COAST_COAT_OF_ARMS_BASE64}" alt="Armoiries de Côte d'Ivoire" style="height:25px; width:auto; object-fit:contain; display:block;" />
-                  </div>
+        <!-- Right Column: Student Information -->
+        <div class="right-col">
+          
+          <div class="field-group">
+            <div class="field-label">Nom</div>
+            <div class="val-nom">${escapeHtml(student.last_name)}</div>
+          </div>
 
-                  <!-- Center: School Logo + Name -->
-                  <div style="flex:1; min-width:0; display:flex; align-items:center; justify-content:center; gap:5px; padding:0 4px;">
-                    ${
-                      resolvedLogoUrl
-                        ? `<div style="width:20px; height:20px; border-radius:50%; background:white; display:flex; align-items:center; justify-content:center; flex-shrink:0; border:1px solid #cbd5e1; box-shadow:0 1px 3px rgba(0,0,0,0.08); overflow:hidden;">
-                            <img src="${escapeHtml(resolvedLogoUrl)}" alt="${escapeHtml(school.name)}" style="width:100%; height:100%; object-fit:cover;" />
-                          </div>`
-                        : `<div style="width:20px; height:20px; border-radius:50%; background:#f1f5f9; border:1px solid #cbd5e1; display:flex; align-items:center; justify-content:center; flex-shrink:0; font-size:9px;">🏫</div>`
-                    }
-                    <div style="text-align:center; min-width:0;">
-                      <h2 style="margin:0; font-size:7.8px; font-weight:800; color:#0f172a; text-transform:uppercase; letter-spacing:0.02em; line-height:1.15; font-family:'Inter', sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:48mm;">
-                        ${escapeHtml(school.name || 'ÉTABLISSEMENT SCOLAIRE')}
-                      </h2>
-                    </div>
-                  </div>
+          <div class="field-group">
+            <div class="field-label">Prénom(s)</div>
+            <div class="val-prenom">${escapeHtml(student.first_name)}</div>
+          </div>
 
-                  <!-- Right: Academic Year Badge -->
-                  <div style="flex-shrink:0;">
-                    <div style="border:1px solid #cbd5e1; border-radius:4px; padding:1.5px 5px; font-size:6.5px; font-weight:800; color:#0f172a; background:#ffffff; text-align:center; font-family:'SF Mono', Consolas, monospace; line-height:1.1; box-shadow:0 1px 2px rgba(0,0,0,0.04);">
-                      ${escapeHtml(academicYearName)}
-                    </div>
-                  </div>
-
-                </div>
-
-                <!-- Thin Elegant Horizontal Accent Line in Soft Orange and Green -->
-                ${dualAccentLine}
-              </div>
-
-              <!-- Main Body: Rectangular Photo (Left) + Student Details (Right) -->
-              <div style="display:flex; align-items:flex-start; gap:7px; flex:1; position:relative; z-index:1; min-height:0;">
-                
-                <!-- Left Side: Rectangular Student Photo -->
-                <div style="flex-shrink:0;">
-                  <div style="width:27mm; height:34mm; border-radius:4px; overflow:hidden; border:1.5px solid #cbd5e1; box-shadow:0 1px 4px rgba(0,0,0,0.08); background:#f8fafc; position:relative;">
-                    ${
-                      student.photo_url
-                        ? `<img src="${escapeHtml(student.photo_url)}" alt="${escapeHtml(`${student.first_name} ${student.last_name}`)}" style="width:100%; height:100%; object-fit:cover; display:block;" />`
-                        : `<div style="width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; background:linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%); color:#94a3b8;">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.65;"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                            <span style="font-size:5px; font-weight:800; color:#64748b; margin-top:2px; letter-spacing:0.06em; text-transform:uppercase;">PHOTO</span>
-                          </div>`
-                    }
-                  </div>
-                </div>
-
-                <!-- Right Side: Student Credentials -->
-                <div style="flex:1; min-width:0; display:flex; flex-direction:column; justify-content:space-between; height:34mm; padding-left:1px;">
-                  
-                  <div>
-                    <!-- Student Status Pill -->
-                    <div style="margin-bottom:2px;">
-                      <span style="font-size:5.5px; font-weight:800; color:#047857; background:#ecfdf5; border:1px solid #a7f3d0; padding:1px 5px; border-radius:999px; text-transform:uppercase; letter-spacing:0.05em; display:inline-block;">
-                        ÉLÈVE ${(student as any).gender === 'female' || (student.first_name && /elle|e$/i.test(student.first_name)) ? 'RÉGULIÈRE' : 'RÉGULIER'}
-                      </span>
-                    </div>
-
-                    <!-- Student Last Name & First Name -->
-                    <div style="font-size:11.5px; font-weight:900; line-height:1.12; color:#0f172a; text-transform:uppercase; letter-spacing:0.025em; font-family:'Inter', sans-serif;">
-                      ${escapeHtml(student.last_name)}
-                    </div>
-                    <div style="font-size:9.5px; font-weight:700; line-height:1.15; color:#334155; text-transform:uppercase; margin-top:1px; font-family:'Inter', sans-serif;">
-                      ${escapeHtml(student.first_name)}
-                    </div>
-
-                    <!-- Date & Lieu de Naissance -->
-                    <div style="font-size:6.3px; font-weight:700; color:#334155; margin-top:2px; font-family:'Inter', sans-serif; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                      Né(e) le : <strong style="color:#0f172a;">${escapeHtml(student.date_of_birth ? (formatDate(student.date_of_birth) || student.date_of_birth) : ((student as any).birth_date ? (formatDate((student as any).birth_date) || (student as any).birth_date) : '-'))}</strong>${((student as any).place_of_birth || (student as any).birth_place) ? ` à <strong style="color:#0f172a;">${escapeHtml((student as any).place_of_birth || (student as any).birth_place)}</strong>` : ''}
-                    </div>
-
-                    <!-- Class Badge -->
-                    <div style="margin-top:2px;">
-                      <span style="display:inline-block; font-size:7.5px; font-weight:900; color:#166534; background:#f0fdf4; border:1px solid #86efac; padding:1.5px 6px; border-radius:3px; text-transform:uppercase; letter-spacing:0.04em;">
-                        ${escapeHtml(className || 'Classe')}
-                      </span>
-                    </div>
-
-                    <!-- Matricule Box -->
-                    <div style="margin-top:2px; font-size:7.5px; font-weight:700; color:#0f172a; font-family:'SF Mono', Consolas, monospace; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:3px; padding:1.5px 5px; display:inline-block;">
-                      Matricule : <strong style="font-weight:900; color:#0f172a;">${escapeHtml(student.matricule)}</strong>
-                    </div>
-
-                    <!-- Validity -->
-                    <div style="font-size:6px; font-weight:700; color:#047857; margin-top:1.5px;">
-                      Validité : 31/07/2027 ✔
-                    </div>
-                  </div>
-
-                  <!-- 1D Barcode Simulation at Bottom Right -->
-                  <div style="margin-top:auto; padding-top:2px;">
-                    <svg width="100%" height="13" viewBox="0 0 140 13" style="display:block;">
-                      <rect x="0" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="3" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="5" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="10" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="13" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="16" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="19" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="24" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="28" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="30" y="0" width="2.5" height="9" fill="#0f172a"/>
-                      <rect x="34" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="37" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="42" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="45" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="49" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="52" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="57" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="60" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="64" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="67" y="0" width="2.5" height="9" fill="#0f172a"/>
-                      <rect x="71" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="74" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="79" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="82" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="86" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="89" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="94" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="97" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="101" y="0" width="2.5" height="9" fill="#0f172a"/>
-                      <rect x="105" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="108" y="0" width="3" height="9" fill="#0f172a"/>
-                      <rect x="113" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="116" y="0" width="2" height="9" fill="#0f172a"/>
-                      <rect x="120" y="0" width="1" height="9" fill="#0f172a"/>
-                      <rect x="123" y="0" width="2.5" height="9" fill="#0f172a"/>
-                      <rect x="128" y="0" width="1.5" height="9" fill="#0f172a"/>
-                      <rect x="132" y="0" width="2" height="9" fill="#0f172a"/>
-                      <text x="68" y="12.5" font-family="'SF Mono', Consolas, monospace" font-size="3.5" font-weight="700" text-anchor="middle" fill="#64748b" letter-spacing="1">${escapeHtml(student.matricule)}</text>
-                    </svg>
-                  </div>
-
-                </div>
-
-              </div>
-
-              <!-- Very Small Text at the Bottom Edge -->
-              <div style="font-size:4.5px; color:#94a3b8; text-align:center; position:relative; z-index:1; padding-top:1px;">
-                Maquette SaaS – Document officiel d’identification scolaire
-              </div>
-
+          <div class="two-cols">
+            <div class="col-left field-group">
+              <div class="field-label">Date de Naissance</div>
+              <div class="val-date">${escapeHtml(formattedDob)}</div>
+            </div>
+            <div class="col-right field-group">
+              <div class="field-label">Sexe</div>
+              <div class="val-sexe">${escapeHtml(sexLabel)}</div>
             </div>
           </div>
 
-          <!-- VERSO (FACE ARRIÈRE) -->
-          <div style="display:flex; flex-direction:column; align-items:center; gap:8px;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:10px; font-weight:900; color:#1e293b; letter-spacing:0.08em; text-transform:uppercase;">VERSO (FACE ARRIÈRE)</span>
-              <span style="font-size:9px; background:#f0fdf4; color:#166534; padding:1px 6px; border-radius:999px; font-weight:800; border:1px solid #bbf7d0;">CONTACT & VISA</span>
+          <div class="two-cols">
+            <div class="col-left field-group">
+              <div class="field-label">Lieu de Naissance</div>
+              <div class="val-lieu">${escapeHtml(birthPlace)}</div>
             </div>
+            <div class="col-right field-group">
+              <div class="field-label">N° d'urgence</div>
+              <div class="val-urgence">${escapeHtml(emergencyPhone)}</div>
+            </div>
+          </div>
 
-            <div style="width: 86mm; height: 54mm; border-radius: 4mm; overflow: hidden; position: relative; box-shadow: 0 16px 36px rgba(15,23,42,0.1), 0 2px 8px rgba(15,23,42,0.05); background: #ffffff; color: #1e293b; box-sizing: border-box; border: 1.5px solid #009E60; display: flex; flex-direction: column; justify-content: space-between; padding: 4.5px 6.5px; -webkit-print-color-adjust: exact; print-color-adjust: exact;">
-              
-              <!-- Subtle Specimen Watermark -->
-              ${specimenWatermark}
+          <div class="field-group">
+            <div class="field-label">Classe</div>
+            <div class="val-classe">${escapeHtml(resolvedClass)}</div>
+          </div>
 
-              <!-- Header: République de Côte d'Ivoire & School Name -->
-              <div style="position:relative; z-index:1;">
-                <div style="line-height:1.2;">
-                  <p style="margin:0; font-size:5.5px; font-weight:800; color:#009E60; text-transform:uppercase; letter-spacing:0.08em;">
-                    RÉPUBLIQUE DE CÔTE D’IVOIRE – CARTE SCOLAIRE
-                  </p>
-                  <p style="margin:1px 0 0; font-size:7.5px; font-weight:900; color:#0f172a; text-transform:uppercase;">
-                    ${escapeHtml(school.name || 'ÉTABLISSEMENT SCOLAIRE')}
-                  </p>
-                </div>
-
-                <!-- Thin Horizontal Accent Line -->
-                ${dualAccentLine}
-              </div>
-
-              <!-- Content Body -->
-              <div style="display:flex; flex-direction:column; gap:3px; position:relative; z-index:1; flex:1; justify-content:center;">
-                
-                <!-- Section Parent / Tuteur Légal à Contacter -->
-                <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:5px; padding:3.5px 6px;">
-                  <span style="font-size:5px; font-weight:800; color:#009E60; text-transform:uppercase; display:block; letter-spacing:0.04em;">
-                    PARENT / TUTEUR LÉGAL À CONTACTER
-                  </span>
-                  <div style="font-size:7.5px; font-weight:800; color:#0f172a; margin-top:0.5px; font-family:'Inter', sans-serif;">
-                    ${escapeHtml(guardianNameStr)}
-                  </div>
-                  <div style="font-size:7px; font-weight:700; color:#0f172a; font-family:monospace; margin-top:0.5px;">
-                    Téléphone : ${escapeHtml(guardianPhoneStr)}
-                  </div>
-                </div>
-
-                <!-- Section Établissement / Contact Administratif -->
-                <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:5px; padding:2.5px 6px; font-size:5px; color:#475569;">
-                  <span style="font-weight:700; color:#0f172a; text-transform:uppercase;">CONTACT ÉTABLISSEMENT :</span> 
-                  ${escapeHtml(school.address || school.city || 'Abidjan, Côte d\'Ivoire')} • Tél : ${escapeHtml(school.phone || '0700276689')}
-                </div>
-
-                <!-- Bottom Row: QR Code & Visa / Stamp Area -->
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:2px;">
-                  
-                  <!-- Left: QR Code Placeholder -->
-                  <div style="background:#ffffff; padding:1.5px; border:1px solid #cbd5e1; border-radius:4px; flex-shrink:0;">
-                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=70x70&margin=1&data=${encodeURIComponent(`CARTE SCOLAIRE CI | Eleve: ${student.first_name} ${student.last_name} | Matr: ${student.matricule} | Classe: ${className || ''} | Etablissement: ${school.name || ''} | Annee: ${academicYearName}`)}" alt="QR Code" style="width:36px; height:36px; display:block;" />
-                  </div>
-
-                  <!-- Right: Stamp & Signature Area (Le Chef d'Établissement) -->
-                  <div style="flex:1; border:1px dashed #94a3b8; border-radius:5px; padding:2.5px 5px; text-align:center; height:36px; display:flex; flex-direction:column; justify-content:space-between; background:rgba(248,250,252,0.7); box-sizing:border-box;">
-                    <div style="font-size:4.8px; font-weight:800; color:#0f172a; text-transform:uppercase; letter-spacing:0.04em;">
-                      LE CHEF D’ÉTABLISSEMENT
-                    </div>
-                    
-                    <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
-                      <!-- Circular Official Stamp (Uploaded or SVG fallback) -->
-                      ${
-                        resolvedStampUrl
-                          ? `<img src="${escapeHtml(resolvedStampUrl)}" alt="Cachet Officiel" style="height:26px; width:auto; max-width:32px; object-fit:contain; display:block;" />`
-                          : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="1.8" style="opacity:0.85; flex-shrink:0;">
-                              <circle cx="12" cy="12" r="10" stroke-dasharray="2 2"/>
-                              <path d="M12 6v12M6 12h12"/>
-                            </svg>`
-                      }
-                      <!-- Executive Signature (Uploaded image or Stylized text fallback) -->
-                      ${
-                        resolvedSignatureUrl
-                          ? `<img src="${escapeHtml(resolvedSignatureUrl)}" alt="Signature Direction" style="height:22px; width:auto; max-width:44px; object-fit:contain; display:block;" />`
-                          : `<span style="font-family:'Brush Script MT', 'Dancing Script', cursive, italic; font-size:11px; color:#1e40af; font-weight:700;">
-                              ${escapeHtml(resolvedDirectorName.split(' ')[0] || 'Direction')}
-                            </span>`
-                      }
-                    </div>
-
-                    <div style="font-size:4.2px; color:#64748b; font-style:italic;">
-                      ${escapeHtml(resolvedDirectorName)} — Visa, Cachet & Signature
-                    </div>
-                  </div>
-
-                </div>
-
-              </div>
-
-              <!-- Footer Text -->
-              <div style="font-size:4.8px; color:#64748b; text-align:center; position:relative; z-index:1; padding-top:1.5px; border-top:1px solid #e2e8f0; margin-top:1px;">
-                Année ${escapeHtml(academicYearName)} – République de Côte d’Ivoire – Maquette SaaS
-              </div>
-
+          <div class="two-cols">
+            <div class="col-left field-group">
+              <div class="field-label">Année Scolaire</div>
+              <div class="val-annee">${escapeHtml(resolvedYear)}</div>
+            </div>
+            <div class="col-right field-group">
+              <div class="field-label">Matricule</div>
+              <div class="val-matricule">${escapeHtml(student.matricule)}</div>
             </div>
           </div>
 
         </div>
 
-      </section>
+      </div>
+
     </div>
-    `,
-  );
+  </div>
+
+</body>
+</html>`;
 }
 
 export function openPrintPreview(html: string) {
