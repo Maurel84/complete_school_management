@@ -36,6 +36,15 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { THEME_PRESETS, ThemePresetOption, SchoolTheme, getDarkMode, setDarkMode } from '../../lib/schoolTheme';
+import {
+  getNotificationConfig,
+  saveNotificationConfig as persistNotificationConfig,
+  sendSingleSms,
+  sendSingleWhatsApp,
+  NotificationConfig,
+  SmsProvider,
+  WhatsAppProvider,
+} from '../../lib/notificationService';
 
 type SettingsTab = 'school' | 'theme' | 'years' | 'levels' | 'subjects' | 'fees' | 'roles' | 'notifications';
 type LevelItem = { id: string; name: string; order_index: number };
@@ -116,17 +125,122 @@ export default function SettingsPage() {
   });
   const [yearFeeTemplates, setYearFeeTemplates] = useState<YearFeeTemplateRow[]>([]);
 
-  const [waProvider, setWaProvider] = useState(() => localStorage.getItem('wa_provider') || 'green-api');
+  const [smsProvider, setSmsProvider] = useState<SmsProvider>(() => (localStorage.getItem('sms_provider') as SmsProvider) || 'simulation');
+  const [smsApiKey, setSmsApiKey] = useState(() => localStorage.getItem('sms_api_key') || '');
+  const [smsUsername, setSmsUsername] = useState(() => localStorage.getItem('sms_username') || '');
+  const [smsSenderId, setSmsSenderId] = useState(() => localStorage.getItem('sms_sender_id') || 'ECOLE-INFO');
+  const [smsEndpoint, setSmsEndpoint] = useState(() => localStorage.getItem('sms_endpoint') || '');
+
+  const [waProvider, setWaProvider] = useState<WhatsAppProvider>(() => (localStorage.getItem('wa_provider') as WhatsAppProvider) || 'green-api');
   const [waToken, setWaToken] = useState(() => localStorage.getItem('wa_token') || '');
   const [waInstance, setWaInstance] = useState(() => localStorage.getItem('wa_instance') || '');
   const [receiptText, setReceiptText] = useState(() => localStorage.getItem('receipt_text') || 'Bonjour, nous vous confirmons le règlement de scolarité de {student_name} d\'un montant de {amount} FCFA. Solde restant : {remaining} FCFA. Merci.');
 
-  function saveNotificationConfig() {
-    localStorage.setItem('wa_provider', waProvider);
-    localStorage.setItem('wa_token', waToken);
-    localStorage.setItem('wa_instance', waInstance);
-    localStorage.setItem('receipt_text', receiptText);
-    alert('Paramètres de notification WhatsApp enregistrés !');
+  const [testPhoneNumber, setTestPhoneNumber] = useState('');
+  const [testingSms, setTestingSms] = useState(false);
+  const [testingWa, setTestingWa] = useState(false);
+  const [testFeedback, setTestFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  function handleSaveNotificationConfig() {
+    const config: NotificationConfig = {
+      smsProvider,
+      smsApiKey,
+      smsUsername,
+      smsSenderId,
+      smsEndpoint,
+      waProvider,
+      waInstance,
+      waToken,
+      receiptText,
+    };
+    persistNotificationConfig(config, school?.id);
+    alert('Paramètres SMS et WhatsApp enregistrés avec succès !');
+  }
+
+  async function handleTestSms() {
+    if (!testPhoneNumber.trim()) {
+      alert('Veuillez saisir un numéro de téléphone de test (ex: 0709176869 ou +2250709176869)');
+      return;
+    }
+    setTestingSms(true);
+    setTestFeedback(null);
+    try {
+      const config: NotificationConfig = {
+        smsProvider,
+        smsApiKey,
+        smsUsername,
+        smsSenderId,
+        smsEndpoint,
+        waProvider,
+        waInstance,
+        waToken,
+      };
+      const res = await sendSingleSms(
+        testPhoneNumber,
+        `Test SMS réussi depuis ${school?.name || 'SchoolManager Pro'}. Votre passerelle SMS (${smsProvider.toUpperCase()}) fonctionne parfaitement !`,
+        config
+      );
+      if (res.success) {
+        setTestFeedback({
+          type: 'success',
+          message: res.simulated
+            ? `✅ Test réussi en Mode Simulation pour ${testPhoneNumber} ! Pour un envoi réel par les réseaux (Orange, MTN, Moov), indiquez votre clé API Africa's Talking ou Orange.`
+            : `✅ SMS de test envoyé avec succès à ${testPhoneNumber} via ${smsProvider.toUpperCase()} !`,
+        });
+      } else {
+        setTestFeedback({
+          type: 'error',
+          message: `❌ Échec du test SMS : ${res.error || 'Erreur inconnue'}`,
+        });
+      }
+    } catch (err: any) {
+      setTestFeedback({ type: 'error', message: `❌ Erreur : ${err.message}` });
+    } finally {
+      setTestingSms(false);
+    }
+  }
+
+  async function handleTestWa() {
+    if (!testPhoneNumber.trim()) {
+      alert('Veuillez saisir un numéro WhatsApp de test');
+      return;
+    }
+    setTestingWa(true);
+    setTestFeedback(null);
+    try {
+      const config: NotificationConfig = {
+        smsProvider,
+        smsApiKey,
+        smsUsername,
+        smsSenderId,
+        smsEndpoint,
+        waProvider,
+        waInstance,
+        waToken,
+      };
+      const res = await sendSingleWhatsApp(
+        testPhoneNumber,
+        `Test WhatsApp réussi depuis ${school?.name || 'SchoolManager Pro'}. Votre passerelle WhatsApp est connectée avec succès !`,
+        config
+      );
+      if (res.success) {
+        setTestFeedback({
+          type: 'success',
+          message: res.simulated
+            ? `✅ Test WhatsApp simulé avec succès pour ${testPhoneNumber} ! Renseignez votre Instance ID et Token Green-API pour l'envoi réel.`
+            : `✅ Message WhatsApp envoyé avec succès à ${testPhoneNumber} !`,
+        });
+      } else {
+        setTestFeedback({
+          type: 'error',
+          message: `❌ Échec du test WhatsApp : ${res.error || 'Erreur inconnue'}`,
+        });
+      }
+    } catch (err: any) {
+      setTestFeedback({ type: 'error', message: `❌ Erreur : ${err.message}` });
+    } finally {
+      setTestingWa(false);
+    }
   }
 
   const canManage = isAdmin || isSuperAdmin;
@@ -1551,40 +1665,209 @@ export default function SettingsPage() {
         </div>
       )}
       {tab === 'notifications' && (
-        <div className="surface-card p-6 space-y-6">
+        <div className="surface-card p-6 space-y-8">
           <div>
-            <h2 className="display-font text-xl font-semibold text-slate-900">Notifications & Alertes API</h2>
-            <p className="mt-1 text-sm text-slate-500">Configurez vos accès API pour l'envoi automatique de reçus de paiement et relances de scolarité via WhatsApp.</p>
+            <h2 className="display-font text-xl font-semibold text-slate-900">Passerelles SMS en Masse & WhatsApp Automatique</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Configurez vos passerelles pour l'envoi de messages groupés aux parents, relances de scolarité et reçus automatiques avec le nom de votre établissement en expéditeur.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField label="Fournisseur d'API" required>
-              <select value={waProvider} onChange={e => setWaProvider(e.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none">
-                <option value="green-api">Green-API (Recommandé pour WhatsApp en Afrique)</option>
-                <option value="twilio">Twilio SMS / WhatsApp Business</option>
-                <option value="simulation">Mode Simulation (Affichage en direct)</option>
-              </select>
-            </FormField>
+          {/* Section 1: SMS Professionnel (Bulk SMS) */}
+          <div className="rounded-2xl border border-blue-200 bg-blue-50/40 p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-blue-100 pb-3">
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full">Canal 100% Garanti</span>
+                <h3 className="text-base font-bold text-slate-900 mt-1">Passerelle SMS Professionnel (Bulk SMS)</h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Idéal pour joindre <strong>100% des parents</strong> (y compris ceux sans smartphone ni connexion internet). S'affiche avec le nom de l'école en expéditeur.
+                </p>
+              </div>
+            </div>
 
-            <FormField label="ID Instance (Green-API uniquement)">
-              <input type="text" value={waInstance} onChange={e => setWaInstance(e.target.value)} placeholder="Ex: 1101859384" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" />
-            </FormField>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <FormField label="Opérateur / Fournisseur SMS" required>
+                <select
+                  value={smsProvider}
+                  onChange={e => setSmsProvider(e.target.value as SmsProvider)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-blue-600 focus:outline-none"
+                >
+                  <option value="africastalking">Africa's Talking (Recommandé en Côte d'Ivoire & Afrique)</option>
+                  <option value="orange-ci">Orange SMS API (Côte d'Ivoire)</option>
+                  <option value="generic">Passerelle SMS Universelle (Webhook REST)</option>
+                  <option value="simulation">Mode Simulation / Démonstration (Sans frais d'envoi)</option>
+                </select>
+              </FormField>
 
-            <FormField label="Clé API / Token d'accès">
-              <input type="password" value={waToken} onChange={e => setWaToken(e.target.value)} placeholder="Clé d'authentification ou Token" className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" />
-            </FormField>
+              <FormField label="Nom d'expéditeur affiché (Sender ID)" required>
+                <input
+                  type="text"
+                  maxLength={11}
+                  value={smsSenderId}
+                  onChange={e => setSmsSenderId(e.target.value.toUpperCase())}
+                  placeholder="Ex: HARPE-DAVID ou COCON-ANGRE"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold uppercase tracking-wider focus:border-blue-600 focus:outline-none"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">Nom qui apparaîtra sur le téléphone du parent (max 11 caractères sans espaces).</p>
+              </FormField>
 
-            <div className="md:col-span-2">
-              <FormField label="Modèle de message pour reçu de scolarité">
-                <textarea value={receiptText} onChange={e => setReceiptText(e.target.value)} rows={3} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none" placeholder="Bonjour..." />
-                <p className="mt-1.5 text-xs text-slate-400">Variables utilisables : <code>{'{student_name}'}</code>, <code>{'{amount}'}</code>, <code>{'{remaining}'}</code></p>
+              <FormField label="Identifiant de compte / Username">
+                <input
+                  type="text"
+                  value={smsUsername}
+                  onChange={e => setSmsUsername(e.target.value)}
+                  placeholder="Ex: sandbox ou votre nom d'utilisateur Africa's Talking"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-blue-600 focus:outline-none"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">Pour Africa's Talking, utilisez <code>sandbox</code> pour tester ou votre username de production.</p>
+              </FormField>
+
+              <FormField label="Clé API SMS / Token">
+                <input
+                  type="password"
+                  value={smsApiKey}
+                  onChange={e => setSmsApiKey(e.target.value)}
+                  placeholder="Clé d'authentification ou API Key"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-blue-600 focus:outline-none"
+                />
+              </FormField>
+
+              {smsProvider === 'generic' && (
+                <div className="md:col-span-2">
+                  <FormField label="URL de l'API SMS (Endpoint Webhook)">
+                    <input
+                      type="url"
+                      value={smsEndpoint}
+                      onChange={e => setSmsEndpoint(e.target.value)}
+                      placeholder="https://api.sms-provider.com/v1/send"
+                      className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-blue-600 focus:outline-none"
+                    />
+                  </FormField>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 2: WhatsApp Automatique */}
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-emerald-100 pb-3">
+              <div>
+                <span className="text-xs font-black uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">WhatsApp Automatisé</span>
+                <h3 className="text-base font-bold text-slate-900 mt-1">Passerelle WhatsApp Automatique (Green-API)</h3>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Permet d'envoyer des messages WhatsApp directement en tâche de fond via le numéro de l'école (relié par scan QR Code).
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <FormField label="Fournisseur WhatsApp" required>
+                <select
+                  value={waProvider}
+                  onChange={e => setWaProvider(e.target.value as WhatsAppProvider)}
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-600 focus:outline-none"
+                >
+                  <option value="green-api">Green-API (Recommandé WhatsApp)</option>
+                  <option value="simulation">Mode Simulation (Affichage en direct)</option>
+                </select>
+              </FormField>
+
+              <FormField label="ID Instance (Green-API)">
+                <input
+                  type="text"
+                  value={waInstance}
+                  onChange={e => setWaInstance(e.target.value)}
+                  placeholder="Ex: 1101859384"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-600 focus:outline-none"
+                />
+              </FormField>
+
+              <FormField label="Token d'accès (Green-API)">
+                <input
+                  type="password"
+                  value={waToken}
+                  onChange={e => setWaToken(e.target.value)}
+                  placeholder="Clé d'authentification API Token"
+                  className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-emerald-600 focus:outline-none"
+                />
               </FormField>
             </div>
           </div>
 
+          {/* Section 3: Modèle Reçu Scolarité */}
+          <div className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-3">
+            <h3 className="text-sm font-bold text-slate-900">Modèle de notification automatique pour encaissement</h3>
+            <FormField label="Texte du message envoyé aux parents lors d'un règlement">
+              <textarea
+                value={receiptText}
+                onChange={e => setReceiptText(e.target.value)}
+                rows={3}
+                className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 text-sm focus:border-slate-900 focus:outline-none"
+                placeholder="Bonjour..."
+              />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Variables dynamiques utilisables : <code>{'{student_name}'}</code>, <code>{'{amount}'}</code>, <code>{'{remaining}'}</code>
+              </p>
+            </FormField>
+          </div>
+
+          {/* Section 4: Module de Test Direct */}
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 space-y-4">
+            <div>
+              <span className="text-xs font-black uppercase tracking-wider text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Test Direct</span>
+              <h3 className="text-sm font-bold text-slate-900 mt-1">Tester la connexion et la délivrabilité immédiate</h3>
+              <p className="text-xs text-slate-600">
+                Saisissez un numéro pour tester l'envoi d'un message d'essai avant de lancer des diffusions massives.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <input
+                type="text"
+                value={testPhoneNumber}
+                onChange={e => setTestPhoneNumber(e.target.value)}
+                placeholder="Ex: 0709176869 ou +2250709176869"
+                className="flex-1 w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm focus:border-amber-600 focus:outline-none"
+              />
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={handleTestSms}
+                  disabled={testingSms || testingWa}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {testingSms ? 'Envoi SMS...' : 'Tester SMS'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleTestWa}
+                  disabled={testingSms || testingWa}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {testingWa ? 'Envoi WA...' : 'Tester WhatsApp'}
+                </button>
+              </div>
+            </div>
+
+            {testFeedback && (
+              <div
+                className={`p-3 rounded-xl text-xs font-medium ${
+                  testFeedback.type === 'success'
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                    : 'bg-rose-100 text-rose-900 border border-rose-300'
+                }`}
+              >
+                {testFeedback.message}
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end pt-4 border-t border-slate-100">
-            <button onClick={saveNotificationConfig} className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
-              <Save size={16} /> Enregistrer la configuration
+            <button
+              onClick={handleSaveNotificationConfig}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-6 py-3 text-sm font-bold text-white transition hover:bg-slate-800 shadow-md"
+            >
+              <Save size={16} /> Enregistrer la configuration API
             </button>
           </div>
         </div>

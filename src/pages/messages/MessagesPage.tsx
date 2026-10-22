@@ -1,10 +1,20 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useApp } from '../../contexts/AppContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { formatDateTime, parsePhoneNumbers, formatCombinedPhone } from '../../lib/utils';
 import { resolveTeacherClass, resolveParentChildren } from '../../lib/roleDataResolver';
 import type { Message, Profile, Student, Class, Parent } from '../../types';
+import {
+  getNotificationConfig,
+  executeSmartBroadcast,
+  generateVCardContacts,
+  downloadVCardFile,
+  classifyParentContact,
+  BroadcastChannel,
+  BroadcastProgressState,
+  ParentBroadcastTarget,
+} from '../../lib/notificationService';
 import {
   Mail,
   Plus,
@@ -24,6 +34,11 @@ import {
   GraduationCap,
   Sparkles,
   Copy,
+  Download,
+  AlertCircle,
+  XCircle,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import Modal from '../../components/common/Modal';
 import FormField from '../../components/common/FormField';
@@ -94,12 +109,14 @@ export default function MessagesPage() {
   // Broadcast / Message Groupé State
   const [broadcastModalOpen, setBroadcastModalOpen] = useState(false);
   const [broadcastTargetScope, setBroadcastTargetScope] = useState<'all' | string>('all');
-  const [broadcastChannel, setBroadcastChannel] = useState<'whatsapp' | 'sms' | 'internal'>('whatsapp');
+  const [broadcastChannel, setBroadcastChannel] = useState<BroadcastChannel>('smart_mixed');
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastContent, setBroadcastContent] = useState('');
   const [broadcastSending, setBroadcastSending] = useState(false);
   const [broadcastNotice, setBroadcastNotice] = useState<string | null>(null);
   const [broadcastCopiedNotice, setBroadcastCopiedNotice] = useState(false);
+  const [broadcastProgress, setBroadcastProgress] = useState<BroadcastProgressState | null>(null);
+  const cancelBroadcastRef = useRef(false);
 
   useEffect(() => {
     if (school) fetchData();
@@ -485,9 +502,11 @@ export default function MessagesPage() {
   function openBroadcastModal() {
     const defaultScope = isTeacherUser && teacherClass ? teacherClass.id : 'all';
     setBroadcastTargetScope(defaultScope);
-    setBroadcastChannel('whatsapp');
+    setBroadcastChannel('smart_mixed');
     setBroadcastNotice(null);
     setBroadcastCopiedNotice(false);
+    setBroadcastProgress(null);
+    cancelBroadcastRef.current = false;
 
     const schoolName = school?.name || 'Groupe Scolaire';
     const targetLabel = isTeacherUser && teacherClass ? `la classe de ${teacherClass.name}` : "l'établissement";
@@ -542,6 +561,18 @@ export default function MessagesPage() {
     return parentDirectory.filter(item => item.children.some(c => c.class_id === broadcastTargetScope));
   }, [parentDirectory, isParentUser, isTeacherUser, teacherClass, broadcastTargetScope]);
 
+  // Breakdown of targeted parents for Smart Routing (WhatsApp vs SMS)
+  const targetedBreakdown = useMemo(() => {
+    let waCount = 0;
+    let smsCount = 0;
+    targetedBroadcastParents.forEach(item => {
+      const cl = classifyParentContact(item as ParentBroadcastTarget);
+      if (cl.hasWhatsApp) waCount++;
+      else smsCount++;
+    });
+    return { waCount, smsCount, total: targetedBroadcastParents.length };
+  }, [targetedBroadcastParents]);
+
   // Clean phone numbers list
   const broadcastPhonesList = useMemo(() => {
     const set = new Set<string>();
@@ -561,6 +592,24 @@ export default function MessagesPage() {
       return;
     }
 
+    if (targetedBroadcastParents.length === 0) {
+      alert('Aucun parent d\'élève ciblé pour cette diffusion.');
+      return;
+    }
+
+    // 1. Export Carnet Contacts vCard (.vcf)
+    if (broadcastChannel === 'vcf') {
+      const scopeLabel = broadcastTargetScope === 'all'
+        ? 'ecole_entiere'
+        : (classes.find(c => c.id === broadcastTargetScope)?.name || 'classe').replace(/[\s\/]+/g, '_');
+      const schoolName = school?.name || 'Groupe Scolaire';
+      const vcfData = generateVCardContacts(targetedBroadcastParents as ParentBroadcastTarget[], schoolName);
+      downloadVCardFile(vcfData, `contacts_parents_${scopeLabel}.vcf`);
+      setBroadcastNotice(`✅ Carnet vCard (${targetedBroadcastParents.length} contacts) téléchargé avec succès ! Ouvrez ce fichier sur le smartphone de l'école pour créer directement votre Liste de Diffusion WhatsApp.`);
+      return;
+    }
+
+    // 2. Annonce Interne (Portail des familles)
     if (broadcastChannel === 'internal') {
       setBroadcastSending(true);
       try {
@@ -574,7 +623,7 @@ export default function MessagesPage() {
           is_announcement: true,
           is_read: false,
         });
-        setBroadcastNotice(`✅ Annonce interne publiée avec succès pour ${targetedBroadcastParents.length} parents !`);
+        setBroadcastNotice(`✅ Annonce interne publiée avec succès pour les ${targetedBroadcastParents.length} familles ciblées !`);
         setTimeout(() => {
           setBroadcastModalOpen(false);
           setBroadcastNotice(null);
@@ -585,25 +634,43 @@ export default function MessagesPage() {
       } finally {
         setBroadcastSending(false);
       }
-    } else if (broadcastChannel === 'sms') {
-      if (broadcastPhonesList.length === 0) {
-        alert('Aucun numéro de téléphone valide trouvé pour la sélection ciblée.');
-        return;
-      }
-      const smsUri = `sms:${broadcastPhonesList.join(',')}?body=${encodeURIComponent(broadcastContent)}`;
-      window.open(smsUri, '_blank');
-      setBroadcastNotice(`Application SMS ouverte pour ${broadcastPhonesList.length} destinataires.`);
-    } else if (broadcastChannel === 'whatsapp') {
-      if (broadcastPhonesList.length === 0) {
-        alert('Aucun numéro WhatsApp trouvé pour les parents ciblés.');
-        return;
-      }
-      navigator.clipboard?.writeText(broadcastPhonesList.join(', '));
-      const firstNum = broadcastPhonesList[0];
-      const waUri = `https://wa.me/${firstNum}?text=${encodeURIComponent(broadcastContent)}`;
-      window.open(waUri, '_blank');
-      setBroadcastNotice(`Numéros copiés dans le presse-papier (${broadcastPhonesList.length} numéros). WhatsApp ouvert.`);
+      return;
     }
+
+    // 3. Diffusion Automatique : Routage Mixte Intelligent, SMS en Masse, ou WhatsApp Automatique
+    const config = getNotificationConfig(school?.id);
+    cancelBroadcastRef.current = false;
+    setBroadcastSending(true);
+    setBroadcastNotice(null);
+
+    try {
+      const finalState = await executeSmartBroadcast({
+        targets: targetedBroadcastParents as ParentBroadcastTarget[],
+        message: broadcastContent.trim(),
+        channel: broadcastChannel,
+        config,
+        onProgress: (pState) => setBroadcastProgress({ ...pState }),
+        checkCancelled: () => cancelBroadcastRef.current,
+      });
+
+      if (finalState.status === 'completed') {
+        const isSim = (broadcastChannel === 'sms' && config.smsProvider === 'simulation') ||
+          (broadcastChannel === 'whatsapp_auto' && config.waProvider === 'simulation') ||
+          (broadcastChannel === 'smart_mixed' && (config.smsProvider === 'simulation' || config.waProvider === 'simulation'));
+        const simNotice = isSim ? ' (Mode Simulation / Démo)' : '';
+        setBroadcastNotice(`✅ Diffusion terminée${simNotice} : ${finalState.successCount} messages envoyés avec succès sur ${finalState.total} !`);
+      } else if (finalState.status === 'cancelled') {
+        setBroadcastNotice(`⚠️ Diffusion interrompue par l'utilisateur (${finalState.successCount} envoyés).`);
+      }
+    } catch (err: any) {
+      alert(`Erreur lors de la diffusion : ${err.message}`);
+    } finally {
+      setBroadcastSending(false);
+    }
+  }
+
+  function handleCancelBroadcast() {
+    cancelBroadcastRef.current = true;
   }
 
   function handleCopyAllNumbers() {
@@ -1356,10 +1423,10 @@ export default function MessagesPage() {
         footer={
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 w-full">
             <div className="flex items-center gap-2 text-xs text-slate-500">
-              <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-emerald-100 text-emerald-700 font-bold text-xs">
-                {broadcastPhonesList.length}
+              <span className="inline-flex items-center justify-center px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 font-bold text-xs">
+                {targetedBroadcastParents.length} familles
               </span>
-              <span>numéros valides prêts pour la diffusion</span>
+              <span>ciblées ({broadcastPhonesList.length} numéros valides)</span>
             </div>
 
             <div className="flex items-center gap-2">
@@ -1368,6 +1435,7 @@ export default function MessagesPage() {
                 onClick={handleCopyAllNumbers}
                 disabled={broadcastPhonesList.length === 0}
                 className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition flex items-center gap-1.5 disabled:opacity-50"
+                title="Copier tous les numéros séparés par des points-virgules"
               >
                 {broadcastCopiedNotice ? (
                   <>
@@ -1377,39 +1445,77 @@ export default function MessagesPage() {
                 ) : (
                   <>
                     <Copy size={14} />
-                    <span>Copier les numéros</span>
+                    <span>Copier numéros</span>
                   </>
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={() => setBroadcastModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl"
-              >
-                Fermer
-              </button>
+              {broadcastSending ? (
+                <button
+                  type="button"
+                  onClick={handleCancelBroadcast}
+                  className="px-4 py-2 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition flex items-center gap-1.5"
+                >
+                  <XCircle size={14} />
+                  <span>Arrêter l'envoi</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setBroadcastModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 rounded-xl"
+                >
+                  Fermer
+                </button>
+              )}
 
               <button
                 type="button"
                 onClick={handleExecuteBroadcast}
                 disabled={broadcastSending || !broadcastContent.trim() || targetedBroadcastParents.length === 0}
                 className={`px-5 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-2 shadow-xs transition disabled:opacity-50 ${
-                  broadcastChannel === 'whatsapp'
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                  broadcastChannel === 'smart_mixed'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700'
                     : broadcastChannel === 'sms'
                     ? 'bg-blue-600 hover:bg-blue-700'
-                    : 'bg-teal-600 hover:bg-teal-700'
+                    : broadcastChannel === 'whatsapp_auto'
+                    ? 'bg-emerald-600 hover:bg-emerald-700'
+                    : broadcastChannel === 'vcf'
+                    ? 'bg-indigo-600 hover:bg-indigo-700'
+                    : 'bg-slate-800 hover:bg-slate-900'
                 }`}
               >
-                <Send size={15} />
-                {broadcastSending
-                  ? 'Envoi en cours...'
-                  : broadcastChannel === 'whatsapp'
-                  ? 'Lancer WhatsApp Broadcast'
-                  : broadcastChannel === 'sms'
-                  ? 'Lancer SMS Groupé'
-                  : 'Publier Annonce aux Parents'}
+                {broadcastSending ? (
+                  <>
+                    <Loader2 size={15} className="animate-spin" />
+                    <span>Envoi en cours...</span>
+                  </>
+                ) : broadcastChannel === 'smart_mixed' ? (
+                  <>
+                    <Sparkles size={15} />
+                    <span>Lancer le Routage Intelligent</span>
+                  </>
+                ) : broadcastChannel === 'sms' ? (
+                  <>
+                    <Phone size={15} />
+                    <span>Diffuser par SMS Direct</span>
+                  </>
+                ) : broadcastChannel === 'whatsapp_auto' ? (
+                  <>
+                    <MessageCircle size={15} />
+                    <span>Diffuser par WhatsApp Auto</span>
+                  </>
+                ) : broadcastChannel === 'vcf' ? (
+                  <>
+                    <Download size={15} />
+                    <span>Télécharger Carnet vCard (.vcf)</span>
+                  </>
+                ) : (
+                  <>
+                    <Megaphone size={15} />
+                    <span>Publier Annonce Portail</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -1417,79 +1523,216 @@ export default function MessagesPage() {
       >
         <div className="space-y-4">
           {broadcastNotice && (
-            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
-              <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />
-              <span>{broadcastNotice}</span>
+            <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-start gap-2.5">
+              <CheckCircle size={18} className="text-emerald-600 shrink-0 mt-0.5" />
+              <div className="leading-relaxed font-medium">{broadcastNotice}</div>
             </div>
           )}
 
-          {/* Target Scope Selection */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-2xl">
-            <div>
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
-                Destinataires ciblés :
-              </label>
-              {isTeacherUser && teacherClass ? (
-                <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
-                  👩‍🏫 Parents de votre classe ({teacherClass.name}) • {targetedBroadcastParents.length} parents
+          {/* Target Scope Selection & Breakdown */}
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
+                  Familles d'élèves ciblées :
+                </label>
+                {isTeacherUser && teacherClass ? (
+                  <div className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
+                    👩‍🏫 Parents de votre classe ({teacherClass.name}) • {targetedBroadcastParents.length} parents
+                  </div>
+                ) : (
+                  <select
+                    value={broadcastTargetScope}
+                    onChange={e => setBroadcastTargetScope(e.target.value)}
+                    className="w-full sm:w-80 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="all">👨‍👩‍👧‍👦 Toutes les familles de l'école ({parentDirectory.length} parents)</option>
+                    {classes.map(c => {
+                      const countInClass = parentDirectory.filter(item => item.children.some(ch => ch.class_id === c.id)).length;
+                      return (
+                        <option key={c.id} value={c.id}>
+                          Classe {c.name} ({countInClass} parents)
+                        </option>
+                      );
+                    })}
+                  </select>
+                )}
+              </div>
+
+              {/* Live Distribution Badges */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="px-2.5 py-1.5 bg-white border border-slate-200 rounded-xl text-center">
+                  <div className="text-[10px] text-slate-400 font-semibold uppercase">Total cibles</div>
+                  <div className="text-xs font-bold text-slate-800">{targetedBreakdown.total}</div>
                 </div>
-              ) : (
-                <select
-                  value={broadcastTargetScope}
-                  onChange={e => setBroadcastTargetScope(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">👨‍👩‍👧‍👦 Toutes les familles de l'école ({parentDirectory.length} parents)</option>
-                  {classes.map(c => {
-                    const countInClass = parentDirectory.filter(item => item.children.some(ch => ch.class_id === c.id)).length;
-                    return (
-                      <option key={c.id} value={c.id}>
-                        Classe {c.name} ({countInClass} parents)
-                      </option>
-                    );
-                  })}
-                </select>
-              )}
+                <div className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                  <div className="text-[10px] text-emerald-600 font-semibold uppercase">WhatsApp</div>
+                  <div className="text-xs font-bold text-emerald-700">{targetedBreakdown.waCount}</div>
+                </div>
+                <div className="px-2.5 py-1.5 bg-blue-50 border border-blue-200 rounded-xl text-center">
+                  <div className="text-[10px] text-blue-600 font-semibold uppercase">SMS Fallback</div>
+                  <div className="text-xs font-bold text-blue-700">{targetedBreakdown.smsCount}</div>
+                </div>
+              </div>
             </div>
 
+            {/* Smart Channel Selector (5 Options) */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-1">
-                Canal de diffusion :
+              <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider block mb-2">
+                Canal de diffusion & Routage :
               </label>
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {/* 1. Routage Mixte Intelligent */}
                 <button
                   type="button"
-                  onClick={() => setBroadcastChannel('whatsapp')}
-                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
-                    broadcastChannel === 'whatsapp'
-                      ? 'bg-emerald-600 text-white shadow-2xs'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                  onClick={() => setBroadcastChannel('smart_mixed')}
+                  className={`p-3 rounded-xl border text-left transition relative ${
+                    broadcastChannel === 'smart_mixed'
+                      ? 'bg-emerald-50/80 border-emerald-500 shadow-xs ring-1 ring-emerald-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <MessageCircle size={14} /> WhatsApp
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-emerald-900 flex items-center gap-1.5">
+                      <Sparkles size={14} className="text-emerald-600" />
+                      Routage Mixte Intelligent
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800">
+                      Recommandé
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    WhatsApp en priorité, bascule automatique sur SMS pour les parents sans WhatsApp.
+                  </p>
                 </button>
+
+                {/* 2. SMS Direct en Masse */}
                 <button
                   type="button"
                   onClick={() => setBroadcastChannel('sms')}
-                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                  className={`p-3 rounded-xl border text-left transition relative ${
                     broadcastChannel === 'sms'
-                      ? 'bg-blue-600 text-white shadow-2xs'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      ? 'bg-blue-50/80 border-blue-500 shadow-xs ring-1 ring-blue-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <Phone size={14} /> SMS
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-blue-900 flex items-center gap-1.5">
+                      <Phone size={14} className="text-blue-600" />
+                      SMS Direct en Masse
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                      100% Touchés
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    SMS officiel à tous les parents (smartphones et téléphones simples sans internet).
+                  </p>
                 </button>
+
+                {/* 3. WhatsApp Automatique */}
+                <button
+                  type="button"
+                  onClick={() => setBroadcastChannel('whatsapp_auto')}
+                  className={`p-3 rounded-xl border text-left transition relative ${
+                    broadcastChannel === 'whatsapp_auto'
+                      ? 'bg-teal-50/80 border-teal-500 shadow-xs ring-1 ring-teal-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-teal-900 flex items-center gap-1.5">
+                      <MessageCircle size={14} className="text-teal-600" />
+                      WhatsApp Auto
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-100 text-teal-800">
+                      Passerelle API
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Envoi automatique via passerelle Green-API vers tous les comptes WhatsApp actifs.
+                  </p>
+                </button>
+
+                {/* 4. Carnet Contacts vCard (.vcf) */}
+                <button
+                  type="button"
+                  onClick={() => setBroadcastChannel('vcf')}
+                  className={`p-3 rounded-xl border text-left transition relative ${
+                    broadcastChannel === 'vcf'
+                      ? 'bg-indigo-50/80 border-indigo-500 shadow-xs ring-1 ring-indigo-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-indigo-900 flex items-center gap-1.5">
+                      <Download size={14} className="text-indigo-600" />
+                      Carnet Contacts vCard (.vcf)
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800">
+                      Gratuit
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Téléchargez le fichier .vcf pour synchroniser le téléphone de l'école et faire vos listes de diffusion.
+                  </p>
+                </button>
+
+                {/* 5. Annonce Interne Portail */}
                 <button
                   type="button"
                   onClick={() => setBroadcastChannel('internal')}
-                  className={`px-2 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition ${
+                  className={`p-3 rounded-xl border text-left transition relative ${
                     broadcastChannel === 'internal'
-                      ? 'bg-teal-600 text-white shadow-2xs'
-                      : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                      ? 'bg-purple-50/80 border-purple-500 shadow-xs ring-1 ring-purple-500'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <Megaphone size={14} /> Portail
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-purple-900 flex items-center gap-1.5">
+                      <Megaphone size={14} className="text-purple-600" />
+                      Annonce Interne Portail
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">
+                      Espace Famille
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-snug">
+                    Notification visible dès la connexion des parents sur leur tableau de bord web.
+                  </p>
                 </button>
+              </div>
+            </div>
+
+            {/* Contextual Channel Explanatory Callout */}
+            <div className="p-3 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 flex items-start gap-2.5">
+              <Sparkles size={16} className="text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                {broadcastChannel === 'smart_mixed' && (
+                  <span>
+                    <strong>Routage Mixte Intelligent :</strong> Le système analyse automatiquement chaque fiche parent. Les parents avec WhatsApp recevront le message par WhatsApp ; ceux sans compte WhatsApp ou en cas d'échec recevront automatiquement le SMS officiel. <strong>Zéro parent oublié !</strong>
+                  </span>
+                )}
+                {broadcastChannel === 'sms' && (
+                  <span>
+                    <strong>SMS Direct en Masse :</strong> Atteint <strong>100% des parents</strong>, y compris les téléphones basiques sans connexion internet (feature phones). L'expéditeur affiche le nom de l'école (Sender ID). Idéal pour les convocations et urgences.
+                  </span>
+                )}
+                {broadcastChannel === 'whatsapp_auto' && (
+                  <span>
+                    <strong>WhatsApp Passerelle Automatique :</strong> Envoi automatisé via l'instance Green-API configurée dans les Paramètres. Atteint instantanément tous les smartphones équipés de WhatsApp.
+                  </span>
+                )}
+                {broadcastChannel === 'vcf' && (
+                  <span>
+                    <strong>Export Carnet vCard (.vcf) :</strong> Solution <strong>100% gratuite et sans passerelle</strong>. Téléchargez le fichier, ouvrez-le sur le smartphone de l'école : tous les parents sont ajoutés au carnet sous le nom de leur enfant. Vous pouvez créer directement votre <em>Liste de Diffusion WhatsApp</em> sans aucun risque de blocage.
+                  </span>
+                )}
+                {broadcastChannel === 'internal' && (
+                  <span>
+                    <strong>Portail Famille Interne :</strong> Publie une annonce officielle qui s'affichera directement sur le tableau de bord de l'espace parent à leur prochaine connexion.
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -1554,13 +1797,113 @@ export default function MessagesPage() {
 
           <FormField label="Contenu du message aux parents" required>
             <textarea
-              rows={6}
+              rows={5}
               value={broadcastContent}
               onChange={e => setBroadcastContent(e.target.value)}
               placeholder="Rédigez ici le texte à envoyer à tous les parents..."
               className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs sm:text-sm font-normal text-slate-800 focus:outline-none focus:border-emerald-500 font-mono"
             />
           </FormField>
+
+          {/* Live Broadcast Progress Panel */}
+          {broadcastProgress && (
+            <div className="p-4 bg-slate-900 text-white rounded-2xl space-y-3 shadow-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {broadcastProgress.status === 'running' && (
+                    <Loader2 size={16} className="text-emerald-400 animate-spin" />
+                  )}
+                  {broadcastProgress.status === 'completed' && (
+                    <CheckCircle size={16} className="text-emerald-400" />
+                  )}
+                  {broadcastProgress.status === 'cancelled' && (
+                    <AlertCircle size={16} className="text-amber-400" />
+                  )}
+                  {broadcastProgress.status === 'error' && (
+                    <XCircle size={16} className="text-rose-400" />
+                  )}
+                  <span className="font-bold text-xs">
+                    {broadcastProgress.status === 'running' && 'Diffusion en cours...'}
+                    {broadcastProgress.status === 'completed' && 'Diffusion terminée avec succès !'}
+                    {broadcastProgress.status === 'cancelled' && 'Diffusion interrompue'}
+                    {broadcastProgress.status === 'error' && 'Erreur survenue'}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="text-slate-400">Progression :</span>
+                  <span className="font-mono font-bold text-emerald-400">
+                    {broadcastProgress.current} / {broadcastProgress.total}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 text-[10px] font-bold">
+                    {broadcastProgress.successCount} succès
+                  </span>
+                  {broadcastProgress.errorCount > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 text-[10px] font-bold">
+                      {broadcastProgress.errorCount} échecs
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div
+                  className="bg-gradient-to-r from-emerald-500 to-teal-400 h-2 transition-all duration-300"
+                  style={{
+                    width: `${
+                      broadcastProgress.total > 0
+                        ? Math.min(100, Math.round((broadcastProgress.current / broadcastProgress.total) * 100))
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+
+              {/* Live Log Feed */}
+              {broadcastProgress.logs.length > 0 && (
+                <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1 font-mono text-[11px] text-slate-300 divide-y divide-slate-800">
+                  {broadcastProgress.logs.slice().reverse().map((log, idx) => (
+                    <div key={idx} className="pt-1.5 flex items-center justify-between">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="text-slate-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                        <span className="font-semibold text-white truncate max-w-[140px] sm:max-w-[200px]">
+                          {log.parentName}
+                        </span>
+                        <span className="text-slate-400">({log.phone})</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] uppercase font-bold ${
+                            log.channel === 'whatsapp'
+                              ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/50'
+                              : 'bg-blue-900/60 text-blue-300 border border-blue-700/50'
+                          }`}
+                        >
+                          {log.channel}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            log.status === 'success'
+                              ? 'text-emerald-400'
+                              : log.status === 'simulated'
+                              ? 'text-amber-400'
+                              : 'text-rose-400'
+                          }`}
+                        >
+                          {log.status === 'success'
+                            ? 'Envoyé ✓'
+                            : log.status === 'simulated'
+                            ? 'Simulé (Démo)'
+                            : 'Échec'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </Modal>
     </div>
